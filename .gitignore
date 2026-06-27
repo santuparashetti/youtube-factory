@@ -1,0 +1,44 @@
+# Generated runtime data
+workspace/jobs/
+
+# Keep directory structure
+!workspace/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Virtual Environment
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Runtime generated data
+workspace/jobs/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+
+# Keep workspace folder
+!workspace/.gitkeep
