@@ -35,11 +35,22 @@ class GeminiProvider(LLMProvider):
             system_instruction=system_prompt,
         )
 
-        response = self._client.models.generate_content(
-            model=self._settings.gemini_model,
-            contents=prompt,
-            config=config,
+        logger.info(
+            "Using Gemini model: {}",
+            self._settings.gemini_model,
         )
+
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.gemini_model,
+                contents=prompt,
+                config=config,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Gemini request failed. "
+                "The service may be temporarily unavailable."
+            ) from exc
 
         usage = getattr(response, "usage_metadata", None)
 
