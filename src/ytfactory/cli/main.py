@@ -1,5 +1,6 @@
 import typer
 from rich.console import Console
+from ytfactory.doctor.service import DoctorService
 
 from ytfactory.cli.create import create_project
 
@@ -13,8 +14,8 @@ console = Console()
 
 @app.command()
 def doctor():
-    console.print("[green]✓[/green] YouTube Factory is installed correctly!")
-
+    """Run environment health checks."""
+    DoctorService().run()
 
 @app.command()
 def version():

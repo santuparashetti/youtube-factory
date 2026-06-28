@@ -4,7 +4,6 @@ from ytfactory.providers.search.tavily import TavilySearchProvider
 
 
 def get_search_provider(settings: Settings) -> SearchProvider:
-    """Return the configured search provider."""
 
     match settings.search_provider.lower():
         case "tavily":

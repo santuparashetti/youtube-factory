@@ -4,7 +4,6 @@ from ytfactory.providers.llm.gemini import GeminiProvider
 
 
 def get_llm_provider(settings: Settings) -> LLMProvider:
-    """Return the configured LLM provider."""
 
     match settings.llm_provider.lower():
         case "gemini":
