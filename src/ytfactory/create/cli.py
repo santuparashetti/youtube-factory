@@ -1,4 +1,3 @@
-import typer
 from rich.console import Console
 
 from ytfactory.create.pipeline import CreatePipeline

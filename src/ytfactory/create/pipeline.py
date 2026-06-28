@@ -2,7 +2,7 @@ from pathlib import Path
 
 from slugify import slugify
 
-from ytfactory.create.models import Project
+from ytfactory.domain.project import Project
 from ytfactory.shared.constants import (
     PROJECT_STAGES,
     WORKSPACE_DIR,

@@ -44,7 +44,7 @@ class GeminiProvider(LLMProvider):
         usage = getattr(response, "usage_metadata", None)
 
         return LLMResponse(
-            text=response.text,
+            text=response.text or "",
             model=self._settings.gemini_model,
             prompt_tokens=getattr(usage, "prompt_token_count", 0),
             completion_tokens=getattr(usage, "candidates_token_count", 0),
