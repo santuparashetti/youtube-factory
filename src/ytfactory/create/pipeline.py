@@ -1,21 +1,20 @@
-from __future__ import annotations
-
-import json
-from dataclasses import asdict
 from pathlib import Path
 
 from slugify import slugify
 
 from ytfactory.create.models import Project
 from ytfactory.shared.constants import (
-    PROJECT_FILE,
     PROJECT_STAGES,
     WORKSPACE_DIR,
 )
+from ytfactory.storage.project_repository import ProjectRepository
 
 
 class CreatePipeline:
     """Create a new YouTube Factory project."""
+
+    def __init__(self) -> None:
+        self._repository = ProjectRepository()
 
     def run(self, title: str) -> Project:
         slug = slugify(title)
@@ -31,11 +30,6 @@ class CreatePipeline:
         for stage in PROJECT_STAGES:
             (root / stage).mkdir(exist_ok=True)
 
-        with open(root / PROJECT_FILE, "w", encoding="utf-8") as f:
-            json.dump(
-                asdict(project),
-                f,
-                indent=2,
-            )
+        self._repository.save(project)
 
         return project
