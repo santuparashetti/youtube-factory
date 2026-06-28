@@ -1,28 +1,17 @@
 import typer
-from rich.console import Console
-from ytfactory.doctor.service import DoctorService
 
-from ytfactory.cli.create import create_project
+from ytfactory.create.cli import create
+from ytfactory.doctor.cli import doctor
+from ytfactory.research.cli import research
 
 app = typer.Typer(
     help="YouTube Factory CLI",
     no_args_is_help=True,
 )
 
-console = Console()
-
-
-@app.command()
-def doctor():
-    """Run environment health checks."""
-    DoctorService().run()
-
-@app.command()
-def version():
-    console.print("YouTube Factory v0.1.0")
-
-
-app.command(name="create")(create_project)
+app.command()(doctor)
+app.command()(create)
+app.command()(research)
 
 
 if __name__ == "__main__":
