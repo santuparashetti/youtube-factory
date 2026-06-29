@@ -1,0 +1,582 @@
+================ SYSTEM ================
+Monday 29 June 2026 12:42:35 PM IST
+/home/santosh/pvt-files/youtube-factory
+
+================ GIT STATUS ================
+On branch feature/image-generation
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	project-status.txt
+
+nothing added to commit but untracked files present (use "git add" to track)
+
+================ BRANCHES ================
+* feature/image-generation f249347 refactor(images): finalize image generation architecture
+  feature/scene-planner    f479ff8 feat(scene-planner): generate cinematic scene plans
+  main                     8d11b04 [origin/main] Merge branch 'feature/scene-planner'
+
+================ REMOTES ================
+origin	git@github-personal:santuparashetti/youtube-factory.git (fetch)
+origin	git@github-personal:santuparashetti/youtube-factory.git (push)
+
+================ RECENT COMMITS ================
+* f249347 (HEAD -> feature/image-generation, tag: v0.5.0, origin/feature/image-generation) refactor(images): finalize image generation architecture
+* 1aa0336 wip(images): before provider refactor
+* e8852e8 refactor(images): introduce generic image provider architecture
+* f52e213 chore(images): scaffold image generation module
+*   8d11b04 (origin/main, main) Merge branch 'feature/scene-planner'
+|\  
+| * f479ff8 (tag: v0.4.0, origin/feature/scene-planner, feature/scene-planner) feat(scene-planner): generate cinematic scene plans
+|/  
+* b44c663 chore: prepare scene planner and test scaffolding
+* e5e8f9d chore: prepare scene planner and test scaffolding
+* fee2da9 (tag: v0.3.0) feat(import-script): complete import pipeline and type checks
+* 7b75298 feat: complete project architecture
+* 8017194 feat(research): implement research pipeline
+* 71d2932 refactor: finalize project architecture
+* a3a97b1 refactor: finalize project architecture
+* d9da80d feat(create): implement project creation pipeline
+* ff95f4a feat(research): introduce research pipeline
+* b28c782 feat(core): introduce provider architecture
+* b54afc8 chore: ignore generated workspace artifacts
+* b6685e4 feat(project): implement project creation command
+* 3c7efc2 feat: add application entry point
+
+================ PROJECT TREE ================
+src/ytfactory
+├── build
+│   ├── cli.py
+│   ├── __init__.py
+│   └── pipeline.py
+├── captions
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   └── pipeline.py
+├── cli
+│   ├── __init__.py
+│   ├── main.py
+│   └── __pycache__
+│       ├── __init__.cpython-310.pyc
+│       └── main.cpython-310.pyc
+├── config
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-310.pyc
+│   │   └── settings.cpython-310.pyc
+│   └── settings.py
+├── create
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── pipeline.py
+│   └── __pycache__
+│       ├── cli.cpython-310.pyc
+│       ├── __init__.cpython-310.pyc
+│       ├── models.cpython-310.pyc
+│       └── pipeline.cpython-310.pyc
+├── doctor
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── pipeline.py
+│   └── __pycache__
+│       ├── cli.cpython-310.pyc
+│       ├── __init__.cpython-310.pyc
+│       └── pipeline.cpython-310.pyc
+├── domain
+│   ├── audio.py
+│   ├── image.py
+│   ├── __init__.py
+│   ├── llm.py
+│   ├── project.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-310.pyc
+│   │   ├── llm.cpython-310.pyc
+│   │   ├── project.cpython-310.pyc
+│   │   └── search.cpython-310.pyc
+│   ├── scene.py
+│   ├── script.py
+│   ├── search.py
+│   └── video.py
+├── images
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── pipeline.py
+│   ├── __pycache__
+│   │   ├── cli.cpython-310.pyc
+│   │   └── __init__.cpython-310.pyc
+│   └── repository.py
+├── import_script
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── parsers
+│   │   ├── base.py
+│   │   ├── docx.py
+│   │   ├── factory.py
+│   │   ├── __init__.py
+│   │   ├── md.py
+│   │   ├── pdf.py
+│   │   └── txt.py
+│   ├── pipeline.py
+│   ├── processors
+│   │   ├── __init__.py
+│   │   └── script_cleaner.py
+│   └── __pycache__
+│       ├── cli.cpython-310.pyc
+│       ├── __init__.cpython-310.pyc
+│       └── pipeline.cpython-310.pyc
+├── __init__.py
+├── __main__.py
+├── providers
+│   ├── image
+│   │   ├── base.py
+│   │   ├── factory.py
+│   │   ├── gemini.py
+│   │   ├── __init__.py
+│   │   └── mock.py
+│   ├── __init__.py
+│   ├── llm
+│   │   ├── base.py
+│   │   ├── factory.py
+│   │   ├── gemini.py
+│   │   ├── __init__.py
+│   │   └── __pycache__
+│   ├── __pycache__
+│   │   └── __init__.cpython-310.pyc
+│   ├── search
+│   │   ├── base.py
+│   │   ├── factory.py
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   └── tavily.py
+│   └── tts
+│       ├── base.py
+│       ├── elevenlabs.py
+│       ├── factory.py
+│       └── __init__.py
+├── __pycache__
+│   └── __init__.cpython-310.pyc
+├── research
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── pipeline.py
+│   ├── prompts.py
+│   └── __pycache__
+│       ├── cli.cpython-310.pyc
+│       ├── __init__.cpython-310.pyc
+│       ├── models.cpython-310.pyc
+│       ├── pipeline.cpython-310.pyc
+│       └── prompts.cpython-310.pyc
+├── scenes
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   ├── pipeline.py
+│   ├── planner
+│   │   ├── gemini_planner.py
+│   │   └── __pycache__
+│   ├── prompts
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   └── system_prompt.py
+│   ├── __pycache__
+│   │   ├── cli.cpython-310.pyc
+│   │   ├── __init__.cpython-310.pyc
+│   │   ├── models.cpython-310.pyc
+│   │   ├── pipeline.cpython-310.pyc
+│   │   └── prompts.cpython-310.pyc
+│   └── repository
+│       ├── __pycache__
+│       └── scene_repository.py
+├── shared
+│   ├── constants.py
+│   ├── dto.py
+│   ├── exceptions.py
+│   ├── __init__.py
+│   ├── paths.py
+│   ├── __pycache__
+│   │   ├── constants.cpython-310.pyc
+│   │   └── __init__.cpython-310.pyc
+│   ├── types.py
+│   └── utils.py
+├── storage
+│   ├── artifact_repository.py
+│   ├── audio_repository.py
+│   ├── image_repository.py
+│   ├── __init__.py
+│   ├── project_repository.py
+│   ├── __pycache__
+│   │   ├── artifact_repository.cpython-310.pyc
+│   │   ├── __init__.cpython-310.pyc
+│   │   └── project_repository.cpython-310.pyc
+│   ├── scene_repository.py
+│   ├── script_repository.py
+│   └── video_repository.py
+├── video
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── ffmpeg.py
+│   ├── __init__.py
+│   ├── models.py
+│   └── pipeline.py
+├── voice
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── __init__.py
+│   ├── models.py
+│   └── pipeline.py
+└── workflow
+    └── __init__.py
+
+44 directories, 146 files
+
+================ WORKSPACE ================
+workspace/jobs
+├── history-of-shivaji
+│   ├── audio
+│   ├── images
+│   ├── project.json
+│   ├── publish
+│   ├── research
+│   │   ├── research.json
+│   │   ├── research.md
+│   │   ├── sample.json
+│   │   ├── sample.md
+│   │   └── sources.json
+│   ├── scenes
+│   ├── script
+│   ├── subtitles
+│   └── video
+└── my-first-video
+    ├── audio
+    ├── images
+    │   ├── prompts.json
+    │   └── prompts.md
+    ├── project.json
+    ├── publish
+    ├── research
+    ├── scenes
+    │   ├── scene-plan.json
+    │   └── scene-plan.md
+    ├── script
+    │   ├── script.json
+    │   └── script.md
+    ├── subtitles
+    └── video
+
+18 directories, 13 files
+
+================ UV DEPENDENCIES ================
+youtube-factory v0.1.0
+├── elevenlabs v2.54.0
+│   ├── httpx v0.28.1
+│   │   ├── anyio v4.14.1
+│   │   │   ├── exceptiongroup v1.3.1
+│   │   │   │   └── typing-extensions v4.15.0
+│   │   │   ├── idna v3.18
+│   │   │   └── typing-extensions v4.15.0
+│   │   ├── certifi v2026.6.17
+│   │   ├── httpcore v1.0.9
+│   │   │   ├── certifi v2026.6.17
+│   │   │   └── h11 v0.16.0
+│   │   └── idna v3.18
+│   ├── pydantic v2.13.4
+│   │   ├── annotated-types v0.7.0
+│   │   ├── pydantic-core v2.46.4
+│   │   │   └── typing-extensions v4.15.0
+│   │   ├── typing-extensions v4.15.0
+│   │   └── typing-inspection v0.4.2
+│   │       └── typing-extensions v4.15.0
+│   ├── pydantic-core v2.46.4 (*)
+│   ├── requests v2.34.2
+│   │   ├── certifi v2026.6.17
+│   │   ├── charset-normalizer v3.4.7
+│   │   ├── idna v3.18
+│   │   └── urllib3 v2.7.0
+│   ├── typing-extensions v4.15.0
+│   └── websockets v16.0
+├── ffmpeg-python v0.2.0
+│   └── future v1.0.0
+├── google-genai v2.10.0
+│   ├── anyio v4.14.1 (*)
+│   ├── distro v1.9.0
+│   ├── google-auth[requests] v2.55.1
+│   │   ├── cryptography v49.0.0
+│   │   │   ├── cffi v2.0.0
+│   │   │   │   └── pycparser v3.0
+│   │   │   └── typing-extensions v4.15.0
+│   │   ├── pyasn1-modules v0.4.2
+│   │   │   └── pyasn1 v0.6.3
+│   │   └── requests v2.34.2 (extra: requests) (*)
+│   ├── httpx v0.28.1 (*)
+│   ├── pydantic v2.13.4 (*)
+│   ├── requests v2.34.2 (*)
+│   ├── sniffio v1.3.1
+│   ├── tenacity v9.1.4
+│   ├── typing-extensions v4.15.0
+│   └── websockets v16.0
+├── langdetect v1.0.9
+│   └── six v1.17.0
+├── loguru v0.7.3
+├── openai v2.44.0
+│   ├── anyio v4.14.1 (*)
+│   ├── distro v1.9.0
+│   ├── httpx v0.28.1 (*)
+│   ├── jiter v0.15.0
+│   ├── pydantic v2.13.4 (*)
+│   ├── sniffio v1.3.1
+│   ├── tqdm v4.68.3
+│   └── typing-extensions v4.15.0
+├── pillow v12.2.0
+├── pydantic v2.13.4 (*)
+├── pydantic-settings v2.14.2
+│   ├── pydantic v2.13.4 (*)
+│   ├── python-dotenv v1.2.2
+│   └── typing-inspection v0.4.2 (*)
+├── pymupdf v1.27.2.3
+├── pysrt v1.1.2
+│   └── chardet v7.4.3
+├── python-docx v1.2.0
+│   ├── lxml v6.1.1
+│   └── typing-extensions v4.15.0
+├── python-dotenv v1.2.2
+├── python-slugify v8.0.4
+│   └── text-unidecode v1.3
+├── pyyaml v6.0.3
+├── rich v15.0.0
+│   ├── markdown-it-py v4.2.0
+│   │   └── mdurl v0.1.2
+│   └── pygments v2.20.0
+├── tavily-python v0.7.26
+│   ├── httpx v0.28.1 (*)
+│   ├── requests v2.34.2 (*)
+│   └── tiktoken v0.13.0
+│       ├── regex v2026.5.9
+│       └── requests v2.34.2 (*)
+├── tenacity v9.1.4
+├── tiktoken v0.13.0 (*)
+├── typer v0.26.8
+│   ├── annotated-doc v0.0.4
+│   ├── rich v15.0.0 (*)
+│   └── shellingham v1.5.4
+├── hatchling v1.30.1 (group: dev)
+│   ├── packaging v26.2
+│   ├── pathspec v1.1.1
+│   ├── pluggy v1.6.0
+│   ├── tomli v2.4.1
+│   └── trove-classifiers v2026.6.1.19
+├── mypy v2.1.0 (group: dev)
+│   ├── ast-serialize v0.5.0
+│   ├── librt v0.11.0
+│   ├── mypy-extensions v1.1.0
+│   ├── pathspec v1.1.1
+│   ├── tomli v2.4.1
+│   └── typing-extensions v4.15.0
+├── pre-commit v4.6.0 (group: dev)
+│   ├── cfgv v3.5.0
+│   ├── identify v2.6.19
+│   ├── nodeenv v1.10.0
+│   ├── pyyaml v6.0.3
+│   └── virtualenv v21.5.1
+│       ├── distlib v0.4.3
+│       ├── filelock v3.29.4
+│       ├── platformdirs v4.10.0
+│       ├── python-discovery v1.4.2
+│       │   ├── filelock v3.29.4
+│       │   └── platformdirs v4.10.0
+│       └── typing-extensions v4.15.0
+├── pytest v9.1.1 (group: dev)
+│   ├── exceptiongroup v1.3.1 (*)
+│   ├── iniconfig v2.3.0
+│   ├── packaging v26.2
+│   ├── pluggy v1.6.0
+│   ├── pygments v2.20.0
+│   └── tomli v2.4.1
+└── ruff v0.15.20 (group: dev)
+(*) Package tree already displayed
+
+================ PYPROJECT ================
+[project]
+name = "youtube-factory"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Santosh Parashetti", email = "santu.parashetti@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "elevenlabs>=2.54.0",
+    "ffmpeg-python>=0.2.0",
+    "google-genai>=2.10.0",
+    "langdetect>=1.0.9",
+    "loguru>=0.7.3",
+    "openai>=2.44.0",
+    "pillow>=12.2.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "pymupdf>=1.27.2.3",
+    "pysrt>=1.1.2",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.2.2",
+    "python-slugify>=8.0.4",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "tavily-python>=0.7.26",
+    "tenacity>=9.1.4",
+    "tiktoken>=0.13.0",
+    "typer>=0.26.8",
+]
+
+[project.scripts]
+ytfactory = "ytfactory.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "hatchling>=1.30.1",
+    "mypy>=2.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ytfactory"]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tavily"]
+ignore_missing_imports = true
+
+================ SETTINGS ================
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application configuration."""
+
+    # ------------------------------------------------------------------
+    # API Keys
+    # ------------------------------------------------------------------
+
+    gemini_api_key: str = Field(default="")
+    tavily_api_key: str = Field(default="")
+
+    # ------------------------------------------------------------------
+    # Providers
+    # ------------------------------------------------------------------
+
+    llm_provider: str = "gemini"
+    search_provider: str = "tavily"
+    image_provider: str = "gemini_image"
+
+    # ------------------------------------------------------------------
+    # Models
+    # ------------------------------------------------------------------
+
+    gemini_text_model: str = "gemini-2.5-flash"
+
+    gemini_image_model: str = "gemini-3.1-flash-image"
+
+    # ------------------------------------------------------------------
+    # Image Defaults
+    # ------------------------------------------------------------------
+
+    image_width: int = 1280
+    image_height: int = 720
+
+    # ------------------------------------------------------------------
+    # Runtime
+    # ------------------------------------------------------------------
+
+    request_timeout: int = 60
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
+================ CLI ================
+                                                                                                                                                                    
+ Usage: ytfactory [OPTIONS] COMMAND [ARGS]...                                                                                                                       
+                                                                                                                                                                    
+ YouTube Factory CLI                                                                                                                                                
+                                                                                                                                                                    
+╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.                                                                                          │
+│ --show-completion             Show completion for the current shell, to copy it or customize the installation.                                                   │
+│ --help                        Show this message and exit.                                                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ doctor           Run health checks.                                                                                                                              │
+│ create           Create a new project.                                                                                                                           │
+│ research                                                                                                                                                         │
+│ import-script    Import an existing script into a project.                                                                                                       │
+│ plan-scenes      Generate scene plan from imported script.                                                                                                       │
+│ generate-images  Generate images from scene plan.                                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+================ RUFF ================
+All checks passed!
+
+================ MYPY ================
+Success: no issues found in 110 source files
+
+================ TODO/FIXME ================
+
+================ ENV (MASK API KEYS) ================
+# ------------------------------------------------------------------
+# API Keys
+# ------------------------------------------------------------------
+
+GEMINI_API_KEY=********
+TAVILY_API_KEY=********
+
+# ------------------------------------------------------------------
+# Providers
+# ------------------------------------------------------------------
+
+LLM_PROVIDER=gemini
+SEARCH_PROVIDER=tavily
+IMAGE_PROVIDER=gemini_image
+
+# ------------------------------------------------------------------
+# Models
+# ------------------------------------------------------------------
+
+GEMINI_MODEL=gemini-2.5-flash
+
+# ------------------------------------------------------------------
+# Image Generation
+# ------------------------------------------------------------------
+
+IMAGE_WIDTH=1280
+IMAGE_HEIGHT=720
+
+COMFYUI_URL=http://127.0.0.1:8188
+AUTOMATIC1111_URL=http://127.0.0.1:7860
+
+# ------------------------------------------------------------------
+# Runtime
+# ------------------------------------------------------------------
+
+REQUEST_TIMEOUT=60

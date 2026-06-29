@@ -37,12 +37,12 @@ class GeminiProvider(LLMProvider):
 
         logger.info(
             "Using Gemini model: {}",
-            self._settings.gemini_model,
+            self._settings.gemini_text_model,
         )
 
         try:
             response = self._client.models.generate_content(
-                model=self._settings.gemini_model,
+                model=self._settings.gemini_text_model,
                 contents=prompt,
                 config=config,
             )
@@ -56,7 +56,7 @@ class GeminiProvider(LLMProvider):
 
         return LLMResponse(
             text=response.text or "",
-            model=self._settings.gemini_model,
+            model=self._settings.gemini_text_model,
             prompt_tokens=getattr(usage, "prompt_token_count", 0),
             completion_tokens=getattr(usage, "candidates_token_count", 0),
             total_tokens=getattr(usage, "total_token_count", 0),
