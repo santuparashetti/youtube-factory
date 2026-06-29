@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
-from pathlib import Path
+
+from ytfactory.domain.image import (
+    ImageRequest,
+    ImageResponse,
+)
 
 
 class ImageProvider(ABC):
@@ -8,32 +12,19 @@ class ImageProvider(ABC):
     @abstractmethod
     def generate(
         self,
-        prompt: str,
-        output_path: Path,
-        *,
-        width: int = 1280,
-        height: int = 720,
-    ) -> Path:
+        request: ImageRequest,
+    ) -> ImageResponse:
         """
         Generate an image.
 
         Parameters
         ----------
-        prompt:
-            Prompt describing the image.
-
-        output_path:
-            Destination PNG path.
-
-        width:
-            Output width.
-
-        height:
-            Output height.
+        request:
+            Normalized image generation request.
 
         Returns
         -------
-        Path
-            Generated image path.
+        ImageResponse
+            Information about the generated image.
         """
         raise NotImplementedError

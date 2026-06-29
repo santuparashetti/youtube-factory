@@ -1,6 +1,8 @@
-from pathlib import Path
-
 from ytfactory.config.settings import Settings
+from ytfactory.domain.image import (
+    ImageRequest,
+    ImageResponse,
+)
 from ytfactory.providers.image.base import ImageProvider
 
 
@@ -12,12 +14,17 @@ class ComfyUIImageProvider(ImageProvider):
 
     def generate(
         self,
-        prompt: str,
-        output_path: Path,
-        *,
-        width: int = 1280,
-        height: int = 720,
-    ) -> Path:
+        request: ImageRequest,
+    ) -> ImageResponse:
+        """
+        Generate an image using ComfyUI.
+
+        NOTE:
+        This is currently a placeholder implementation.
+        The actual HTTP integration with ComfyUI will be
+        implemented in the next step.
+        """
+
         raise NotImplementedError(
-            "ComfyUI provider not implemented yet."
+            "ComfyUI image generation is not implemented yet."
         )
