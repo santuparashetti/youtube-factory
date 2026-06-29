@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = Field(default="")
     tavily_api_key: str = Field(default="")
+    hf_token: str = Field(default="")
 
     # ------------------------------------------------------------------
     # Providers
@@ -26,18 +27,27 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
 
     gemini_text_model: str = "gemini-2.5-flash"
-
     gemini_image_model: str = "gemini-3.1-flash-image"
 
-    hf_token: str = Field(default="")
-    hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
+    hf_image_model: str = (
+        "black-forest-labs/FLUX.1-schnell"
+    )
 
     # ------------------------------------------------------------------
     # Image Defaults
     # ------------------------------------------------------------------
 
-    image_width: int = 1280
-    image_height: int = 720
+    # Native YouTube Full HD
+    image_width: int = 1920
+    image_height: int = 1080
+
+    # ------------------------------------------------------------------
+    # Video Defaults
+    # ------------------------------------------------------------------
+
+    video_width: int = 1920
+    video_height: int = 1080
+    video_fps: int = 30
 
     # ------------------------------------------------------------------
     # Runtime

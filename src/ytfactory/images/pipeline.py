@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import json
 from pathlib import Path
 
 from ytfactory.config.settings import Settings
@@ -12,7 +15,7 @@ from ytfactory.providers.image.factory import get_image_provider
 
 
 class ImagePipeline:
-    """Generate images from a scene plan."""
+    """Generate YouTube-ready images."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -26,32 +29,48 @@ class ImagePipeline:
 
         project_dir = Path("workspace/jobs") / project_id
 
-        scene_plan = (
+        scene_plan_file = (
             project_dir
             / "scenes"
             / "scene-plan.json"
         )
 
-        if not scene_plan.exists():
+        if not scene_plan_file.exists():
             raise FileNotFoundError(
-                f"Scene plan not found: {scene_plan}"
+                f"Scene plan not found: {scene_plan_file}"
             )
 
-        import json
-
         with open(
-            scene_plan,
+            scene_plan_file,
             encoding="utf-8",
         ) as f:
-            scenes = json.load(f)["scenes"]
+            scene_plan = json.load(f)
+
+        scenes = scene_plan["scenes"]
 
         output_dir = project_dir / "images"
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         manifest = ImageManifest()
 
-        for scene in scenes:
+        total = len(scenes)
 
-            filename = f"scene-{scene['index']:03d}.png"
+        print(
+            f"\nGenerating {total} YouTube images "
+            f"({self._settings.image_width}x{self._settings.image_height})\n"
+        )
+
+        for index, scene in enumerate(
+            scenes,
+            start=1,
+        ):
+
+            filename = (
+                f"scene-{scene['index']:03d}.png"
+            )
 
             output_path = output_dir / filename
 
@@ -60,6 +79,10 @@ class ImagePipeline:
                 output_path=output_path,
                 width=self._settings.image_width,
                 height=self._settings.image_height,
+            )
+
+            print(
+                f"[{index}/{total}] {filename}"
             )
 
             self._provider.generate(request)
@@ -77,6 +100,8 @@ class ImagePipeline:
             output_dir,
             manifest,
         )
+
+        print("\nImage generation completed.\n")
 
         return ImageGenerationResult(
             manifest=manifest,
