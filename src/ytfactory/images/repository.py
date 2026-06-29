@@ -16,20 +16,25 @@ class ImageRepository:
         output_dir: Path,
         manifest: ImageManifest,
     ) -> None:
+
         output_dir.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        manifest_file = output_dir / "images.json"
+        data = asdict(manifest)
+
+        # Convert Path objects to strings
+        for image in data["images"]:
+            image["path"] = str(image["path"])
 
         with open(
-            manifest_file,
+            output_dir / "images.json",
             "w",
             encoding="utf-8",
         ) as f:
             json.dump(
-                asdict(manifest),
+                data,
                 f,
                 indent=2,
             )
@@ -38,6 +43,7 @@ class ImageRepository:
         self,
         output_dir: Path,
     ) -> list[ImageArtifact]:
+
         manifest_file = output_dir / "images.json"
 
         if not manifest_file.exists():

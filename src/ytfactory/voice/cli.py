@@ -1,25 +1,30 @@
-from __future__ import annotations
+from rich.console import Console
 
-import typer
+from ytfactory.config.settings import Settings
 
 from .models import VoiceRequest
 from .pipeline import VoicePipeline
 
-app = typer.Typer(help="Generate narration audio.")
+console = Console()
 
 
-@app.command()
-def generate(
-    project: str,
-) -> None:
-    pipeline = VoicePipeline()
+def generate_voice(
+    project_id: str,
+):
+    """Generate narration audio."""
+
+    settings = Settings()
+
+    pipeline = VoicePipeline(settings)
 
     pipeline.generate(
         VoiceRequest(
-            project=project,
+            project=project_id,
             scene_id=1,
             text="Hello World",
         )
     )
 
-    typer.echo("Audio generation completed.")
+    console.print(
+        "[green]✓ Audio generated[/green]"
+    )

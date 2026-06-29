@@ -1,3 +1,5 @@
-from .cli import app
+from .cli import generate_voice
 
-__all__ = ["app"]
+__all__ = [
+    "generate_voice",
+]

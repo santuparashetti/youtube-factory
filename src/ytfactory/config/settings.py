@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     llm_provider: str = "gemini"
     search_provider: str = "tavily"
-    image_provider: str = "gemini_image"
     tts_provider: str = "edge"
     image_provider: str = "huggingface"
 

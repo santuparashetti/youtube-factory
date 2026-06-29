@@ -1,9 +1,9 @@
 from .base import TTSProvider
+from .edge_tts import EdgeTTSProvider
 from .factory import get_tts_provider
-from .kokoro import KokoroProvider
 
 __all__ = [
     "TTSProvider",
-    "KokoroProvider",
+    "EdgeTTSProvider",
     "get_tts_provider",
 ]

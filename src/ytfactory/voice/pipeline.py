@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+from ytfactory.config.settings import Settings
 from ytfactory.providers.tts.factory import get_tts_provider
 
 from .artifacts import audio_directory
@@ -9,17 +9,24 @@ from .repository import VoiceRepository
 
 
 class VoicePipeline:
-    def __init__(self) -> None:
-        self.provider = get_tts_provider()
-        self.repository = VoiceRepository()
+    """Generate narration audio from scene text."""
 
-    def generate(self, request: VoiceRequest) -> VoiceArtifact:
+    def __init__(self, settings: Settings):
+        self._settings = settings
+        self._provider = get_tts_provider(settings)
+        self._repository = VoiceRepository()
+
+    def generate(
+        self,
+        request: VoiceRequest,
+    ) -> VoiceArtifact:
+
         output = (
             audio_directory(request.project)
             / f"scene-{request.scene_id:03d}.wav"
         )
 
-        self.provider.generate(
+        self._provider.generate(
             text=request.text,
             output_path=output,
             voice=request.voice,
@@ -31,6 +38,6 @@ class VoicePipeline:
             audio_path=output,
         )
 
-        self.repository.save(artifact)
+        self._repository.save(artifact)
 
         return artifact

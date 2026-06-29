@@ -3,15 +3,17 @@ from __future__ import annotations
 from ytfactory.config.settings import Settings
 
 from .base import TTSProvider
-from .kokoro import KokoroProvider
+from .edge_tts import EdgeTTSProvider
 
 
-def get_tts_provider() -> TTSProvider:
-    settings = Settings()
+def get_tts_provider(settings: Settings) -> TTSProvider:
+    """Return configured TTS provider."""
 
-    provider = settings.tts_provider.lower()
+    match settings.tts_provider.lower():
+        case "edge":
+            return EdgeTTSProvider(settings)
 
-    if provider == "kokoro":
-        return KokoroProvider()
-
-    raise ValueError(f"Unsupported TTS provider: {provider}")
+        case _:
+            raise ValueError(
+                f"Unsupported TTS provider: {settings.tts_provider}"
+            )
