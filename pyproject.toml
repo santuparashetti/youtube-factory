@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "edge-tts>=7.2.8",
     "ffmpeg-python>=0.2.0",
     "google-genai>=2.10.0",
+    "huggingface-hub>=1.16.1",
     "langdetect>=1.0.9",
     "loguru>=0.7.3",
     "pillow>=12.2.0",

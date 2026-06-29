@@ -10,9 +10,9 @@ class ImageRequest:
 
     output_path: Path
 
-    width: int = 1280
-
-    height: int = 720
+    # Native YouTube Full HD
+    width: int = 1920
+    height: int = 1080
 
     negative_prompt: str | None = None
 

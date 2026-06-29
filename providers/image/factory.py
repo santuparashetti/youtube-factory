@@ -6,8 +6,6 @@ from .huggingface import HuggingFaceImageProvider
 
 
 def get_image_provider(settings: Settings) -> ImageProvider:
-    """Return configured image provider."""
-
     match settings.image_provider.lower():
 
         case "huggingface":
