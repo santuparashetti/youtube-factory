@@ -1,14 +1,20 @@
-import typer
 from rich.console import Console
+
+from ytfactory.config.settings import Settings
+from ytfactory.images.pipeline import ImagePipeline
 
 console = Console()
 
 
 def generate_images(
-    project_id: str = typer.Argument(..., help="Project ID"),
-) -> None:
+    project_id: str,
+):
     """Generate images from scene plan."""
 
+    settings = Settings()
+
+    ImagePipeline(settings).run(project_id)
+
     console.print(
-        f"[yellow]Image generation is under implementation for '{project_id}'.[/yellow]"
+        "[green]✓ Images generated[/green]"
     )

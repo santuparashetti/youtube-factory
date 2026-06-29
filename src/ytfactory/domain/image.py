@@ -22,6 +22,8 @@ class ImageRequest:
 
     steps: int = 30
 
+    model: str | None = None
+
 
 @dataclass(slots=True)
 class ImageResponse:
