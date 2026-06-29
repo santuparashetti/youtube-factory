@@ -1,43 +1,57 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from ytfactory.config.settings import Settings
 from ytfactory.providers.tts.factory import get_tts_provider
 
 from .artifacts import audio_directory
-from .models import VoiceArtifact, VoiceRequest
+from .models import VoiceArtifact
 from .repository import VoiceRepository
 
 
 class VoicePipeline:
-    """Generate narration audio from scene text."""
+    """Generate narration audio for every scene."""
 
     def __init__(self, settings: Settings):
-        self._settings = settings
         self._provider = get_tts_provider(settings)
         self._repository = VoiceRepository()
 
-    def generate(
+    def run(
         self,
-        request: VoiceRequest,
-    ) -> VoiceArtifact:
+        project_id: str,
+    ) -> None:
 
-        output = (
-            audio_directory(request.project)
-            / f"scene-{request.scene_id:03d}.wav"
+        scene_file = (
+            Path("workspace")
+            / "jobs"
+            / project_id
+            / "scenes"
+            / "scene-plan.json"
         )
 
-        self._provider.generate(
-            text=request.text,
-            output_path=output,
-            voice=request.voice,
-            language=request.language,
-        )
+        with open(
+            scene_file,
+            encoding="utf-8",
+        ) as f:
+            scenes = json.load(f)["scenes"]
 
-        artifact = VoiceArtifact(
-            scene_id=request.scene_id,
-            audio_path=output,
-        )
+        for scene in scenes:
 
-        self._repository.save(artifact)
+            output = (
+                audio_directory(project_id)
+                / f"scene-{scene['index']:03d}.mp3"
+            )
 
-        return artifact
+            self._provider.generate(
+                text=scene["narration"],
+                output_path=output,
+            )
+
+            self._repository.save(
+                VoiceArtifact(
+                    scene_id=scene["index"],
+                    audio_path=output,
+                )
+            )

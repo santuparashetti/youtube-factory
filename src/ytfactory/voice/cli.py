@@ -2,7 +2,6 @@ from rich.console import Console
 
 from ytfactory.config.settings import Settings
 
-from .models import VoiceRequest
 from .pipeline import VoicePipeline
 
 console = Console()
@@ -15,16 +14,8 @@ def generate_voice(
 
     settings = Settings()
 
-    pipeline = VoicePipeline(settings)
-
-    pipeline.generate(
-        VoiceRequest(
-            project=project_id,
-            scene_id=1,
-            text="Hello World",
-        )
-    )
+    VoicePipeline(settings).run(project_id)
 
     console.print(
-        "[green]✓ Audio generated[/green]"
+        "[green]✓ Voice generated[/green]"
     )
