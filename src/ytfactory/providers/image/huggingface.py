@@ -31,16 +31,28 @@ class HuggingFaceImageProvider(ImageProvider):
 
         start = time.perf_counter()
 
-        image = self._client.text_to_image(
-            prompt=(
-                "Ultra realistic cinematic YouTube thumbnail style, "
-                "16:9 landscape composition, "
-                "wide shot, "
-                "1920x1080 framing. "
-                + request.prompt
-            ),
-            model=self._settings.hf_image_model,
+        enriched_prompt = (
+            "Ultra realistic cinematic YouTube documentary style, "
+            "16:9 landscape composition, wide shot, 1920x1080 framing, "
+            "professional photography, sharp focus, high detail. "
+            + request.prompt
         )
+
+        kwargs: dict = {
+            "prompt": enriched_prompt,
+            "model": self._settings.hf_image_model,
+        }
+
+        if request.negative_prompt:
+            kwargs["negative_prompt"] = request.negative_prompt
+
+        if request.guidance_scale != 7.5:
+            kwargs["guidance_scale"] = request.guidance_scale
+
+        if request.seed is not None:
+            kwargs["seed"] = request.seed
+
+        image = self._client.text_to_image(**kwargs)
 
         request.output_path.parent.mkdir(
             parents=True,

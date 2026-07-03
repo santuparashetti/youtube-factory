@@ -210,74 +210,57 @@ prompts/
 ```
 
 ---
+# YouTube Factory
 
-# Roadmap
+This README summarizes the current v1.0.0 pipeline.
 
-## Sprint 1
+## Workflows
 
-* Foundation
-* CLI
-* Project Management
+### 1. AI Research Workflow
 
-**Status:** ✅ Complete
+``` bash
+ytfactory create <project> --title "Title"
+ytfactory research <project>
+# create script.md manually
+ytfactory plan-scenes <project>
+ytfactory generate-images <project>
+ytfactory generate-voice <project>
+ytfactory generate-captions <project>
+ytfactory render <project>
+```
 
----
+Or:
 
-## Sprint 2
+``` bash
+ytfactory build <project>
+```
 
-* Project Status
-* Research Agent
-* Gemini Integration
+### 2. Existing Script Workflow
 
----
+``` bash
+ytfactory create <project> --title "Title"
+ytfactory import-script <project> samples/scripts/script.txt
+ytfactory plan-scenes <project>
+ytfactory generate-images <project>
+ytfactory generate-voice <project>
+ytfactory generate-captions <project>
+ytfactory render <project>
+```
 
-## Sprint 3
+Or:
 
-* Script Writer
+``` bash
+ytfactory build <project>
+```
 
----
+## Notes
 
-## Sprint 4
+-   Images: 1920x1080 (16:9)
+-   Video: 1920x1080
+-   Edge TTS
+-   Hugging Face FLUX
+-   Gemini + Tavily
 
-* Scene Planner
-
----
-
-## Sprint 5
-
-* Image Generation
-
----
-
-## Sprint 6
-
-* Narration
-* Subtitles
-
----
-
-## Sprint 7
-
-* Video Composer
-
----
-
-## Sprint 8
-
-* Thumbnail
-* SEO
-
----
-
-## Sprint 9
-
-* Batch Processing
-
----
-
-## Sprint 10
-
-* One-Command Video Generation
 
 Target command:
 
@@ -287,35 +270,6 @@ uv run python -m ytfactory run "History of Shivaji"
 
 ---
 
-# Development Principles
-
-* Clean Architecture
-* Feature-Oriented Development
-* Strong Typing
-* Modular Providers
-* Testable Components
-* Reproducible Builds
-* Documentation First
-
----
-
-# Current Commands
-
-| Command  | Status |
-| -------- | ------ |
-| doctor   | ✅      |
-| version  | ✅      |
-| create   | ✅      |
-| status   | 🚧     |
-| research | 🚧     |
-| script   | 🚧     |
-| scene    | 🚧     |
-| image    | 🚧     |
-| voice    | 🚧     |
-| compose  | 🚧     |
-| publish  | 🚧     |
-
----
 
 # Contributing
 
