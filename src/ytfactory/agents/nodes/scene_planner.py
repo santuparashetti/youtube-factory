@@ -1,8 +1,10 @@
-"""Scene planner agent node — JSON validation loop + visual prompt enhancement."""
+"""Scene planner node — Python splits narrations, LLM adds visual prompts only."""
 
 from __future__ import annotations
 
 import json
+import re
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -10,11 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from ytfactory.agents.prompts.scene_planner import (
-    ENHANCE_VISUAL_PROMPTS,
-    FIX_JSON_PROMPT,
-    PLAN_SCENES,
-)
+from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
 from ytfactory.providers.llm.factory import get_llm_provider
@@ -24,7 +22,173 @@ from ytfactory.storage.project_repository import ProjectRepository
 
 console = Console()
 
-_MAX_PARSE_RETRIES = 3
+_TARGET_WORDS_PER_SCENE = 28   # ~14s at 120 wpm spiritual pace
+
+
+def _split_script_to_scenes(script: str, target_words: int = _TARGET_WORDS_PER_SCENE) -> list[dict]:
+    """
+    Split a script into scenes using Python only — no LLM, no truncation risk.
+
+    Strategy:
+    1. Clean markdown from the text
+    2. Split each paragraph into individual sentences
+    3. Group consecutive sentences until the bucket reaches ~target_words
+    4. Prefer splitting AT paragraph breaks when the bucket is half-full
+
+    Produces ~25-35 scenes from a 700-word script (12-20s each at -20% TTS rate).
+    Every word from the script is preserved verbatim.
+    """
+    # ── 1. Clean residual markdown ─────────────────────────────────────────
+    text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", script, flags=re.DOTALL)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+
+    # ── 2. Break into sentences across all paragraphs ─────────────────────
+    # Split by paragraph first to respect major section breaks
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+
+    # Regex that splits AFTER sentence-ending punctuation followed by a capital
+    _SENT_RE = re.compile(r'(?<=[.!?…])\s+(?=[A-Z\"‘’])')
+
+    all_sentences: list[tuple[str, bool]] = []  # (sentence, is_paragraph_end)
+    for para in paragraphs:
+        # Also split on single newlines within the paragraph
+        lines = [ln.strip() for ln in para.split("\n") if ln.strip()]
+        para_text = " ".join(lines)
+        sents = _SENT_RE.split(para_text)
+        for i, s in enumerate(sents):
+            is_last = i == len(sents) - 1
+            all_sentences.append((s.strip(), is_last))
+
+    # ── 3. Group sentences into scenes ────────────────────────────────────
+    scenes: list[dict] = []
+    bucket: list[str] = []
+    bucket_words = 0
+
+    def _flush() -> None:
+        if not bucket:
+            return
+        narration = " ".join(bucket)
+        narration = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", narration).strip()
+        wc = len(narration.split())
+        title = " ".join(narration.split()[:4]).rstrip(".,!?...")
+        scenes.append({
+            "index": len(scenes) + 1,
+            "title": title,
+            "narration": narration,
+            "duration_seconds": max(8, int(wc * 0.5)),
+            "visual_prompt": "",
+        })
+        bucket.clear()
+
+    for sentence, is_para_end in all_sentences:
+        wc = len(sentence.split())
+        would_overflow = bucket_words + wc > target_words * 1.6
+
+        if would_overflow and bucket:
+            _flush()
+            bucket_words = 0
+
+        bucket.append(sentence)
+        bucket_words += wc
+
+        # Flush at paragraph boundaries when bucket is reasonably full
+        if is_para_end and bucket_words >= target_words * 0.6:
+            _flush()
+            bucket_words = 0
+
+    _flush()
+    return scenes
+
+
+def _write_prompts_file(
+    project_id: str,
+    scenes: list[dict],
+    style: str | None,
+    settings: Settings,
+) -> Path:
+    """
+    Write IMAGE_PROMPTS.md to the images/ directory.
+    The user can take these prompts to any image generator, download the images,
+    and place them with the exact filename shown — the pipeline will use them
+    automatically (skipping its own image generation for those scenes).
+    """
+    images_dir = Path(WORKSPACE_DIR) / project_id / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    abs_images_dir = images_dir.resolve()
+
+    w = settings.image_width
+    h = settings.image_height
+    total_scenes = len(scenes)
+    style_label = style or "documentary"
+
+    lines: list[str] = [
+        f"# Image Prompts — {project_id}",
+        f"**Style:** {style_label} | **Scenes:** {total_scenes} | **Size:** {w}×{h} px (16:9)",
+        "",
+        "---",
+        "",
+        "## How to Use",
+        "",
+        "1. Copy each prompt below into your preferred image generator.",
+        f"2. Generate at **{w}×{h}** resolution (16:9). Any 16:9 size works — it gets resized.",
+        "3. Download and **rename** each image to the exact filename shown (e.g. `scene-001.png`).",
+        f"4. Place all images in this folder:  \n   `{abs_images_dir}`",
+        "5. Re-run the pipeline — placed images are detected automatically and image generation is skipped.",
+        "",
+        "## Recommended Free Tools",
+        "",
+        "| Tool | Best for | Link |",
+        "|------|----------|------|",
+        "| **Leonardo AI** | Photorealistic, free daily credits | https://leonardo.ai |",
+        "| **Adobe Firefly** | Safe, commercial-use images | https://firefly.adobe.com |",
+        "| **Ideogram** | Text-accurate, stylized | https://ideogram.ai |",
+        "| **Midjourney** | Highest quality (paid) | https://midjourney.com |",
+        "| **DALL-E 3** | Via ChatGPT, great quality | https://chatgpt.com |",
+        "",
+        "**Tip:** For spiritual documentary style, try Leonardo with the *Cinematic Kino* or",
+        "*Photorealism* model. Set negative prompt: `text, watermark, logo, blurry, cartoon`",
+        "",
+        "---",
+        "",
+        "## Re-run Command (after placing images)",
+        "",
+        "```bash",
+        "# Delete old auto-generated scene videos so they re-render with your new images",
+        f"rm workspace/jobs/{project_id}/video/scene-*.mp4",
+        "",
+        "# Re-run — existing images and audio are skipped, only video is rebuilt",
+        f"ytfactory run \"[your topic]\" --project {project_id} --script [your_script.md] --style {style_label} --auto",
+        "```",
+        "",
+        "---",
+        "",
+    ]
+
+    for scene in scenes:
+        idx: int = scene["index"]
+        filename = f"scene-{idx:03d}.png"
+        save_path = abs_images_dir / filename
+
+        lines += [
+            f"## Scene {idx} — `{filename}`",
+            "",
+            f"**Save to:** `{save_path}`",
+            "",
+            f"**Narration:** _{scene.get('narration', '')}_",
+            "",
+            "**Image Prompt:**",
+            "",
+            f"> {scene.get('visual_prompt', '')}",
+            "",
+            "---",
+            "",
+        ]
+
+    content = "\n".join(lines)
+    out_path = images_dir / "IMAGE_PROMPTS.md"
+    out_path.write_text(content, encoding="utf-8")
+    return out_path
 
 
 def _strip_fences(text: str) -> str:
@@ -38,26 +202,48 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-def _parse_scene_plan(text: str) -> dict | None:
-    """Parse and validate a scene plan JSON response."""
+def _parse_visual_prompts(text: str) -> list[dict] | None:
+    """Parse Phase-2 output: [{index, visual_prompt}].
+
+    Handles two LLM output styles:
+    - Single array:   [{"index": 1, ...}, {"index": 2, ...}]
+    - Per-scene arrays: [{"index": 1, ...}]\n[{"index": 2, ...}]  (V3 prompt style)
+    """
+    raw = _strip_fences(text)
+
+    # ── Try 1: standard single JSON value ────────────────────────────────
     try:
-        data = json.loads(_strip_fences(text))
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            items = data.get("scenes", data.get("prompts", []))
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+        if items and all("index" in i and "visual_prompt" in i for i in items):
+            return items
     except json.JSONDecodeError:
-        return None
+        pass
 
-    if not isinstance(data, dict):
-        return None
-    if "scenes" not in data or not isinstance(data["scenes"], list):
-        return None
-    if not data["scenes"]:
-        return None
+    # ── Try 2: multiple separate JSON arrays on separate lines ────────────
+    # LLM sometimes outputs one [{"index": N, ...}] per scene with the V3 prompt
+    items = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("["):
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, list):
+                items.extend(obj)
+        except json.JSONDecodeError:
+            pass
 
-    required = {"index", "title", "narration", "visual_prompt", "duration_seconds"}
-    for scene in data["scenes"]:
-        if not required.issubset(scene.keys()):
-            return None
+    if items and all("index" in i and "visual_prompt" in i for i in items):
+        return items
 
-    return data
+    return None
+
 
 
 def scene_planner_node(state: VideoState) -> dict:
@@ -76,6 +262,29 @@ def scene_planner_node(state: VideoState) -> dict:
 
     topic = state["topic"]
     project_id = state["project_id"]
+    style = state.get("style")
+
+    project_repo.update_stage(project_id, "scenes", "running")
+    style_label = f" [{style}]" if style else ""
+    console.print(
+        f"\n[bold cyan]🎬 Scene Planner Agent[/bold cyan]{style_label} — "
+        f"planning scenes for: [italic]{topic}[/italic]\n"
+    )
+
+    # ── Idempotency: load existing plan from disk if available ────────────
+    existing_plan_path = Path(WORKSPACE_DIR) / project_id / "scenes" / "scene-plan.json"
+    if existing_plan_path.exists():
+        existing = json.loads(existing_plan_path.read_text(encoding="utf-8"))
+        scenes = existing.get("scenes", [])
+        total = sum(s.get("duration_seconds", 0) for s in scenes)
+        console.print(
+            f"  [green]✓[/green] Loaded existing scene plan — "
+            f"{len(scenes)} scenes, ~{total/60:.1f} min (skipping LLM calls)"
+        )
+        prompts_path = _write_prompts_file(project_id, scenes, style, settings)
+        console.print(f"  [green]✓[/green] Image prompts: [dim]{prompts_path}[/dim]")
+        project_repo.update_stage(project_id, "scenes", "completed")
+        return {"scene_plan": scenes}
 
     # Load script — prefer state, fall back to disk
     script_md = state.get("script_md", "")
@@ -85,59 +294,75 @@ def scene_planner_node(state: VideoState) -> dict:
             raise FileNotFoundError("Script not found. Run script-writer first.")
         script_md = script_path.read_text(encoding="utf-8")
 
-    project_repo.update_stage(project_id, "scenes", "running")
-    console.print(f"\n[bold cyan]🎬 Scene Planner Agent[/bold cyan] — planning scenes for: [italic]{topic}[/italic]\n")
+    # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
+    # The LLM was reliably failing to return 25+ scenes in one JSON response —
+    # Groq cuts off mid-stream when output tokens get large. Python splitting is
+    # deterministic, instant, and preserves every word verbatim.
+    console.print("  [cyan]→[/cyan] Phase 1: splitting script into scenes...")
+    scenes: list[dict] = _split_script_to_scenes(script_md)
 
-    # ── Step 1: Generate scene plan (with JSON retry loop) ────────────────
-    prompt = PLAN_SCENES.format(topic=topic, script=script_md)
-    scene_plan: dict | None = None
-    last_response_text = ""
+    total = sum(s.get("duration_seconds", 0) for s in scenes)
+    narration_words = sum(len(s.get("narration", "").split()) for s in scenes)
+    console.print(
+        f"  [green]✓[/green] {len(scenes)} scenes — "
+        f"{narration_words} words — {total:.0f}s (~{total/60:.1f} min)"
+    )
 
-    for attempt in range(1, _MAX_PARSE_RETRIES + 1):
-        response = llm.generate(prompt, temperature=0.2)
-        last_response_text = response.text
-        scene_plan = _parse_scene_plan(last_response_text)
+    # ── Phase 2: Visual prompts — batched so each call is small ─────────────
+    # 28 prompts in one call = ~1,200 token response → truncated after scene 1.
+    # Batching at 7 scenes = ~280 tokens per call → always completes cleanly.
+    _VP_BATCH = 7
+    console.print(f"  [cyan]→[/cyan] Phase 2: generating visual prompts (batches of {_VP_BATCH})...")
+    vp_map: dict[int, str] = {}
+    for batch_start in range(0, len(scenes), _VP_BATCH):
+        batch = scenes[batch_start : batch_start + _VP_BATCH]
+        batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
+        vp_response = llm.generate(
+            build_visual_prompts_prompt(batch, style),
+            temperature=0.35,
+        )
+        vp_list = _parse_visual_prompts(vp_response.text)
 
-        if scene_plan:
-            console.print(f"  [green]✓[/green] Scene plan parsed on attempt {attempt}")
-            break
+        # Retry once on parse failure (rate-limit-induced truncation often recovers)
+        if vp_list is None:
+            logger.warning("Batch {} parse failed — waiting 8s before retry", batch_nums)
+            time.sleep(8)
+            vp_response = llm.generate(build_visual_prompts_prompt(batch, style), temperature=0.35)
+            vp_list = _parse_visual_prompts(vp_response.text)
 
-        if attempt < _MAX_PARSE_RETRIES:
-            console.print(f"  [yellow]⚠[/yellow] JSON parse failed (attempt {attempt}), asking LLM to fix...")
-            prompt = FIX_JSON_PROMPT.format(broken_json=last_response_text)
+        if vp_list:
+            expected_indexes = [s["index"] for s in batch]
+            returned_indexes = [item["index"] for item in vp_list]
+
+            # Safety net: if LLM reset indexes (e.g. returned 1-7 instead of 15-21),
+            # remap by position so the correct scenes get their prompts.
+            if returned_indexes != expected_indexes and len(vp_list) == len(batch):
+                logger.warning(
+                    "Batch {} — LLM returned indexes {} instead of {}; remapping by position",
+                    batch_nums, returned_indexes, expected_indexes,
+                )
+                for item, scene in zip(vp_list, batch):
+                    vp_map[scene["index"]] = item["visual_prompt"]
+            else:
+                for item in vp_list:
+                    vp_map[item["index"]] = item["visual_prompt"]
+
+            console.print(f"  [green]✓[/green] Scenes {batch_nums} — {len(vp_list)} prompts")
         else:
-            raise ValueError(
-                f"Scene planner failed to produce valid JSON after {_MAX_PARSE_RETRIES} attempts.\n"
-                f"Last response:\n{last_response_text[:500]}"
+            logger.warning("Visual prompt batch {} returned malformed JSON after retry; using fallback", batch_nums)
+
+    # Apply prompts; fall back to title-based placeholder for any missed scene
+    for s in scenes:
+        if s["index"] in vp_map:
+            s["visual_prompt"] = vp_map[s["index"]]
+        elif not s.get("visual_prompt"):
+            s["visual_prompt"] = (
+                f"Cinematic wide shot, {s.get('title', 'contemplative moment')}, "
+                "golden hour lighting, silhouette, spiritual documentary, no text, no watermark"
             )
 
-    assert scene_plan is not None
-    scenes = scene_plan["scenes"]
-
-    # ── Step 2: Duration sanity check ────────────────────────────────────
-    total = sum(s.get("duration_seconds", 0) for s in scenes)
-    scene_plan["total_duration_seconds"] = total
-    console.print(f"  [green]✓[/green] {len(scenes)} scenes, total duration: {total:.0f}s (~{total/60:.1f} min)")
-
-    # ── Step 3: Enhance visual prompts ────────────────────────────────────
-    console.print("  [cyan]→[/cyan] Enhancing visual prompts for cinematic consistency...")
-    enhance_response = llm.generate(
-        ENHANCE_VISUAL_PROMPTS.format(
-            topic=topic,
-            scene_json=json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
-        ),
-        temperature=0.3,
-    )
-    enhanced = _parse_scene_plan(enhance_response.text)
-    if enhanced and len(enhanced["scenes"]) == len(scenes):
-        for orig, enh in zip(scenes, enhanced["scenes"]):
-            if enh.get("visual_prompt"):
-                orig["visual_prompt"] = enh["visual_prompt"]
-        console.print("  [green]✓[/green] Visual prompts enhanced")
-    else:
-        logger.warning("Visual prompt enhancement returned malformed JSON; keeping originals")
-
     # ── Persist artifacts ─────────────────────────────────────────────────
+    scene_plan = {"topic": topic, "total_duration_seconds": total, "scenes": scenes}
     artifact_repo.write_json(project_id, "scenes", "scene-plan.json", scene_plan)
 
     # Human-readable markdown summary
@@ -151,6 +376,10 @@ def scene_planner_node(state: VideoState) -> dict:
     artifact_repo.write_markdown(project_id, "scenes", "scene-plan.md", "\n".join(md_lines))
 
     project_repo.update_stage(project_id, "scenes", "completed")
+
+    # ── Write prompts file for manual image generation ────────────────────
+    prompts_path = _write_prompts_file(project_id, scenes, style, settings)
+    console.print(f"  [green]✓[/green] Image prompts exported: [dim]{prompts_path}[/dim]")
 
     # Print summary table
     table = Table(title="Scene Plan", show_lines=True)

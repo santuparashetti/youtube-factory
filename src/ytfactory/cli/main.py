@@ -40,21 +40,45 @@ def run(
     auto: bool = typer.Option(
         False, "--auto", help="Skip human-review gates (fully autonomous)"
     ),
+    script: Optional[str] = typer.Option(
+        None, "--script", "-s",
+        help="Path to a pre-written script file. Skips research and script-writer stages.",
+    ),
+    style: Optional[str] = typer.Option(
+        None, "--style",
+        help="Visual style: spiritual | documentary | educational | history (affects image prompts)",
+    ),
+    no_images: bool = typer.Option(
+        False, "--no-images",
+        help="Skip image generation. Review IMAGE_PROMPTS.md, generate images manually, then re-run.",
+    ),
 ):
     """
     Run the full agentic video production pipeline.
 
-    Research → Script → Scenes → Images + Voice (parallel) → Captions → Video → final.mp4
+    Research → Script → Scenes → Images + Voice (parallel) → Video → final.mp4
+
+    Pass --script to skip research and use your own script directly.
+    Pass --no-images to skip image generation (get IMAGE_PROMPTS.md, then place images manually).
 
     Examples:
-        ytfactory run "History of Shivaji"
         ytfactory run "History of Shivaji" --auto
+        ytfactory run "The Silent Force" --script my_script.md --style spiritual --auto
+        ytfactory run "The Silent Force" --script my_script.md --style spiritual --no-images --auto
         ytfactory run "How Semiconductors Work" --language en --auto
         ytfactory run "Topic" --project existing-project-id
     """
     from ytfactory.agents.runner import run_pipeline
 
-    run_pipeline(topic, project_id=project_id, language=language, auto=auto)
+    run_pipeline(
+        topic,
+        project_id=project_id,
+        language=language,
+        auto=auto,
+        script_path=script,
+        style=style,
+        no_images=no_images,
+    )
 
 
 if __name__ == "__main__":

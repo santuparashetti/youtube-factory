@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import time
 from urllib.parse import quote
 
 import requests
+from loguru import logger
 from PIL import Image
 
 from ytfactory.config.settings import Settings
@@ -20,7 +22,7 @@ _API_BASE = "https://image.pollinations.ai/prompt"
 #   flux-realism  — photorealistic variant
 #   flux-3d       — 3D render style
 #   turbo         — SDXL Turbo
-POLLINATIONS_MODEL = "flux"
+POLLINATIONS_MODEL = "flux-realism"
 
 
 class PollinationsImageProvider(ImageProvider):
@@ -66,15 +68,19 @@ class PollinationsImageProvider(ImageProvider):
 
         url = f"{_API_BASE}/{quote(enriched_prompt, safe='')}"
 
-        response = self._session.get(
-            url,
-            params=params,
-            timeout=120,
-        )
-        response.raise_for_status()
+        response = None
+        for attempt in range(5):
+            response = self._session.get(url, params=params, timeout=120)
+            if response.status_code == 429:
+                wait = 20 * (2 ** attempt)  # 20, 40, 80, 160, 320s
+                logger.warning("Pollinations 429 rate limit — waiting {}s (attempt {})", wait, attempt + 1)
+                time.sleep(wait)
+                continue
+            response.raise_for_status()
+            break
+        else:
+            response.raise_for_status()  # re-raise after 5 failed attempts
 
-        # Decode image from response bytes
-        import io
         image = Image.open(io.BytesIO(response.content)).convert("RGB")
 
         # Fit / crop to exact YouTube dimensions (same logic as HuggingFace provider)

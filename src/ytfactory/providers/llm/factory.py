@@ -12,7 +12,16 @@ def get_llm_provider(
         case "gemini":
             return GeminiProvider(settings)
 
+        case "groq":
+            from ytfactory.providers.llm.groq_provider import GroqProvider
+            return GroqProvider(settings)
+
+        case "ollama":
+            from ytfactory.providers.llm.ollama import OllamaProvider
+            return OllamaProvider(settings)
+
         case _:
             raise ValueError(
-                f"Unsupported LLM provider: {settings.llm_provider}"
+                f"Unsupported LLM provider: {settings.llm_provider}. "
+                "Valid options: gemini, groq, ollama"
             )

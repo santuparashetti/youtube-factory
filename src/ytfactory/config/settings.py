@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="")
     tavily_api_key: str = Field(default="")
     hf_token: str = Field(default="")
+    groq_api_key: str = Field(default="")
 
     # ------------------------------------------------------------------
     # Providers
@@ -29,9 +30,18 @@ class Settings(BaseSettings):
     gemini_text_model: str = "gemini-2.5-flash"
     gemini_image_model: str = "gemini-3.1-flash-image"
 
-    hf_image_model: str = (
-        "black-forest-labs/FLUX.1-schnell"
-    )
+    hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
+
+    groq_model: str = "llama-3.1-8b-instant"
+
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2"
+
+    # Automatic1111 / SD WebUI
+    a1111_base_url: str = "http://localhost:7860"
+    a1111_steps: int = 30
+    a1111_cfg_scale: float = 7.0
+    a1111_sampler: str = "DPM++ 2M Karras"
 
     # ------------------------------------------------------------------
     # Image Defaults

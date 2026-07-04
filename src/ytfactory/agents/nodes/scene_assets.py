@@ -108,12 +108,15 @@ def generate_scene_assets(state: VideoState) -> dict:
     scene = state["current_scene"]
     project_id = state["project_id"]
     language = state.get("language", "en")
+    style = state.get("style")
     settings = Settings()
 
     index: int = scene["index"]
     narration: str = scene["narration"]
     visual_prompt: str = scene["visual_prompt"]
     estimated_duration: float = float(scene.get("duration_seconds", 10))
+
+    skip_images: bool = state.get("skip_images", False)
 
     project_dir = Path(WORKSPACE_DIR) / project_id
     images_dir = project_dir / "images"
@@ -130,7 +133,14 @@ def generate_scene_assets(state: VideoState) -> dict:
     errors: list[str] = []
 
     # ── 1. Generate image (idempotent) ────────────────────────────────────
-    if not image_path.exists():
+    if skip_images:
+        logger.info("Scene {} — image generation skipped (--no-images mode)", index)
+    elif not image_path.exists():
+        # Stagger parallel requests: scene N waits N*3 seconds before hitting
+        # the image API so all scenes don't burst-request simultaneously.
+        import time
+        time.sleep(index * 3)
+
         try:
             provider = get_image_provider(settings)
             request = ImageRequest(
@@ -141,14 +151,18 @@ def generate_scene_assets(state: VideoState) -> dict:
                 negative_prompt=_NEGATIVE_PROMPT,
                 guidance_scale=7.5,
             )
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
                     provider.generate(request)
                     break
                 except Exception as exc:
-                    if attempt == 2:
-                        errors.append(f"Scene {index} image failed after 3 attempts: {exc}")
+                    if attempt == 4:
+                        errors.append(f"Scene {index} image failed after 5 attempts: {exc}")
                         logger.error("Scene {} image failed: {}", index, exc)
+                    else:
+                        wait = 15 * (2 ** attempt)
+                        logger.warning("Scene {} image attempt {} failed, retrying in {}s: {}", index, attempt + 1, wait, exc)
+                        time.sleep(wait)
         except Exception as exc:
             errors.append(f"Scene {index} image provider error: {exc}")
     else:
@@ -166,6 +180,7 @@ def generate_scene_assets(state: VideoState) -> dict:
                         text=narration,
                         output_path=audio_path,
                         language=language,
+                        style=style,
                     )
                     break
                 except Exception as exc:

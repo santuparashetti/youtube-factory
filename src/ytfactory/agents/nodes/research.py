@@ -48,12 +48,17 @@ def _parse_category(raw: str) -> str:
     return "other"
 
 
+_MAX_SOURCES_PER_PROMPT = 12
+_MAX_CHARS_PER_SOURCE = 1200
+
+
 def _format_sources(results: list) -> str:
     parts = []
-    for i, r in enumerate(results, 1):
-        parts.append(
-            f"[Source {i}] {r.title}\nURL: {r.url}\n{r.content}\n"
-        )
+    for i, r in enumerate(results[:_MAX_SOURCES_PER_PROMPT], 1):
+        content = r.content
+        if len(content) > _MAX_CHARS_PER_SOURCE:
+            content = content[:_MAX_CHARS_PER_SOURCE] + "…"
+        parts.append(f"[Source {i}] {r.title}\nURL: {r.url}\n{content}\n")
     return "\n---\n".join(parts)
 
 

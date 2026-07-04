@@ -1,11 +1,14 @@
+import httpx
 from google import genai
 from google.genai import types
 from loguru import logger
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse
 from ytfactory.providers.llm.base import LLMProvider
+
+_RETRYABLE = (RuntimeError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectError)
 
 
 class GeminiProvider(LLMProvider):
@@ -16,8 +19,9 @@ class GeminiProvider(LLMProvider):
         self._client = genai.Client(api_key=settings.gemini_api_key)
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(_RETRYABLE),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=5, max=30),
         reraise=True,
     )
     def generate(

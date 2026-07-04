@@ -17,7 +17,9 @@ class VideoState(TypedDict, total=False):
     topic: str
     language: str                # BCP-47 code, e.g. "en", "hi", "mr"
     topic_category: str          # history | tech | science | finance | health | other
+    style: Optional[str]         # visual style hint: "spiritual" | "documentary" | None
     auto_mode: bool              # True → skip all human-review gates
+    skip_images: bool            # True → skip image generation (for manual-image workflow)
 
     # ── Stage text outputs ────────────────────────────────────────────────
     research_md: str

@@ -20,7 +20,12 @@ def get_image_provider(settings: Settings) -> ImageProvider:
         case "gemini":
             return GeminiImageProvider(settings)
 
+        case "a1111" | "automatic1111" | "sd-webui":
+            from .a1111 import A1111ImageProvider
+            return A1111ImageProvider(settings)
+
         case _:
             raise ValueError(
-                f"Unsupported image provider: {settings.image_provider}"
+                f"Unsupported image provider: {settings.image_provider}. "
+                "Valid options: pollinations, huggingface, gemini, a1111"
             )

@@ -15,6 +15,7 @@ class TTSProvider(ABC):
         *,
         voice: str | None = None,
         language: str = "en",
+        style: str | None = None,
     ) -> Path:
         """Generate speech audio and return the output file path."""
         raise NotImplementedError
@@ -26,6 +27,7 @@ class TTSProvider(ABC):
         *,
         voice: str | None = None,
         language: str = "en",
+        style: str | None = None,
     ) -> tuple[Path, list[dict]]:
         """
         Generate audio and return word-level timing boundaries.
@@ -38,6 +40,6 @@ class TTSProvider(ABC):
         Override in providers that support word-level timing (e.g. Edge TTS).
         """
         audio_path = self.generate(
-            text, output_path, voice=voice, language=language
+            text, output_path, voice=voice, language=language, style=style
         )
         return audio_path, []
