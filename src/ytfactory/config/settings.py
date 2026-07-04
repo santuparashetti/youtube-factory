@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     search_provider: str = "tavily"
     tts_provider: str = "edge"
-    image_provider: str = "huggingface"
+    image_provider: str = "pollinations"
 
     # ------------------------------------------------------------------
     # Models
