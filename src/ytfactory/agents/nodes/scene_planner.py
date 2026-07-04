@@ -205,28 +205,39 @@ def _strip_fences(text: str) -> str:
 def _parse_visual_prompts(text: str) -> list[dict] | None:
     """Parse Phase-2 output: [{index, visual_prompt}].
 
-    Handles two LLM output styles:
-    - Single array:   [{"index": 1, ...}, {"index": 2, ...}]
-    - Per-scene arrays: [{"index": 1, ...}]\n[{"index": 2, ...}]  (V3 prompt style)
+    Handles several LLM output styles:
+    - Clean JSON array
+    - JSON inside ```json...``` code fences (anywhere in the response)
+    - Per-scene separate arrays on separate lines
+    - JSON array anywhere in text (regex fallback)
     """
+    def _valid(items: list) -> bool:
+        return bool(items and all("index" in i and "visual_prompt" in i for i in items))
+
     raw = _strip_fences(text)
 
-    # ── Try 1: standard single JSON value ────────────────────────────────
+    # ── Try 1: whole stripped text is valid JSON ──────────────────────────
     try:
         data = json.loads(raw)
-        if isinstance(data, dict):
-            items = data.get("scenes", data.get("prompts", []))
-        elif isinstance(data, list):
-            items = data
-        else:
-            items = []
-        if items and all("index" in i and "visual_prompt" in i for i in items):
+        items = data.get("scenes", data.get("prompts", [])) if isinstance(data, dict) else data
+        if isinstance(items, list) and _valid(items):
             return items
     except json.JSONDecodeError:
         pass
 
-    # ── Try 2: multiple separate JSON arrays on separate lines ────────────
-    # LLM sometimes outputs one [{"index": N, ...}] per scene with the V3 prompt
+    # ── Try 2: JSON array inside a code fence block (Claude-style output) ─
+    import re as _re
+    for fence_re in [r"```json\s*(\[.*?\])\s*```", r"```\s*(\[.*?\])\s*```"]:
+        m = _re.search(fence_re, text, _re.DOTALL)
+        if m:
+            try:
+                items = json.loads(m.group(1))
+                if isinstance(items, list) and _valid(items):
+                    return items
+            except json.JSONDecodeError:
+                pass
+
+    # ── Try 3: multiple separate JSON arrays on separate lines ────────────
     items = []
     for line in raw.splitlines():
         line = line.strip()
@@ -238,9 +249,18 @@ def _parse_visual_prompts(text: str) -> list[dict] | None:
                 items.extend(obj)
         except json.JSONDecodeError:
             pass
-
-    if items and all("index" in i and "visual_prompt" in i for i in items):
+    if _valid(items):
         return items
+
+    # ── Try 4: find first [...] JSON array anywhere in text ───────────────
+    m = _re.search(r"(\[[\s\S]*?\])\s*(?:```|$|\n\n)", text)
+    if m:
+        try:
+            items = json.loads(m.group(1))
+            if isinstance(items, list) and _valid(items):
+                return items
+        except json.JSONDecodeError:
+            pass
 
     return None
 
@@ -308,26 +328,27 @@ def scene_planner_node(state: VideoState) -> dict:
         f"{narration_words} words — {total:.0f}s (~{total/60:.1f} min)"
     )
 
-    # ── Phase 2: Visual prompts — batched so each call is small ─────────────
-    # 28 prompts in one call = ~1,200 token response → truncated after scene 1.
-    # Batching at 7 scenes = ~280 tokens per call → always completes cleanly.
-    _VP_BATCH = 7
-    console.print(f"  [cyan]→[/cyan] Phase 2: generating visual prompts (batches of {_VP_BATCH})...")
+    # ── Phase 2: Visual prompts — use the configured LLM provider ───────────
+    # Batch size: Claude/Gemini handle 15 scenes cleanly; Groq needs 7 to avoid truncation.
+    _VP_BATCH = 7 if settings.llm_provider.lower() == "groq" else 15
+    console.print(
+        f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
+        f"[dim]({settings.llm_provider}, batches of {_VP_BATCH})[/dim]..."
+    )
     vp_map: dict[int, str] = {}
+    visual_diary: list[str] = []  # cross-batch continuity: short summaries of prompts already written
+
     for batch_start in range(0, len(scenes), _VP_BATCH):
         batch = scenes[batch_start : batch_start + _VP_BATCH]
         batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
-        vp_response = llm.generate(
-            build_visual_prompts_prompt(batch, style),
-            temperature=0.35,
-        )
+        prompt = build_visual_prompts_prompt(batch, style, prev_context=visual_diary or None)
+        vp_response = llm.generate(prompt, temperature=0.35)
         vp_list = _parse_visual_prompts(vp_response.text)
 
-        # Retry once on parse failure (rate-limit-induced truncation often recovers)
+        # Retry once on parse failure
         if vp_list is None:
-            logger.warning("Batch {} parse failed — waiting 8s before retry", batch_nums)
-            time.sleep(8)
-            vp_response = llm.generate(build_visual_prompts_prompt(batch, style), temperature=0.35)
+            logger.warning("Batch {} parse failed — retrying", batch_nums)
+            vp_response = llm.generate(prompt, temperature=0.35)
             vp_list = _parse_visual_prompts(vp_response.text)
 
         if vp_list:
@@ -346,6 +367,13 @@ def scene_planner_node(state: VideoState) -> dict:
             else:
                 for item in vp_list:
                     vp_map[item["index"]] = item["visual_prompt"]
+
+            # Update visual diary for the next batch — first ~72 chars capture subject + environment
+            for scene in batch:
+                if scene["index"] in vp_map:
+                    summary = vp_map[scene["index"]][:72].rstrip(",. ")
+                    visual_diary.append(f"Sc.{scene['index']}: {summary}")
+            visual_diary = visual_diary[-14:]  # keep the 14 most recent entries
 
             console.print(f"  [green]✓[/green] Scenes {batch_nums} — {len(vp_list)} prompts")
         else:

@@ -20,6 +20,10 @@ def get_llm_provider(
             from ytfactory.providers.llm.ollama import OllamaProvider
             return OllamaProvider(settings)
 
+        case "anthropic":
+            from ytfactory.providers.llm.openai_provider import OpenAICompatibleProvider
+            return OpenAICompatibleProvider(settings)
+
         case _:
             raise ValueError(
                 f"Unsupported LLM provider: {settings.llm_provider}. "

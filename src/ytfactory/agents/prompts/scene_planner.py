@@ -100,71 +100,95 @@ def build_plan_scenes_prompt(topic: str, script: str, style: str | None = None) 
 
 
 _VISUAL_PROMPTS_TEMPLATE = """\
-You are a Visual Director, Storyboard Artist, and Cinematographer \
-planning imagery for a {style_label} YouTube documentary. \
-Your job is to create unforgettable visual sequences, not generic AI images.
+You are a documentary film director — not an image prompt generator.
+Your task: direct {num_scenes} scenes as one coherent film sequence for a {style_label} video.
 
 {style_guide}
 
-══════════════════════════════════════════════════
-INTERNAL REASONING — do NOT output this section
-══════════════════════════════════════════════════
-
-Read ALL {num_scenes} scene narrations below before writing a single prompt.
-Plan a visual sequence — a connected storyboard — not isolated images.
-
-BATCH PLANNING
-Ask yourself:
-• What is the emotional arc across these scenes? Where does it begin, peak, and resolve?
-• Assign each scene a role: Hook | Establishing | Discovery | Conflict | Reflection | Symbolic | Revelation | Resolution
-• Plan shot diversity — no two adjacent scenes should share the same framing, angle, or environment.
-• Identify which scene deserves the strongest visual impact (the hero frame).
-
-PER-SCENE INTERNAL REASONING (work through all 10 steps silently for each scene):
-1. CORE IDEA: Summarize the scene in one sentence. What is it fundamentally about?
-2. DOMINANT EMOTION: Choose exactly ONE — wonder, mystery, hope, peace, grief, isolation, determination, reverence, fear, regret, joy, longing
-3. VISUAL STRATEGY: symbolic metaphor | environmental storytelling | nature symbolism | architectural symbolism | macro detail | documentary realism | object symbolism
-4. METAPHOR SEARCH: Can the abstract idea become a powerful symbol? Apply the golden rule: never ask "what image matches these words?" — ask "what image makes the audience FEEL this idea?"
-   Examples: desire=traveler pursuing receding horizon, ego=empty golden throne, peace=still lake at dawn, attachment=vine gripping stone, hope=sunrise after rain, fear=shadow growing on wall, time=worn steps, wisdom=elder beneath ancient tree, freedom=bird leaving cage, transformation=ice melting into river, loneliness=single cabin in snow
-5. SUBJECT: What is the primary visual element — figure, object, place, or natural phenomenon?
-6. ENVIRONMENT: Where does this happen? The environment must reinforce emotion, not merely contain the subject.
-7. CAMERA DECISIONS:
-   Shot size: extreme wide (isolation/scale) | wide (establishing) | medium (human story) | close portrait (inner conflict) | macro (sacred detail)
-   Angle: eye-level (neutral) | low angle (strength/awe) | high angle (vulnerability) | overhead (patterns/rituals) | behind subject (contemplation/journey)
-8. LIGHTING: golden hour (hope/peace) | blue hour (mystery/reflection) | candlelight/practical (spiritual) | storm light (conflict/transformation) | overcast (melancholy/uncertainty) | harsh noon (exposure/clarity)
-9. COLOR LANGUAGE: warm gold (enlightenment) | deep blue (reflection) | green (renewal) | amber (nostalgia) | white (purity/transcendence) | gray (uncertainty) | deep indigo (consciousness)
-10. SELF-CRITIQUE — silently ask:
-    • Is this generic? Reject "person standing", "mountain at sunset", "lake" alone.
-    • Have I repeated a location, symbol, or framing from another scene in this batch?
-    • Would this frame be memorable the day after watching?
-    • Does the environment carry emotional meaning, or is it just a backdrop?
-    • Would a documentary director choose this shot?
-
-BATCH SELF-REVIEW (before writing any output):
-✓ Each scene differs from its neighbors — different framing, environment, emotional tone
-✓ Emotional progression flows naturally through the sequence
-✓ At least one scene is strong enough to be a YouTube thumbnail
-✓ No symbol, location, or camera angle is repeated without narrative purpose
-✓ Visual rhythm alternates: wide ↔ close, dark ↔ bright, human ↔ nature, literal ↔ symbolic
-
-══════════════════════════════════════════════════
-PROMPT CONSTRUCTION — output these
+{prev_context_block}══════════════════════════════════════════════════
+BANNED — these patterns are forbidden
 ══════════════════════════════════════════════════
 
-For each scene write ONE final image prompt using this order:
-[Subject + action] [Environment with meaningful detail] [Camera framing] [Lighting] [Composition/mood] [Style] [Negative]
+Opening phrase ban — the very first words of every prompt matter:
+  ✗  "A figure..."  |  "A person..."  |  "A silhouette..."  |  "A traveler walks..."  |  "A bird..."
+  ✓  Lead with something specific: "Worn stone steps disappear into morning mist"  |  "Candlelight on cracked plaster"
 
-Requirements:
-• 60–90 words per prompt — specific enough for high-quality generation
-• Lead with the primary subject or visual element, NOT style keywords like "cinematic" or "photorealistic"
-• Write in descriptive sentences, not comma-separated keyword lists
-• Model-agnostic: works across Pollinations, Flux, Midjourney, Leonardo, Firefly, Imagen
-• No visible faces, no religious symbols, no specific brands, no text in image
-• End each prompt with: "cinematic documentary style, photorealistic, subtle film grain. No text, no watermark, no cartoon."
+Camera-as-subject ban:
+  ✗  "The camera is positioned at a low angle, capturing the temple."
+  ✓  Weave it naturally: "Seen from ground level, the temple towers against storm-grey sky."
 
-Return ONE single JSON array containing ALL {num_scenes} scenes — no explanation, no markdown fences, nothing else.
-CRITICAL: The "index" value MUST match the scene number shown in the SCENES section exactly. Do NOT reset to 1. If the first scene shown is Scene 15, the first object must be {{"index": 15, "visual_prompt": "..."}}.
-[{{"index": SCENE_NUMBER_HERE, "visual_prompt": "..."}}, ...]
+Narration-copy ban — the most important rule:
+  ✗  Narration: "he forgot to live"  →  Prompt: "a man who forgot to live"
+  ✓  Narration: "he forgot to live"  →  Prompt: "an untouched dinner cooling on a windowsill, the city below moving without him"
+
+Generic environment ban — these phrases reveal nothing:
+  ✗  "lush greenery"  |  "vast landscape"  |  "open plain"  |  "beautiful surroundings"
+  ✓  Be specific: "overgrown weeds pushing through cracked pavement"  |  "salt flats cracked into perfect hexagons at low tide"
+
+Passive construction ban:
+  ✗  "The subject is shown..."  |  "We see..."  |  "There is a man..."
+
+══════════════════════════════════════════════════
+CHARACTER BIBLE
+══════════════════════════════════════════════════
+
+Scan the narrations below. If a recurring protagonist appears (referred to as "he", "she", "you", or as a specific described person):
+  — Choose ONE physical description and lock it in: age, build, ethnicity, clothing
+  — Example: "a lean man in his early 40s, close-cropped dark hair, plain grey linen shirt, worn dark trousers"
+  — Use the SAME description in every scene where a human figure appears
+  — If the narration is philosophical with no clear protagonist, use environments, objects, and symbols — do NOT invent random human subjects per scene
+
+══════════════════════════════════════════════════
+STORYBOARD — complete this before writing any prompt
+══════════════════════════════════════════════════
+
+1. Read all {num_scenes} narrations below.
+2. Define the emotional arc: opening mood → mid-point peak → closing resolution.
+3. Assign each scene a role: Hook | Establishing | Rising | Revelation | Reflection | Symbolic | Resolution
+4. Choose ONE hero frame — the most visually powerful image in this batch, strong enough for a YouTube thumbnail. Give it 20 extra words of environmental and atmospheric detail.
+5. Plan shot diversity — no two adjacent scenes share the same: shot size + environment category + dominant color.
+6. List the metaphors you will use — commit to them, each used only once in this batch.
+
+PER-SCENE INTERNAL REASONING (work through this silently before writing each prompt):
+  A. Core meaning — what is this scene ABOUT beneath the words?
+  B. Dominant emotion — one only: wonder | mystery | hope | peace | grief | isolation | determination | reverence | longing | fear | regret
+  C. Best metaphor — what image makes the audience FEEL the idea without being told it?
+     Library:  desire → traveler toward a horizon that keeps receding
+               ego → an ornate throne in a vast echoing hall, dust settling
+               peace → glacier lake at pre-dawn, surface still as polished stone
+               attachment → vine grown through an iron gate it can no longer pass
+               fear → a long shadow stretching across an empty road toward dusk
+               time → stone steps worn concave by generations of crossings
+               hope → one lit window in a long row of dark buildings at 3am
+               freedom → a cage door open, white feathers still drifting
+               transformation → cracked earth after the first monsoon rain
+               loneliness → one chair at a set table, the second place never touched
+  D. Specific subject — not "a lake" but "a glacier-fed alpine lake, its surface not yet broken by wind"
+  E. Environment — two or three concrete details that reveal emotion without stating it:
+     ✓  "an untouched dinner cooling, a voicemail light blinking unanswered, rain against the window"
+     ✗  "a peaceful place, lush surroundings, beautiful landscape"
+  F. Camera — only if it changes the emotional meaning:
+     wide (scale/isolation) | macro (sacred detail) | overhead (pattern/ritual) | low angle (power/awe) | behind subject (contemplation)
+     Omit entirely if the meaning doesn't depend on it.
+  G. Lighting — one specific choice: pre-dawn blue | warm candlelight | storm-filtered gold | overcast flat | harsh noon | volumetric shafts
+  H. Self-critique — before writing: Is this specific? Does it avoid every banned pattern above?
+     Have I repeated an environment or metaphor from another scene in this batch?
+     Would a documentary director choose this exact frame?
+
+══════════════════════════════════════════════════
+WRITING RULES
+══════════════════════════════════════════════════
+
+— One natural flowing paragraph per scene.
+— Begin with the scene's strongest visual element — never with "A person" or "The camera."
+— 60–90 words per scene. Hero frame: 85–110 words.
+— Weave camera and lighting into the description naturally — not as separate sentences starting "The lighting is..." or "The camera is..."
+— Vary endings — do NOT paste the same phrase at the close of every scene.
+— Include somewhere in each prompt: no text, no watermark, photorealistic.
+— The {style_label} feeling should come through the imagery — not by stating it as a keyword.
+
+Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
+[{{"index": N, "visual_prompt": "..."}}]
 
 ══════════════════════════════════════════════════
 SCENES
@@ -178,6 +202,7 @@ _ENHANCE_TEMPLATE = _VISUAL_PROMPTS_TEMPLATE  # kept for backward compatibility
 def build_visual_prompts_prompt(
     scenes: list[dict],
     style: str | None = None,
+    prev_context: list[str] | None = None,
 ) -> str:
     style_label = f"{style} documentary" if style else "cinematic documentary"
     num_scenes = len(scenes)
@@ -185,10 +210,21 @@ def build_visual_prompts_prompt(
         f"Scene {s['index']}: {s.get('narration', '')}"
         for s in scenes
     )
+    if prev_context:
+        entries = "\n".join(f"  • {entry}" for entry in prev_context)
+        prev_context_block = (
+            "══════════════════════════════════════════════════\n"
+            "ALREADY USED IN THIS VIDEO — do not repeat these\n"
+            "══════════════════════════════════════════════════\n"
+            f"{entries}\n\n"
+        )
+    else:
+        prev_context_block = ""
     return _VISUAL_PROMPTS_TEMPLATE.format(
         style_label=style_label,
         style_guide=_style_guide(style),
         num_scenes=num_scenes,
+        prev_context_block=prev_context_block,
         scene_list=scene_list,
     )
 
@@ -200,6 +236,7 @@ def build_enhance_prompt(topic: str, scene_json: str, style: str | None = None) 
         style_label=style_label,
         style_guide=_style_guide(style),
         num_scenes="N",
+        prev_context_block="",
         scene_list=scene_json,
     )
 

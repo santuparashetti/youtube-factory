@@ -1,5 +1,6 @@
 import httpx
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -9,6 +10,10 @@ from ytfactory.domain.llm import LLMResponse
 from ytfactory.providers.llm.base import LLMProvider
 
 _RETRYABLE = (RuntimeError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectError)
+
+
+class GeminiQuotaError(Exception):
+    """Raised when the Gemini API daily quota is exhausted (HTTP 429). Not retried."""
 
 
 class GeminiProvider(LLMProvider):
@@ -50,6 +55,14 @@ class GeminiProvider(LLMProvider):
                 contents=prompt,
                 config=config,
             )
+        except genai_errors.ClientError as exc:
+            if getattr(exc, "code", None) == 429:
+                # Daily quota exhausted — retrying won't help; surface immediately
+                raise GeminiQuotaError(
+                    f"Gemini daily quota exhausted ({exc}). "
+                    "Upgrade to a paid tier or wait until tomorrow."
+                ) from exc
+            raise RuntimeError(f"Gemini API error: {exc}") from exc
         except Exception as exc:
             raise RuntimeError(
                 "Gemini request failed. "

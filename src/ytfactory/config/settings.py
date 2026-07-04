@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     tavily_api_key: str = Field(default="")
     hf_token: str = Field(default="")
     groq_api_key: str = Field(default="")
+    anthropic_api_key: str = Field(default="")
+    anthropic_base_url: str = Field(default="https://api.anthropic.com")
 
     # ------------------------------------------------------------------
     # Providers
@@ -33,6 +35,7 @@ class Settings(BaseSettings):
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
 
     groq_model: str = "llama-3.1-8b-instant"
+    anthropic_model: str = "claude-haiku-4-5"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
