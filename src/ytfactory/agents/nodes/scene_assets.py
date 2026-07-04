@@ -13,59 +13,59 @@ from ytfactory.providers.image.factory import get_image_provider
 from ytfactory.providers.tts.factory import get_tts_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 
-# Default negative prompt for image quality
 _NEGATIVE_PROMPT = (
     "text, watermark, logo, words, letters, numbers, captions, subtitles, "
     "blurry, distorted, ugly, low quality, bad anatomy, duplicate, "
     "worst quality, overexposed, underexposed"
 )
 
-# Language → Edge TTS voice mapping
-_LANGUAGE_VOICES: dict[str, str] = {
-    "en": "en-US-AndrewNeural",
-    "en-US": "en-US-AndrewNeural",
-    "en-GB": "en-GB-RyanNeural",
-    "es": "es-ES-AlvaroNeural",
-    "fr": "fr-FR-HenriNeural",
-    "de": "de-DE-ConradNeural",
-    "hi": "hi-IN-MadhurNeural",
-    "mr": "mr-IN-ManoharNeural",
-    "ja": "ja-JP-KeitaNeural",
-    "zh": "zh-CN-YunxiNeural",
-    "pt": "pt-BR-AntonioNeural",
-    "ar": "ar-SA-HamedNeural",
-    "ru": "ru-RU-DmitryNeural",
-    "ko": "ko-KR-InJoonNeural",
-    "it": "it-IT-DiegoNeural",
-}
 
-
-def _get_voice(language: str) -> str:
-    return _LANGUAGE_VOICES.get(language, _LANGUAGE_VOICES["en"])
-
-
-def _get_audio_duration(path: Path) -> float:
-    """Return MP3 duration in seconds using mutagen."""
-    try:
-        from mutagen.mp3 import MP3
-        return MP3(str(path)).info.length
-    except Exception:
-        return 0.0
-
+# ── SRT helpers ───────────────────────────────────────────────────────────────
 
 def _fmt_time(seconds: float) -> str:
-    """Format seconds as SRT timestamp HH:MM:SS,mmm."""
+    """Format float seconds as SRT timestamp HH:MM:SS,mmm."""
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
     ms = int(round((seconds % 1) * 1000))
+    # Clamp ms to [0, 999] to avoid rounding to 1000
+    if ms >= 1000:
+        ms = 999
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _build_srt(narration: str, total_duration: float) -> str:
+def _build_srt_from_boundaries(
+    boundaries: list[dict],
+    words_per_line: int = 7,
+) -> str:
     """
-    Generate phrase-level SRT: one caption block every 6-8 words,
-    timed proportionally to word count so captions follow speech pace.
+    Build an SRT file from Edge TTS word boundary events.
+    Each block groups ~7 words and uses their real start/end timestamps —
+    so captions appear and disappear in exact sync with the spoken audio.
+    """
+    if not boundaries:
+        return ""
+
+    blocks: list[str] = []
+    i = 0
+    block_num = 1
+
+    while i < len(boundaries):
+        chunk = boundaries[i : i + words_per_line]
+        text = " ".join(b["word"] for b in chunk)
+        start = chunk[0]["start"]
+        end = chunk[-1]["end"]
+        blocks.append(f"{block_num}\n{_fmt_time(start)} --> {_fmt_time(end)}\n{text}\n")
+        block_num += 1
+        i += words_per_line
+
+    return "\n".join(blocks)
+
+
+def _build_srt_fallback(narration: str, total_duration: float) -> str:
+    """
+    Proportional-timing fallback when word boundaries aren't available.
+    Used by non-EdgeTTS providers.
     """
     words = narration.split()
     if not words:
@@ -74,27 +74,35 @@ def _build_srt(narration: str, total_duration: float) -> str:
     phrase_size = 7
     phrases = [words[i : i + phrase_size] for i in range(0, len(words), phrase_size)]
     total_words = len(words)
-
-    blocks = []
+    blocks: list[str] = []
     cursor = 0.0
 
-    for i, phrase_words in enumerate(phrases, start=1):
-        phrase_text = " ".join(phrase_words)
+    for idx, phrase_words in enumerate(phrases, start=1):
         phrase_duration = (len(phrase_words) / total_words) * total_duration
         end_time = cursor + phrase_duration
-        blocks.append(f"{i}\n{_fmt_time(cursor)} --> {_fmt_time(end_time)}\n{phrase_text}\n")
+        text = " ".join(phrase_words)
+        blocks.append(f"{idx}\n{_fmt_time(cursor)} --> {_fmt_time(end_time)}\n{text}\n")
         cursor = end_time
 
     return "\n".join(blocks)
 
 
+def _get_audio_duration(path: Path) -> float:
+    try:
+        from mutagen.mp3 import MP3
+        return MP3(str(path)).info.length
+    except Exception:
+        return 0.0
+
+
+# ── Main node ─────────────────────────────────────────────────────────────────
+
 def generate_scene_assets(state: VideoState) -> dict:
     """
     Process one scene (invoked in parallel via LangGraph Send API):
-      1. Generate image (idempotent — skip if PNG already exists)
-      2. Generate voice audio (idempotent)
-      3. Measure real audio duration
-      4. Generate phrase-level SRT caption
+      1. Generate image  (idempotent — skip if PNG already exists)
+      2. Generate voice  (streaming → captures word boundary events)
+      3. Build SRT from real word timestamps  (frame-perfect sync)
     Returns partial state updates merged by reducers.
     """
     scene = state["current_scene"]
@@ -121,10 +129,10 @@ def generate_scene_assets(state: VideoState) -> dict:
 
     errors: list[str] = []
 
-    # ── Generate image (idempotent) ───────────────────────────────────────
+    # ── 1. Generate image (idempotent) ────────────────────────────────────
     if not image_path.exists():
         try:
-            image_provider = get_image_provider(settings)
+            provider = get_image_provider(settings)
             request = ImageRequest(
                 prompt=visual_prompt,
                 output_path=image_path,
@@ -135,57 +143,69 @@ def generate_scene_assets(state: VideoState) -> dict:
             )
             for attempt in range(3):
                 try:
-                    image_provider.generate(request)
+                    provider.generate(request)
                     break
                 except Exception as exc:
                     if attempt == 2:
                         errors.append(f"Scene {index} image failed after 3 attempts: {exc}")
-                        logger.error("Scene {} image generation failed: {}", index, exc)
+                        logger.error("Scene {} image failed: {}", index, exc)
         except Exception as exc:
             errors.append(f"Scene {index} image provider error: {exc}")
     else:
         logger.info("Scene {} image already exists, skipping", index)
 
-    # ── Generate voice (idempotent) ───────────────────────────────────────
+    # ── 2. Generate voice + capture word boundaries ───────────────────────
+    boundaries: list[dict] = []
+
     if not audio_path.exists():
         try:
-            tts_provider = get_tts_provider(settings)
-            voice = _get_voice(language)
+            tts = get_tts_provider(settings)
             for attempt in range(3):
                 try:
-                    tts_provider.generate(
+                    _, boundaries = tts.generate_with_boundaries(
                         text=narration,
                         output_path=audio_path,
-                        voice=voice,
                         language=language,
                     )
                     break
                 except Exception as exc:
                     if attempt == 2:
                         errors.append(f"Scene {index} voice failed after 3 attempts: {exc}")
-                        logger.error("Scene {} voice generation failed: {}", index, exc)
+                        logger.error("Scene {} voice failed: {}", index, exc)
         except Exception as exc:
             errors.append(f"Scene {index} TTS provider error: {exc}")
     else:
         logger.info("Scene {} audio already exists, skipping", index)
 
-    # ── Measure real audio duration ───────────────────────────────────────
+    # ── 3. Determine real audio duration ─────────────────────────────────
     real_duration = estimated_duration
-    if audio_path.exists():
+    if boundaries:
+        # Duration from the last word boundary event (most accurate)
+        real_duration = boundaries[-1]["end"]
+    elif audio_path.exists():
         measured = _get_audio_duration(audio_path)
         if measured > 0.5:
             real_duration = measured
 
-    # ── Generate phrase-level SRT (always regenerate with real duration) ──
-    srt_content = _build_srt(narration, real_duration)
+    # ── 4. Build SRT ─────────────────────────────────────────────────────
+    if boundaries:
+        # Frame-perfect: every word appears at its exact spoken timestamp
+        srt_content = _build_srt_from_boundaries(boundaries)
+        method = "word-boundary"
+    else:
+        # Fallback: proportional estimate (non-EdgeTTS providers)
+        srt_content = _build_srt_fallback(narration, real_duration)
+        method = "proportional-estimate"
+
     srt_path.write_text(srt_content, encoding="utf-8")
 
     logger.info(
-        "Scene {} — image: {}, audio: {}s, srt: {} blocks",
+        "Scene {} — image:{} audio:{:.1f}s srt:{} blocks ({})",
         index,
         "✓" if image_path.exists() else "✗",
-        f"{real_duration:.1f}",
+        real_duration,
         srt_content.count("\n\n") + 1,
+        method,
     )
 
     return {
