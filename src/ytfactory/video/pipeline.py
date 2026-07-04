@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from rich.progress import track
@@ -10,7 +11,7 @@ from .ffmpeg import FFmpegRenderer
 
 
 class VideoPipeline:
-    """Render all scenes into individual YouTube-ready videos."""
+    """Render all scenes into individual clips, then concatenate into final.mp4."""
 
     def __init__(self):
         self.renderer = FFmpegRenderer()
@@ -48,6 +49,8 @@ class VideoPipeline:
         print(
             f"\nRendering {len(scenes)} video scenes...\n"
         )
+
+        scene_clips: list[Path] = []
 
         for scene in track(
             scenes,
@@ -88,11 +91,38 @@ class VideoPipeline:
             if not subtitle.exists():
                 raise FileNotFoundError(subtitle)
 
-            self.renderer.render(
-                image=image,
-                audio=audio,
-                subtitle=subtitle,
-                output=output,
-            )
+            if not output.exists():
+                self.renderer.render(
+                    image=image,
+                    audio=audio,
+                    subtitle=subtitle,
+                    output=output,
+                )
 
-        print("\n✓ All videos rendered successfully.\n")
+            scene_clips.append(output)
+
+        print("\n✓ All scenes rendered. Concatenating final video...\n")
+
+        final_video = output_dir / "final.mp4"
+        concat_list = output_dir / "concat_list.txt"
+
+        concat_list.write_text(
+            "\n".join(f"file '{clip.resolve()}'" for clip in scene_clips),
+            encoding="utf-8",
+        )
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_list),
+                "-c", "copy",
+                str(final_video),
+            ],
+            check=True,
+        )
+
+        concat_list.unlink()
+
+        print(f"✓ Final video: {final_video}\n")

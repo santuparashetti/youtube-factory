@@ -81,6 +81,18 @@ class ImagePipeline:
                 height=self._settings.image_height,
             )
 
+            if output_path.exists():
+                print(f"[{index}/{total}] {filename} (skip)")
+                manifest.images.append(
+                    ImageArtifact(
+                        scene_index=scene["index"],
+                        prompt=scene["visual_prompt"],
+                        filename=filename,
+                        path=output_path,
+                    )
+                )
+                continue
+
             print(
                 f"[{index}/{total}] {filename}"
             )

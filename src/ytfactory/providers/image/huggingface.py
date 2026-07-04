@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 
 from huggingface_hub import InferenceClient
@@ -15,13 +16,14 @@ from .base import ImageProvider
 
 
 class HuggingFaceImageProvider(ImageProvider):
-    """Hugging Face image generation provider."""
+    """Hugging Face image generation provider (InferenceClient, provider=auto)."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
 
         self._client = InferenceClient(
-            token=settings.hf_token,
+            provider="hf-inference",  # HuggingFace's own free serverless inference
+            api_key=os.environ.get("HF_TOKEN", settings.hf_token),
         )
 
     def generate(
@@ -31,16 +33,19 @@ class HuggingFaceImageProvider(ImageProvider):
 
         start = time.perf_counter()
 
-        enriched_prompt = (
-            "Ultra realistic cinematic YouTube documentary style, "
-            "16:9 landscape composition, wide shot, 1920x1080 framing, "
-            "professional photography, sharp focus, high detail. "
-            + request.prompt
-        )
+        # Claude-generated prompts are already highly specific — pass through directly.
+        # enriched_prompt = (
+        #     "Ultra realistic cinematic YouTube documentary style, "
+        #     "16:9 landscape composition, wide shot, 1920x1080 framing, "
+        #     "professional photography, sharp focus, high detail. "
+        #     + request.prompt
+        # )
 
         kwargs: dict = {
-            "prompt": enriched_prompt,
+            "prompt": request.prompt,
             "model": self._settings.hf_image_model,
+            "width": request.width,
+            "height": request.height,
         }
 
         if request.negative_prompt:

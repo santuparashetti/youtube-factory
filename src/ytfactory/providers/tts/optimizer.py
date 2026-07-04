@@ -1,0 +1,240 @@
+"""
+Speech Optimizer — converts written narration into spoken narration.
+
+Sits between Scene Planner and TTS. Receives the raw narration string from
+scene-plan.json and returns optimized text with punctuation-based pauses.
+
+Output format: phrases separated by \\n\\n.
+  edge-tts _prepare_text() converts \\n+ → ". " (sentence-end pause),
+  so each \\n\\n separator becomes an audible silence without any SSML.
+
+Never produces SSML. Always returns clean Unicode text.
+"""
+
+from __future__ import annotations
+
+import re
+
+from .emotion import Emotion, classify_scene, split_sentences
+
+
+# Split BEFORE subordinating conjunctions (they open a new dependent clause).
+_SUBORD_RE = re.compile(
+    r'\s+(?=\b(?:because|although|though|while|when|where|unless|since|whereas)\b)',
+    re.IGNORECASE,
+)
+
+# Split at comma + coordinating conjunction (e.g. "force, and we don't").
+# Requiring a comma avoids splitting "bread and butter" type phrases.
+_COORD_RE = re.compile(
+    r',\s+(?=\b(?:and|but|or|so|yet)\b)',
+    re.IGNORECASE,
+)
+
+# Question/curiosity openers that benefit from a beat after the opening phrase.
+_QUESTION_OPENERS = (
+    "what if",
+    "have you ever",
+    "imagine",
+    "could it be",
+    "what would",
+    "what does",
+    "how does",
+    "why do",
+    "why is",
+    "consider",
+    "think about",
+    "ask yourself",
+)
+
+# Function words that look awkward as the last word of a phrase.
+_NO_TRAIL = frozenset({
+    "a", "an", "the", "in", "on", "at", "by", "of", "to",
+    "and", "or", "but", "is", "are", "was", "were",
+})
+
+
+class SpeechOptimizer:
+    """
+    Transforms written narration into speech-ready text.
+
+    Responsibilities:
+    - Split long sentences into short spoken phrases (≤ 8–13 words by emotion).
+    - Insert natural pauses via punctuation (commas, periods, paragraph breaks).
+    - Apply curiosity/wonder emphasis: ellipsis beat after question openers.
+    - Preserve meaning, timestamps, and scene mapping completely.
+
+    Provider-independent: output is always clean text. The `supports_ssml`
+    flag is reserved for future providers (Azure, OpenAI TTS) that can use
+    SSML for richer control — the optimizer interface stays stable.
+    """
+
+    def optimize(
+        self,
+        text: str,
+        style: str | None = None,
+        scene_position: float = 0.5,
+        supports_ssml: bool = False,
+    ) -> str:
+        """
+        Convert written narration into spoken narration.
+
+        Args:
+            text: Raw narration from scene-plan.json.
+            style: Style hint ("spiritual", "documentary", …). Reserved.
+            scene_position: 0.0 = first scene, 1.0 = last scene.
+                            Used by the emotion classifier for arc bias.
+            supports_ssml: Reserved for future SSML-capable providers.
+
+        Returns:
+            Optimized text with \\n\\n phrase breaks. Empty input is returned
+            unchanged.
+        """
+        if not text or not text.strip():
+            return text
+
+        profile = classify_scene(text, scene_position)
+        emotion = profile.emotion
+        limit = _phrase_limit(emotion)
+
+        sentences = split_sentences(text)
+        if not sentences:
+            return text
+
+        phrases: list[str] = []
+        for sent in sentences:
+            phrases.extend(_process_sentence(sent, limit, emotion))
+
+        return "\n\n".join(p for p in phrases if p.strip())
+
+
+# ── Internal helpers (module-level functions keep the class thin) ─────────────
+
+def _phrase_limit(emotion: Emotion) -> int:
+    """Maximum words per spoken phrase. Shorter = more dramatic pauses."""
+    _LIMITS: dict[Emotion, int] = {
+        Emotion.URGENCY:       7,
+        Emotion.REVELATION:    8,
+        Emotion.MYSTERY:       9,
+        Emotion.SADNESS:       9,
+        Emotion.REFLECTION:    9,
+        Emotion.DETERMINATION: 10,
+        Emotion.CURIOSITY:     10,
+        Emotion.WONDER:        10,
+        Emotion.COMPASSION:    11,
+        Emotion.AWE:           11,
+        Emotion.HOPE:          13,
+        Emotion.PEACE:         13,
+    }
+    return _LIMITS.get(emotion, 10)
+
+
+def _process_sentence(sentence: str, limit: int, emotion: Emotion) -> list[str]:
+    """
+    Split one sentence into speakable phrases of at most `limit` words.
+
+    Strategy (in priority order):
+    1. If already short enough → apply opener emphasis and return.
+    2. Split at comma + coordinating conjunction ("…force, and we…").
+    3. Split at subordinating conjunction ("…because it…").
+    4. Mechanical word-count split (guaranteed to terminate).
+
+    Each step recurses so that parts produced by step 2/3 go through the
+    same splitting if they are still too long.
+    """
+    words = sentence.split()
+
+    # ── Base case ─────────────────────────────────────────────────────────
+    if len(words) <= limit:
+        return [_apply_opener(sentence, emotion)]
+
+    # ── Pass 1: comma + coordinator ───────────────────────────────────────
+    parts = _COORD_RE.split(sentence)
+    if len(parts) == 1:
+        # ── Pass 2: subordinating conjunction ─────────────────────────────
+        parts = _SUBORD_RE.split(sentence)
+
+    if len(parts) > 1:
+        # Keep only non-trivial parts (≥ 3 words)
+        valid = [p.strip() for p in parts if len(p.split()) >= 3]
+        if len(valid) > 1:
+            result: list[str] = []
+            for i, part in enumerate(valid):
+                # Non-final parts must end with punctuation for natural flow
+                if i < len(valid) - 1 and part and part[-1] not in ".!?,;:":
+                    part += ","
+                # Recurse — opener ellipsis is applied inside the base case
+                result.extend(_process_sentence(part, limit, emotion))
+            return result
+
+    # ── Pass 3: mechanical fallback ───────────────────────────────────────
+    return _mechanical_split(sentence, limit, emotion)
+
+
+def _mechanical_split(text: str, limit: int, emotion: Emotion) -> list[str]:
+    """
+    Hard split at word-count boundary with three quality guards:
+    - Don't end a phrase on a dangling function word (preposition, article).
+    - Absorb trailing fragments shorter than 3 words into the current chunk
+      rather than leaving them orphaned (e.g. avoids "and fall." alone).
+    - Append a comma to non-final phrases that lack terminal punctuation.
+    """
+    words = text.split()
+    chunks: list[str] = []
+    i = 0
+
+    while i < len(words):
+        end = min(i + limit, len(words))
+
+        # If the remainder after this chunk would be a very short fragment,
+        # absorb it now rather than leaving it orphaned on the next pass.
+        remaining = len(words) - end
+        if 0 < remaining < 3:
+            end = len(words)
+
+        # Walk back from the boundary to avoid orphaned function words.
+        while end > i + 3 and words[end - 1].lower().rstrip(".,;") in _NO_TRAIL:
+            end -= 1
+
+        chunk = " ".join(words[i:end])
+
+        # Add comma to non-final phrases that lack terminal punctuation.
+        if end < len(words) and chunk and chunk[-1] not in ".!?,;:":
+            chunk += ","
+
+        chunks.append(_apply_opener(chunk, emotion))
+        i = end
+
+    return chunks
+
+
+def _apply_opener(phrase: str, emotion: Emotion) -> str:
+    """
+    Add a rhetorical beat after question openers in CURIOSITY/WONDER scenes.
+
+    Example:
+        "What if the life you're living isn't actually yours?"
+        → "What if...\n\nthe life you're living isn't actually yours?"
+
+    The "...\n\n" becomes ". " in edge-tts _prepare_text(), creating an
+    audible pause between "What if." and the main thought.
+
+    Only applied when:
+    - Emotion is CURIOSITY or WONDER.
+    - Phrase starts with a recognised question opener.
+    - There are at least 3 meaningful words after the opener.
+    """
+    if emotion not in (Emotion.CURIOSITY, Emotion.WONDER):
+        return phrase
+
+    low = phrase.lower()
+    for opener in _QUESTION_OPENERS:
+        if low.startswith(opener):
+            tail = phrase[len(opener):].lstrip()
+            # Only split if the rest of the phrase is substantial
+            if len(tail.split()) >= 3:
+                head = phrase[: len(opener)]
+                return head + "...\n\n" + tail
+            break
+
+    return phrase

@@ -44,13 +44,17 @@ class PollinationsImageProvider(ImageProvider):
 
         start = time.perf_counter()
 
-        # Build the enriched prompt (same style prefix as HuggingFace provider)
-        enriched_prompt = (
-            "Ultra realistic cinematic YouTube documentary style, "
-            "16:9 landscape composition, wide shot, 1920x1080 framing, "
-            "professional photography, sharp focus, high detail. "
-            + request.prompt
-        )
+        # Claude-generated prompts are already highly specific — pass them through directly.
+        # The prefix below was useful for short/vague prompts but overrides specific
+        # camera/composition choices baked into Claude's visual prompts (e.g. "wide shot"
+        # conflicts with a scene written for a close-up or mid-frame composition).
+        # enriched_prompt = (
+        #     "Ultra realistic cinematic YouTube documentary style, "
+        #     "16:9 landscape composition, wide shot, 1920x1080 framing, "
+        #     "professional photography, sharp focus, high detail. "
+        #     + request.prompt
+        # )
+        enriched_prompt = request.prompt
 
         params: dict[str, str | int] = {
             "width": request.width,

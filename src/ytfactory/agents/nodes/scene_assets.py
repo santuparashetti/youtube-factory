@@ -11,7 +11,10 @@ from ytfactory.config.settings import Settings
 from ytfactory.domain.image import ImageRequest
 from ytfactory.providers.image.factory import get_image_provider
 from ytfactory.providers.tts.factory import get_tts_provider
+from ytfactory.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.shared.constants import WORKSPACE_DIR
+
+_optimizer = SpeechOptimizer()
 
 _NEGATIVE_PROMPT = (
     "text, watermark, logo, words, letters, numbers, captions, subtitles, "
@@ -174,10 +177,22 @@ def generate_scene_assets(state: VideoState) -> dict:
     if not audio_path.exists():
         try:
             tts = get_tts_provider(settings)
+
+            # Speech Optimizer: restructure written narration into spoken phrases.
+            # scene_position drives emotional arc bias (0.0 = first, 1.0 = last).
+            all_scenes = state.get("scene_plan", [])
+            total_scenes = len(all_scenes)
+            scene_position = (index - 1) / max(total_scenes - 1, 1) if total_scenes > 1 else 0.5
+            optimized_narration = _optimizer.optimize(
+                narration,
+                style=style,
+                scene_position=scene_position,
+            )
+
             for attempt in range(3):
                 try:
                     _, boundaries = tts.generate_with_boundaries(
-                        text=narration,
+                        text=optimized_narration,
                         output_path=audio_path,
                         language=language,
                         style=style,

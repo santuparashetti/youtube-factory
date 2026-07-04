@@ -8,6 +8,7 @@ from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 
+from ytfactory.agents.prompts.branding import get_closing, get_transition, get_welcome
 from ytfactory.agents.prompts.script_enhancer import build_enhance_script_prompt
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
@@ -42,7 +43,14 @@ def script_enhancer_node(state: VideoState) -> dict:
     raw_words = len(raw_script.split())
     console.print(f"  [dim]Input:[/dim] {raw_words} words → enhancing for professional voiceover")
 
-    prompt = build_enhance_script_prompt(topic, raw_script, style)
+    prompt = build_enhance_script_prompt(
+        topic,
+        raw_script,
+        style,
+        welcome=get_welcome(),
+        closing=get_closing(),
+        topic_transition=get_transition(),
+    )
     response = llm.generate(prompt, temperature=0.6)
     enhanced_script = response.text.strip()
 

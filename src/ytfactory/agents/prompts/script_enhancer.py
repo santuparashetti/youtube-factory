@@ -45,7 +45,7 @@ LANGUAGE: Plain, direct, occasionally playful. Define jargon the moment you use 
 }
 
 _ENHANCER_TEMPLATE = """\
-You are a master scriptwriter for cinematic YouTube documentaries.
+You are a master scriptwriter for cinematic YouTube documentaries for the Atma Theory channel.
 Your specialty: taking a raw seed script and growing it into a full, deeply moving narration.
 
 TOPIC: {topic}
@@ -54,6 +54,35 @@ TARGET WORD COUNT: approximately {target_words} words
 (At a slow, meditative narration pace of ~130 wpm with natural pauses)
 
 {voice_guide}
+
+───────────────────────────────────────────────────────────────
+ATMA THEORY BRAND STRUCTURE (mandatory — weave in naturally)
+───────────────────────────────────────────────────────────────
+The finished script must follow this arc:
+
+1. HOOK — open with a compelling question, uncomfortable truth, or vivid scene.
+
+2. WELCOME — immediately after the hook, flow naturally into this exact line:
+     "{welcome}"
+   Write 1-2 sentences that bridge from the hook to the welcome seamlessly.
+   The welcome must feel like a continuation of the opening thought.
+
+3. TOPIC TRANSITION — one sentence moving into the subject, starting with:
+     "{topic_transition}..."
+
+4. MAIN CONTENT — the full exploration. Expand every idea deeply.
+
+5. REFLECTION — draw the insight back to the listener's own life.
+
+6. CALL TO ACTION (near the end, soft and conversational):
+     "If this perspective helped you see life a little differently, \
+consider joining us for the next journey."
+
+7. CLOSING — end with this exact phrase, written so it lands with quiet impact:
+     "{closing}"
+
+Brand voice: calm, reflective, compassionate, wise, conversational, cinematic.
+Never: preachy, sales-driven, overly dramatic, or promotional.
 
 ───────────────────────────────────────────────────────────────
 YOUR PRIMARY MISSION: EXPAND, THEN ELEVATE
@@ -113,7 +142,16 @@ def build_enhance_script_prompt(
     script: str,
     style: str | None = None,
     target_minutes: int = 6,
+    welcome: str | None = None,
+    closing: str | None = None,
+    topic_transition: str | None = None,
 ) -> str:
+    from ytfactory.agents.prompts.branding import (
+        get_closing,
+        get_transition,
+        get_welcome,
+    )
+
     target_words = int(target_minutes * 130)  # 130 wpm baseline
     style_label = style or "cinematic documentary"
     voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
@@ -128,5 +166,8 @@ def build_enhance_script_prompt(
         target_max=_TARGET_MAX,
         target_words=target_words,
         voice_guide=voice_guide,
+        welcome=welcome or get_welcome(),
+        closing=closing or get_closing(),
+        topic_transition=topic_transition or get_transition(),
         script=script,
     )
