@@ -6,6 +6,11 @@ from pathlib import Path
 
 from rich.progress import track
 
+from ytfactory.cinematic.effects import EffectsPlanner
+from ytfactory.cinematic.motion import MotionPlanner
+from ytfactory.cinematic.transitions import TransitionPlanner
+from ytfactory.config.settings import Settings
+
 from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
 
@@ -15,6 +20,11 @@ class VideoPipeline:
 
     def __init__(self):
         self.renderer = FFmpegRenderer()
+        settings = Settings()
+        self._profile = settings.render_profile
+        self._motion_planner     = MotionPlanner()
+        self._transition_planner = TransitionPlanner()
+        self._effects_planner    = EffectsPlanner()
 
     def run(
         self,
@@ -44,10 +54,16 @@ class VideoPipeline:
         ) as f:
             scenes = json.load(f)["scenes"]
 
+        # Apply cinematic motion, transitions, and effects (profile from Settings)
+        scenes = self._motion_planner.plan(scenes, profile=self._profile)
+        scenes = self._transition_planner.plan(scenes, profile=self._profile)
+        scenes = self._effects_planner.plan(scenes, profile=self._profile)
+
         output_dir = video_directory(project)
 
         print(
-            f"\nRendering {len(scenes)} video scenes...\n"
+            f"\nRendering {len(scenes)} video scenes "
+            f"[profile: {self._profile}]...\n"
         )
 
         scene_clips: list[Path] = []
@@ -57,13 +73,26 @@ class VideoPipeline:
             description="Rendering",
         ):
 
-            index = scene["index"]
+            index         = scene["index"]
+            duration_hint = float(scene.get("duration_seconds", 10))
+            motion_spec   = scene.get("motion")
+            t_in          = scene.get("transition_in")
+            t_out         = scene.get("transition_out")
+            effect_spec   = scene.get("effects")
 
-            image = (
-                project_dir
-                / "images"
-                / f"scene-{index:03d}.png"
-            )
+            # Asset scenes reference their asset_path directly instead of
+            # an AI-generated image in the images/ directory.
+            if scene.get("scene_type") == "asset":
+                asset_path = Path(scene.get("asset_path", ""))
+                if not asset_path.is_absolute():
+                    asset_path = Path.cwd() / asset_path
+                image = asset_path
+            else:
+                image = (
+                    project_dir
+                    / "images"
+                    / f"scene-{index:03d}.png"
+                )
 
             audio = (
                 project_dir
@@ -97,6 +126,11 @@ class VideoPipeline:
                     audio=audio,
                     subtitle=subtitle,
                     output=output,
+                    duration_hint=duration_hint,
+                    motion_spec=motion_spec,
+                    transition_in=t_in,
+                    transition_out=t_out,
+                    effect_spec=effect_spec,
                 )
 
             scene_clips.append(output)

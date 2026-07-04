@@ -33,6 +33,7 @@ def script_enhancer_node(state: VideoState) -> dict:
     project_id = state["project_id"]
     style = state.get("style")
     raw_script = state.get("script_md", "")
+    target_minutes: int = state.get("target_minutes", 7)
 
     style_label = f" [{style}]" if style else ""
     console.print(
@@ -41,12 +42,17 @@ def script_enhancer_node(state: VideoState) -> dict:
     )
 
     raw_words = len(raw_script.split())
-    console.print(f"  [dim]Input:[/dim] {raw_words} words → enhancing for professional voiceover")
+    target_words = int(target_minutes * 130)
+    console.print(
+        f"  [dim]Input:[/dim] {raw_words} words → target {target_minutes} min "
+        f"(~{target_words} words)"
+    )
 
     prompt = build_enhance_script_prompt(
         topic,
         raw_script,
         style,
+        target_minutes=target_minutes,
         welcome=get_welcome(),
         closing=get_closing(),
         topic_transition=get_transition(),

@@ -135,8 +135,22 @@ def generate_scene_assets(state: VideoState) -> dict:
 
     errors: list[str] = []
 
-    # ── 1. Generate image (idempotent) ────────────────────────────────────
-    if skip_images:
+    # ── 1. Resolve image — asset bypass or AI generation ─────────────────
+    scene_type: str = scene.get("scene_type", "generated_image")
+
+    if scene_type == "asset":
+        # Asset scenes use a pre-designed local file — no provider, no credits.
+        asset_path = Path(scene.get("asset_path", ""))
+        if not asset_path.is_absolute():
+            asset_path = Path.cwd() / asset_path
+        if asset_path.exists():
+            # Point image_path at the asset so the renderer picks it up transparently.
+            image_path = asset_path
+            logger.info("Scene {} — asset scene: {}", index, asset_path)
+        else:
+            errors.append(f"Scene {index}: asset not found: {scene.get('asset_path')} — scene will be skipped")
+            logger.error("Scene {} asset missing: {}", index, asset_path)
+    elif skip_images:
         logger.info("Scene {} — image generation skipped (--no-images mode)", index)
     elif not image_path.exists():
         # Stagger parallel requests: scene N waits N*3 seconds before hitting

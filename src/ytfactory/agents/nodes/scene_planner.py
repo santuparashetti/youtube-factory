@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA
 from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
@@ -19,6 +20,17 @@ from ytfactory.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
+
+# Asset configuration for Atma Theory brand card
+_BRAND_ASSET_PATH = "assets/branding/atma-theory-brand.png"
+_BRAND_ANIMATION = "slow_zoom"
+
+# Closing phrases that should trigger an asset scene instead of AI image generation.
+# Derived from branding.py so detection automatically tracks new closing variants.
+_CLOSING_TRIGGERS: frozenset[str] = frozenset(
+    phrase.lower().strip().rstrip(".")
+    for phrase in CLOSING_VARIATIONS + [SOFT_CTA]
+)
 
 console = Console()
 
@@ -98,6 +110,40 @@ def _split_script_to_scenes(script: str, target_words: int = _TARGET_WORDS_PER_S
             bucket_words = 0
 
     _flush()
+    return scenes
+
+
+def _is_closing_scene(narration: str) -> bool:
+    """
+    Return True if this narration belongs to the Atma Theory closing section.
+
+    Matches any scene whose text is a substring of (or contains) a known
+    closing phrase, or whose text is very short (≤ 8 words) and appears
+    only at the tail of the script — handled by the caller's tail-scan logic.
+    """
+    low = narration.lower().strip().rstrip(".")
+    for trigger in _CLOSING_TRIGGERS:
+        if trigger in low or low in trigger:
+            return True
+    return False
+
+
+def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
+    """
+    Post-process the scene list to detect Atma Theory closing scenes and
+    mark them as asset scenes.
+
+    Scans backwards from the end (up to 3 scenes) so that the brand card
+    appears for the CTA and closing phrase without touching main content.
+    Returns the same list, mutated in-place.
+    """
+    tail = min(3, len(scenes))
+    for scene in scenes[-tail:]:
+        if _is_closing_scene(scene.get("narration", "")):
+            scene["scene_type"] = "asset"
+            scene["asset_path"] = _BRAND_ASSET_PATH
+            scene["animation"] = _BRAND_ANIMATION
+            scene["visual_prompt"] = ""
     return scenes
 
 
@@ -321,6 +367,16 @@ def scene_planner_node(state: VideoState) -> dict:
     console.print("  [cyan]→[/cyan] Phase 1: splitting script into scenes...")
     scenes: list[dict] = _split_script_to_scenes(script_md)
 
+    # Detect Atma Theory closing scenes and mark them as asset scenes so that
+    # image generation is skipped and the brand card is used instead.
+    _mark_asset_scenes(scenes)
+    asset_count = sum(1 for s in scenes if s.get("scene_type") == "asset")
+    if asset_count:
+        console.print(
+            f"  [green]✓[/green] {asset_count} closing scene(s) marked as asset scenes "
+            f"[dim]({_BRAND_ASSET_PATH})[/dim]"
+        )
+
     total = sum(s.get("duration_seconds", 0) for s in scenes)
     narration_words = sum(len(s.get("narration", "").split()) for s in scenes)
     console.print(
@@ -330,16 +386,19 @@ def scene_planner_node(state: VideoState) -> dict:
 
     # ── Phase 2: Visual prompts — use the configured LLM provider ───────────
     # Batch size: Claude/Gemini handle 15 scenes cleanly; Groq needs 7 to avoid truncation.
+    # Asset scenes are excluded — they have no visual_prompt and skip image generation.
     _VP_BATCH = 7 if settings.llm_provider.lower() == "groq" else 15
+    generated_scenes = [s for s in scenes if s.get("scene_type", "generated_image") == "generated_image"]
     console.print(
         f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
-        f"[dim]({settings.llm_provider}, batches of {_VP_BATCH})[/dim]..."
+        f"[dim]({settings.llm_provider}, batches of {_VP_BATCH}, "
+        f"{len(generated_scenes)}/{len(scenes)} scenes)[/dim]..."
     )
     vp_map: dict[int, str] = {}
     visual_diary: list[str] = []  # cross-batch continuity: short summaries of prompts already written
 
-    for batch_start in range(0, len(scenes), _VP_BATCH):
-        batch = scenes[batch_start : batch_start + _VP_BATCH]
+    for batch_start in range(0, len(generated_scenes), _VP_BATCH):
+        batch = generated_scenes[batch_start : batch_start + _VP_BATCH]
         batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
         prompt = build_visual_prompts_prompt(batch, style, prev_context=visual_diary or None)
         vp_response = llm.generate(prompt, temperature=0.35)
@@ -417,7 +476,8 @@ def scene_planner_node(state: VideoState) -> dict:
     table.add_column("Narration preview", max_width=50)
     for s in scenes:
         narration_preview = s["narration"][:60] + "…" if len(s["narration"]) > 60 else s["narration"]
-        table.add_row(str(s["index"]), s["title"], f"{s['duration_seconds']}s", narration_preview)
+        scene_label = s["title"] + (" [asset]" if s.get("scene_type") == "asset" else "")
+        table.add_row(str(s["index"]), scene_label, f"{s['duration_seconds']}s", narration_preview)
     console.print(table)
     console.print(Panel(
         f"[green]Scene plan complete[/green] — {len(scenes)} scenes, ~{total/60:.1f} minutes",

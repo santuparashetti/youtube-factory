@@ -74,6 +74,20 @@ class ImagePipeline:
 
             output_path = output_dir / filename
 
+            # Asset scenes skip AI image generation entirely.
+            if scene.get("scene_type") == "asset":
+                asset_path = Path(scene.get("asset_path", ""))
+                print(f"[{index}/{total}] {filename} (asset — skipping generation)")
+                manifest.images.append(
+                    ImageArtifact(
+                        scene_index=scene["index"],
+                        prompt="",
+                        filename=filename,
+                        path=asset_path if asset_path.exists() else output_path,
+                    )
+                )
+                continue
+
             request = ImageRequest(
                 prompt=scene["visual_prompt"],
                 output_path=output_path,

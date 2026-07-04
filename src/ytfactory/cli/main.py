@@ -15,7 +15,7 @@ from ytfactory.voice.cli import generate_voice
 
 app = typer.Typer(
     help="YouTube Factory CLI",
-    no_args_is_help=True,
+    no_args_is_help=False,   # wizard launches instead of help when no args given
 )
 
 app.command(name="doctor")(doctor)
@@ -28,6 +28,14 @@ app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="render")(render)
 app.command(name="build")(build)
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """YouTube Factory — run without arguments to open the interactive wizard."""
+    if ctx.invoked_subcommand is None:
+        from ytfactory.cli.wizard import run_wizard
+        run_wizard()
 
 
 @app.command(name="run")
@@ -52,6 +60,10 @@ def run(
         False, "--no-images",
         help="Skip image generation. Review IMAGE_PROMPTS.md, generate images manually, then re-run.",
     ),
+    target_minutes: int = typer.Option(
+        7, "--target-minutes", "-t",
+        help="Target narration duration in minutes (5-10). Drives script enhancer word count.",
+    ),
 ):
     """
     Run the full agentic video production pipeline.
@@ -64,6 +76,7 @@ def run(
     Examples:
         ytfactory run "History of Shivaji" --auto
         ytfactory run "The Silent Force" --script my_script.md --style spiritual --auto
+        ytfactory run "The Silent Force" --script my_script.md --style spiritual --target-minutes 8 --auto
         ytfactory run "The Silent Force" --script my_script.md --style spiritual --no-images --auto
         ytfactory run "How Semiconductors Work" --language en --auto
         ytfactory run "Topic" --project existing-project-id
@@ -78,6 +91,7 @@ def run(
         script_path=script,
         style=style,
         no_images=no_images,
+        target_minutes=target_minutes,
     )
 
 
