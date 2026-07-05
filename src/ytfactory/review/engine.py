@@ -22,6 +22,9 @@ from ytfactory.review.models import ReviewReport, SceneReview
 from ytfactory.review.rca.config import RCAConfig
 from ytfactory.review.rca.engine import RootCauseAnalysisEngine
 from ytfactory.review.rca.reporter import RCAReporter
+from ytfactory.review.scoring.config import QualityScoringConfig
+from ytfactory.review.scoring.engine import QualityScoringEngine
+from ytfactory.review.scoring.reporter import QualityScoringReporter
 from ytfactory.review.stages.asset_integrity import AssetIntegrityStage
 from ytfactory.review.stages.content import ContentReviewStage
 from ytfactory.review.stages.production import ProductionQualityStage
@@ -49,10 +52,12 @@ class VideoQualityReviewEngine:
         config: ReviewConfig | None = None,
         validation_config: ValidationRulesConfig | None = None,
         rca_config: RCAConfig | None = None,
+        scoring_config: QualityScoringConfig | None = None,
     ) -> None:
         self._config = config or ReviewConfig()
         self._val_config = validation_config or ValidationRulesConfig()
         self._rca_config = rca_config or RCAConfig()
+        self._scoring_config = scoring_config or QualityScoringConfig()
         self._stages = [
             AssetIntegrityStage(self._config),
             TimelineReviewStage(self._config),
@@ -114,6 +119,11 @@ class VideoQualityReviewEngine:
         rca_report = rca_engine.analyze(project_dir, scenes, val_report, context)
         RCAReporter().write(rca_report)
 
+        # ── Quality Scoring Engine V1 ─────────────────────────────────────
+        score_engine = QualityScoringEngine(self._scoring_config)
+        score_report = score_engine.score(project_dir, scenes, val_report, rca_report, context)
+        QualityScoringReporter().write(score_report)
+
         # ── PASS / FAIL ───────────────────────────────────────────────────
         has_critical = bool(all_errors)
         if self._config.fail_on_warnings:
@@ -148,6 +158,8 @@ class VideoQualityReviewEngine:
             processing_time_seconds=round(elapsed, 3),
             validation_report=val_report.to_dict(),
             rca_report=rca_report.to_dict(),
+            quality_score=score_report.overall_score,
+            quality_score_report=score_report.to_dict(),
         )
 
         return report

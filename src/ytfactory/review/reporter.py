@@ -5,11 +5,12 @@ Produces:
   - scene-review.json — per-scene detail
   - review-debug.json — full machine-readable diagnostics
 
-Stubs (written by future modules):
-  - quality-score.json
+Stub (written by a future module):
   - engine-feedback.json
 
 Implemented (written by dedicated reporters, not stubs):
+  - quality-score.json / quality-report.md / score-breakdown.json /
+    score-history.json — written by QualityScoringReporter
   - root-cause-report.md / root-cause.json / engine-owner-summary.json /
     recurring-issues.json — written by RCAReporter
 """
@@ -21,7 +22,6 @@ from pathlib import Path
 
 from ytfactory.review.artifacts import (
     engine_feedback_path,
-    quality_score_path,
     review_debug_path,
     review_directory,
     review_report_path,
@@ -150,7 +150,7 @@ class ReviewReporter:
             "",
             "| Module | Status | Output file |",
             "|--------|--------|-------------|",
-            "| Quality Scoring Engine V1 | _not implemented_ | `quality-score.json` |",
+            "| Quality Scoring Engine V1 | ✅ implemented | `quality-score.json`, `quality-report.md`, `score-breakdown.json`, `score-history.json` |",
             "| Root Cause Analysis Engine V1 | ✅ implemented | `root-cause-report.md`, `root-cause.json`, `engine-owner-summary.json`, `recurring-issues.json` |",
             "| Engine Feedback Loop V1 | _not implemented_ | `engine-feedback.json` |",
             "| Auto Remediation Engine V1 | _not implemented_ | — |",
@@ -222,10 +222,7 @@ class ReviewReporter:
             "message": "This file will be populated by the corresponding V1 engine.",
         }
 
-        quality_score_path(report.project_id).write_text(
-            json.dumps({**stub_meta, "engine": "Quality Scoring Engine V1"}, indent=2),
-            encoding="utf-8",
-        )
+        # quality-score.json is now written by QualityScoringReporter (not a stub)
         # root-cause-report.json is now written by RCAReporter (not a stub)
         engine_feedback_path(report.project_id).write_text(
             json.dumps({**stub_meta, "engine": "Engine Feedback Loop V1"}, indent=2),

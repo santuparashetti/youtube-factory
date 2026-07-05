@@ -69,6 +69,8 @@ Each production stage is a self-contained module under `src/ytfactory/<stage>/` 
 
 `BuildPipeline` (`build/pipeline.py`) chains all stages in order: scenes → images → voice → captions → video → review.
 
+> **Gotcha:** `.gitignore` contains `build/` which inadvertently matches `src/ytfactory/build/`. Use `git add -f src/ytfactory/build/` when tracking changes there.
+
 ### Provider System
 
 Business logic never imports a concrete provider directly — it calls a factory function (`get_llm_provider`, `get_image_provider`, etc.) that reads `Settings` and dispatches via `match`:
@@ -96,11 +98,47 @@ workspace/jobs/<project-id>/
 ├── audio/             # scene-001.mp3 …
 ├── subtitles/         # scene-001.srt …
 ├── video/             # scene-001.mp4 … + final.mp4
-├── review/            # review-report.md, scene-review.json, review-debug.json
+├── review/            # All quality gate outputs (see below)
 └── publish/
 ```
 
 `scene-plan.json` is the central artifact: every downstream stage (images, voice, captions, video) reads `scenes[].visual_prompt`, `scenes[].narration`, and `scenes[].duration_seconds` from it.
+
+### Review Layer (Quality Gate)
+
+`src/ytfactory/review/` is a multi-layer quality gate that runs after rendering:
+
+**Layer 1 — Stage-based checks** (`review/stages/`): Four `BaseReviewStage` subclasses (asset_integrity, timeline, content, production_quality). Each returns a `StageResult` with `errors: list[str]` and `warnings: list[str]`.
+
+**Layer 2 — Validation Rules** (`review/validation/`): Eight `BaseValidator` subclasses (one per category: script, narration, subtitle, image, motion, audio, rendering, story). Each rule returns a structured `ValidationResult` with rule ID, severity, evidence, confidence score, and `responsible_engine`. `ValidationRunner` orchestrates all eight; critical failures bubble into `all_errors` and affect `verdict`.
+
+**Layer 3 — Root Cause Analysis Engine** (`review/rca/`): Consumes the `ValidationReport` to group failures by engine, build remediation chains, and detect recurring patterns. `RootCauseAnalysisEngine.analyze()` returns an `RCAReport`; `RCAReporter` writes four files.
+
+**Layer 4 — Quality Scoring Engine** (`review/scoring/`): Converts all validation results and RCA output into objective quality scores (0–100), a letter grade (A+→F), a PASS/FAIL decision, and ranked improvement recommendations. Eight `BaseCategoryScorer` subclasses (one per validation category) use a point-budget model; `QualityScoringEngine` computes a weighted average. `QualityScoringReporter` writes four files.
+
+All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, and `quality_score_report` dicts.
+
+**Output files** (`review/` directory):
+```
+review/
+├── review-report.md          # human-readable summary (all layers)
+├── scene-review.json         # per-scene detail
+├── review-debug.json         # full machine-readable diagnostics
+├── validation-report.json    # ValidationRunner → ValidationReport
+├── root-cause-report.md      # RCAReporter — human-readable RCA
+├── root-cause.json           # RCAReporter — full structured report
+├── engine-owner-summary.json # RCAReporter — per-engine failure counts
+├── recurring-issues.json     # RCAReporter — cross-scene patterns
+├── quality-score.json        # QualityScoringReporter — overall score summary
+├── quality-report.md         # QualityScoringReporter — full grade report
+├── score-breakdown.json      # QualityScoringReporter — per-category detail
+├── score-history.json        # QualityScoringReporter — cumulative run history
+└── engine-feedback.json      # stub (future Engine Feedback Loop V1)
+```
+
+**Scoring model**: each of the 8 categories has a fixed point budget (rules sum to 100 pts within their category); PASS=full pts, WARNING=½ pts, FAIL=0 pts, SKIP=excluded from denominator. Category raw scores are combined via weighted average (see `DEFAULT_WEIGHTS` in `review/scoring/config.py`).
+
+**Extension point** — `engine-feedback.json` is a stub for the future Engine Feedback Loop V1 (`"status": "not_implemented"`).
 
 ### Domain Models
 
@@ -130,3 +168,18 @@ Image and video output default to 1920×1080 (Full HD).
 ### Constants
 
 `WORKSPACE_DIR = "workspace/jobs"` and `PROJECT_FILE = "project.json"` are defined in `shared/constants.py`. All pipelines resolve paths relative to the CWD, so commands must be run from the repository root.
+
+### Test Patterns
+
+Tests live in `tests/`. API-dependent files (`test_gemini_image.py`, `test_hf_image.py`) sit at the repo root and require live keys; run only the `tests/` directory to avoid them:
+
+```bash
+uv run pytest tests/
+```
+
+When testing code that uses `WORKSPACE_DIR` (review engine, reporter, artifacts), patch the module-level binding in the consuming module, not in `shared.constants`:
+
+```python
+monkeypatch.setattr("ytfactory.review.engine.WORKSPACE_DIR", str(tmp_path))
+monkeypatch.setattr("ytfactory.review.artifacts.WORKSPACE_DIR", str(tmp_path))
+```

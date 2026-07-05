@@ -30,7 +30,7 @@ def review_debug_path(project_id: str) -> Path:
 
 
 def quality_score_path(project_id: str) -> Path:
-    """Reserved for future Quality Scoring Engine V1."""
+    """Quality Scoring Engine V1 — overall score summary (replaces stub)."""
     return review_directory(project_id) / "quality-score.json"
 
 

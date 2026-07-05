@@ -794,7 +794,7 @@ class TestReviewReporter:
         ReviewReporter().write(report)
 
         review_dir = tmp_path / project_id / "review"
-        assert (review_dir / "quality-score.json").exists()
+        # quality-score.json is now written by QualityScoringReporter (not a stub)
         # root-cause files are now written by RCAReporter (not a stub)
         assert (review_dir / "engine-feedback.json").exists()
 
@@ -806,10 +806,12 @@ class TestReviewReporter:
         report = self._make_report(project_id)
         ReviewReporter().write(report)
 
-        qs = json.loads(
-            (tmp_path / project_id / "review" / "quality-score.json").read_text()
+        # engine-feedback.json is the remaining stub; quality-score.json is now
+        # written by QualityScoringReporter with real data
+        ef = json.loads(
+            (tmp_path / project_id / "review" / "engine-feedback.json").read_text()
         )
-        assert qs["status"] == "not_implemented"
+        assert ef["status"] == "not_implemented"
 
     def test_fail_verdict_appears_in_report_md(self, tmp_path, monkeypatch):
         self._patch(monkeypatch, tmp_path)
