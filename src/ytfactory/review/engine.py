@@ -7,6 +7,7 @@ Extension points:
   - Root Cause Analysis Engine V1: implemented — populates review/root-cause*.json
   - Quality Scoring Engine V1: implemented — sets ReviewReport.quality_score
   - Engine Feedback Loop V1: implemented — populates review/engine-feedback*.json
+  - Video Review Debug Mode V1: implemented — populates review/debug/ subdirectory
   - Auto Remediation Engine V1: consumes ReviewReport to trigger re-runs
 """
 
@@ -18,6 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ytfactory.review.config import ReviewConfig
+from ytfactory.review.debug.collector import DebugCollector
+from ytfactory.review.debug.config import DebugConfig
+from ytfactory.review.debug.reporter import DebugReporter
 from ytfactory.review.efl.config import EFLConfig
 from ytfactory.review.efl.engine import EngineFeedbackLoopEngine
 from ytfactory.review.efl.reporter import EFLReporter
@@ -57,12 +61,14 @@ class VideoQualityReviewEngine:
         rca_config: RCAConfig | None = None,
         scoring_config: QualityScoringConfig | None = None,
         efl_config: EFLConfig | None = None,
+        debug_config: DebugConfig | None = None,
     ) -> None:
         self._config = config or ReviewConfig()
         self._val_config = validation_config or ValidationRulesConfig()
         self._rca_config = rca_config or RCAConfig()
         self._scoring_config = scoring_config or QualityScoringConfig()
         self._efl_config = efl_config or EFLConfig()
+        self._debug_config = debug_config or DebugConfig()
         self._stages = [
             AssetIntegrityStage(self._config),
             TimelineReviewStage(self._config),
@@ -92,11 +98,15 @@ class VideoQualityReviewEngine:
         # Shared context dict — stages may deposit discovered values here
         context: dict = {}
 
+        # Debug collector — zero overhead when level is OFF
+        debug = DebugCollector(self._debug_config.level)
+
         # ── Run stages ────────────────────────────────────────────────────
         stage_results = []
-        for stage in self._stages:
-            result = stage.run(project_dir, scenes, scene_reviews, context)
-            stage_results.append(result)
+        with debug.time_layer("stages"):
+            for stage in self._stages:
+                result = stage.run(project_dir, scenes, scene_reviews, context)
+                stage_results.append(result)
 
         # ── Aggregate errors / warnings ───────────────────────────────────
         all_errors: list[str] = []
@@ -112,7 +122,8 @@ class VideoQualityReviewEngine:
 
         # ── Validation Rules V1 ───────────────────────────────────────────
         val_runner = ValidationRunner(self._val_config)
-        val_report = val_runner.run(project_dir, scenes, context)
+        with debug.time_layer("validation"):
+            val_report = val_runner.run(project_dir, scenes, context)
         ValidationReporter().write(val_report)
 
         # Critical validation failures bubble up into all_errors → affect verdict
@@ -121,19 +132,24 @@ class VideoQualityReviewEngine:
 
         # ── Root Cause Analysis Engine V1 ────────────────────────────────
         rca_engine = RootCauseAnalysisEngine(self._rca_config)
-        rca_report = rca_engine.analyze(project_dir, scenes, val_report, context)
+        with debug.time_layer("rca"):
+            rca_report = rca_engine.analyze(project_dir, scenes, val_report, context)
         RCAReporter().write(rca_report)
 
         # ── Quality Scoring Engine V1 ─────────────────────────────────────
         score_engine = QualityScoringEngine(self._scoring_config)
-        score_report = score_engine.score(project_dir, scenes, val_report, rca_report, context)
+        with debug.time_layer("scoring"):
+            score_report = score_engine.score(
+                project_dir, scenes, val_report, rca_report, context
+            )
         QualityScoringReporter().write(score_report)
 
         # ── Engine Feedback Loop V1 ───────────────────────────────────────
         efl_engine = EngineFeedbackLoopEngine(self._efl_config)
-        efl_report = efl_engine.generate(
-            project_dir, scenes, val_report, rca_report, score_report, context
-        )
+        with debug.time_layer("efl"):
+            efl_report = efl_engine.generate(
+                project_dir, scenes, val_report, rca_report, score_report, context
+            )
         EFLReporter().write(efl_report)
 
         # ── PASS / FAIL ───────────────────────────────────────────────────
@@ -150,6 +166,25 @@ class VideoQualityReviewEngine:
             final_size_mb = final_video.stat().st_size / (1024 * 1024)
 
         elapsed = time.perf_counter() - t0
+
+        # ── Video Review Debug Mode V1 ────────────────────────────────────
+        debug_report_dict: dict | None = None
+        if debug.enabled:
+            debug_report = debug.build_report(
+                project_id=project_id,
+                timestamp=timestamp,
+                overall_verdict=verdict,
+                all_errors=all_errors,
+                all_warnings=all_warnings,
+                stage_results=stage_results,
+                scene_reviews=scene_reviews,
+                val_report=val_report,
+                rca_report=rca_report,
+                score_report=score_report,
+                efl_report=efl_report,
+            )
+            DebugReporter().write(debug_report)
+            debug_report_dict = debug_report.to_dict()
 
         report = ReviewReport(
             project_id=project_id,
@@ -173,6 +208,7 @@ class VideoQualityReviewEngine:
             quality_score=score_report.overall_score,
             quality_score_report=score_report.to_dict(),
             efl_report=efl_report.to_dict(),
+            debug_report=debug_report_dict,
         )
 
         return report

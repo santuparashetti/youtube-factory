@@ -119,6 +119,9 @@ class ReviewReport:
     # Engine Feedback Loop V1 — populated by EngineFeedbackLoopEngine
     efl_report: dict | None = None
 
+    # Video Review Debug Mode V1 — populated when debug_config.level != OFF
+    debug_report: dict | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["stage_results"] = [s.to_dict() for s in self.stage_results]

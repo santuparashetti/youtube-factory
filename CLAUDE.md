@@ -118,7 +118,9 @@ workspace/jobs/<project-id>/
 
 **Layer 5 — Engine Feedback Loop** (`review/efl/`): Converts every RCA issue into a structured `FeedbackItem` assigned to a canonical engine target (12 engines defined in `efl/config.py`). Recurring issues get priority escalated (high→critical). `EngineFeedbackLoopEngine.generate()` returns an `EngineFeedbackReport`; `EFLReporter` writes five files including a cross-run accumulating `recurring-patterns.json`.
 
-All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, `quality_score_report`, and `efl_report` dicts.
+**Layer 6 — Video Review Debug Mode** (`review/debug/`): Captures timing and diagnostic data from every pipeline layer. Controlled by `DebugConfig(level=DebugLevel.OFF|BASIC|DETAILED|VERBOSE)` passed to `VideoQualityReviewEngine`. When not OFF, `DebugCollector` wraps each layer with `time_layer()` context managers, then `DebugReporter` writes seven files to the `review/debug/` subdirectory. Zero overhead when OFF (the default).
+
+All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, `quality_score_report`, `efl_report`, and `debug_report` dicts.
 
 **Output files** (`review/` directory):
 ```
@@ -139,8 +141,18 @@ review/
 ├── engine-feedback.md           # EFLReporter — human-readable feedback
 ├── engine-priority-report.json  # EFLReporter — items grouped by priority
 ├── recurring-patterns.json      # EFLReporter — cross-run accumulated patterns
-└── improvement-roadmap.md       # EFLReporter — actionable improvement roadmap
+├── improvement-roadmap.md       # EFLReporter — actionable improvement roadmap
+└── debug/                       # DebugReporter — written only when debug level ≠ OFF
+    ├── debug-report.md          # human-readable debug summary
+    ├── debug-summary.json       # high-level JSON with verdicts/scores/diagnostics
+    ├── scene-debug.json         # per-scene asset presence + validation summary
+    ├── validation-debug.json    # per-rule execution data grouped by category
+    ├── scoring-debug.json       # per-category scoring breakdown with weights
+    ├── feedback-debug.json      # EFL feedback items for debug inspection
+    └── execution-timeline.json  # ordered pipeline events with timestamps/durations
 ```
+
+**Debug level differences**: BASIC/DETAILED/VERBOSE all write all 7 files. BASIC omits rule-level `debug_metadata` and category scoring contributions. DETAILED adds scoring contributions. VERBOSE also includes `debug_metadata` from each validation rule.
 
 **Scoring model**: each of the 8 categories has a fixed point budget (rules sum to 100 pts within their category); PASS=full pts, WARNING=½ pts, FAIL=0 pts, SKIP=excluded from denominator. Category raw scores are combined via weighted average (see `DEFAULT_WEIGHTS` in `review/scoring/config.py`).
 

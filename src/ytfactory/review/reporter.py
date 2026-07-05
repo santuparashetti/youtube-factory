@@ -151,6 +151,7 @@ class ReviewReporter:
             "| Quality Scoring Engine V1 | ✅ implemented | `quality-score.json`, `quality-report.md`, `score-breakdown.json`, `score-history.json` |",
             "| Root Cause Analysis Engine V1 | ✅ implemented | `root-cause-report.md`, `root-cause.json`, `engine-owner-summary.json`, `recurring-issues.json` |",
             "| Engine Feedback Loop V1 | ✅ implemented | `engine-feedback.json`, `engine-feedback.md`, `engine-priority-report.json`, `recurring-patterns.json`, `improvement-roadmap.md` |",
+            "| Video Review Debug Mode V1 | ✅ implemented | `debug/debug-report.md`, `debug/debug-summary.json`, `debug/scene-debug.json`, `debug/validation-debug.json`, `debug/scoring-debug.json`, `debug/feedback-debug.json`, `debug/execution-timeline.json` |",
             "| Auto Remediation Engine V1 | _not implemented_ | — |",
             "",
         ]

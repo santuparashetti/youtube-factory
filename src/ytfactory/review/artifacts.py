@@ -47,3 +47,10 @@ def engine_feedback_path(project_id: str) -> Path:
 def validation_report_path(project_id: str) -> Path:
     """Path to the Video Validation Rules V1 report."""
     return review_directory(project_id) / "validation-report.json"
+
+
+def debug_directory(project_id: str) -> Path:
+    """Return (and create) workspace/jobs/<project_id>/review/debug/."""
+    directory = review_directory(project_id) / "debug"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
