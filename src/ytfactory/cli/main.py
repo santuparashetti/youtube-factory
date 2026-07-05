@@ -9,6 +9,7 @@ from ytfactory.doctor.cli import doctor
 from ytfactory.images.cli import generate_images
 from ytfactory.import_script.cli import import_script
 from ytfactory.research.cli import research
+from ytfactory.review.cli import review
 from ytfactory.scenes.cli import plan_scenes
 from ytfactory.video.cli import render
 from ytfactory.voice.cli import generate_voice
@@ -27,6 +28,7 @@ app.command(name="generate-images")(generate_images)
 app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="render")(render)
+app.command(name="review")(review)
 app.command(name="build")(build)
 
 

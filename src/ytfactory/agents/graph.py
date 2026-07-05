@@ -10,6 +10,7 @@ Flow:
             → generate_scene_assets (parallel fan-out, one per scene)
               → video_renderer
                 → video_concatenator
+                  → quality_review        ← Video Quality Review Engine V1
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from ytfactory.agents.nodes.scene_assets import generate_scene_assets
 from ytfactory.agents.nodes.scene_planner import scene_planner_node
 from ytfactory.agents.nodes.script_enhancer import script_enhancer_node
 from ytfactory.agents.nodes.script_writer import script_writer_node
+from ytfactory.agents.nodes.quality_review import quality_review_node
 from ytfactory.agents.nodes.video_concatenator import video_concatenator_node
 from ytfactory.agents.nodes.video_renderer import video_renderer_node
 from ytfactory.agents.state import VideoState
@@ -66,6 +68,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("generate_scene_assets", generate_scene_assets)
     workflow.add_node("video_renderer", video_renderer_node)
     workflow.add_node("video_concatenator", video_concatenator_node)
+    workflow.add_node("quality_review", quality_review_node)
 
     # ── Entry ─────────────────────────────────────────────────────────────
     # User provided --script → enhance it → plan scenes
@@ -94,7 +97,8 @@ def build_graph() -> StateGraph:
         {"video_renderer": "video_renderer", END: END},
     )
     workflow.add_edge("video_renderer", "video_concatenator")
-    workflow.add_edge("video_concatenator", END)
+    workflow.add_edge("video_concatenator", "quality_review")
+    workflow.add_edge("quality_review", END)
 
     return workflow
 

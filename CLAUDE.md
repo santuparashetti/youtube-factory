@@ -42,6 +42,7 @@ ytfactory generate-images <project-id>          # image per scene
 ytfactory generate-voice <project-id>           # TTS audio per scene
 ytfactory generate-captions <project-id>        # .srt per scene
 ytfactory render <project-id>                   # FFmpeg: image + audio + srt → .mp4
+ytfactory review <project-id>                   # Quality review: PASS / FAIL report
 ```
 
 Or run the full pipeline at once:
@@ -66,7 +67,7 @@ Each production stage is a self-contained module under `src/ytfactory/<stage>/` 
 - `models.py` — Pydantic or dataclass models for stage artifacts
 - `repository.py` — reads/writes files in the project workspace
 
-`BuildPipeline` (`build/pipeline.py`) chains all stages in order: scenes → images → voice → captions → video.
+`BuildPipeline` (`build/pipeline.py`) chains all stages in order: scenes → images → voice → captions → video → review.
 
 ### Provider System
 
@@ -94,7 +95,8 @@ workspace/jobs/<project-id>/
 ├── images/            # scene-001.png … + manifest.json
 ├── audio/             # scene-001.mp3 …
 ├── subtitles/         # scene-001.srt …
-├── video/             # scene-001.mp4 …
+├── video/             # scene-001.mp4 … + final.mp4
+├── review/            # review-report.md, scene-review.json, review-debug.json
 └── publish/
 ```
 

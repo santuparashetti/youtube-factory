@@ -40,5 +40,8 @@ class VideoState(TypedDict, total=False):
     # ── Final output ──────────────────────────────────────────────────────
     final_video_path: Optional[str]
 
+    # ── Quality review (populated by quality_review_node) ─────────────────
+    review_result: Optional[dict]  # {"verdict": "PASS"|"FAIL", "errors": [...], ...}
+
     # ── Non-fatal error accumulation ──────────────────────────────────────
     stage_errors: Annotated[list[str], _append_list]
