@@ -20,7 +20,6 @@ Camera: contemplative wide shots, behind-subject perspectives, high angle (humil
 Lighting: candlelight, temple lamp glow, golden hour, pre-dawn blue.
 Avoid: identifiable faces, yoga poses, specific religious symbols, generic sunsets.\
 """,
-
     "documentary": """\
 VISUAL STYLE — Documentary
 Approach: authentic observation, environmental storytelling, human scale in vast environments.
@@ -30,7 +29,6 @@ Color: neutral, natural, slightly desaturated — gravitas over beauty.
 Weather: use real conditions (overcast, rain, harsh sun) — never perfect.
 Avoid: staged scenes, studio lighting, fantasy elements, cartoon.\
 """,
-
     "history": """\
 VISUAL STYLE — Historical Documentary
 Approach: evidence of time's passage, architecture as witness, textures as testimony.
@@ -40,7 +38,6 @@ Color: warm sepia/amber with dramatic shadow, earth tones, occasional dramatic g
 Lighting: golden-hour chiaroscuro, dusty shafts through ruins.
 Figures: silhouettes only — never detailed faces.\
 """,
-
     "educational": """\
 VISUAL STYLE — Educational / Explainer
 Approach: clear visual communication, one strong focal point, immediately readable symbolism.
@@ -101,7 +98,8 @@ def build_plan_scenes_prompt(topic: str, script: str, style: str | None = None) 
 
 _VISUAL_PROMPTS_TEMPLATE = """\
 You are a documentary film director — not an image prompt generator.
-Your task: direct {num_scenes} scenes as one coherent film sequence for a {style_label} video.
+Your task: direct {num_scenes} scenes as ONE coherent cinematic documentary for a {style_label} video.
+This is a visual story, not a collection of independent images. Every frame connects to the next.
 
 {style_guide}
 
@@ -128,6 +126,11 @@ Generic environment ban — these phrases reveal nothing:
 Passive construction ban:
   ✗  "The subject is shown..."  |  "We see..."  |  "There is a man..."
 
+REPETITIVE OBJECT ban — these appear too often in AI-generated spirituality videos:
+  ✗  mist / fog (unless narratively essential) | candles | mountain lakes | empty thrones
+  ✗  fireplaces | lotus flowers | hourglasses | open books lying on tables
+  ✓  Use fresh, specific visual equivalents that express the same emotion without the cliché
+
 ══════════════════════════════════════════════════
 CHARACTER BIBLE
 ══════════════════════════════════════════════════
@@ -146,7 +149,7 @@ STORYBOARD — complete this before writing any prompt
 2. Define the emotional arc: opening mood → mid-point peak → closing resolution.
 3. Assign each scene a role: Hook | Establishing | Rising | Revelation | Reflection | Symbolic | Resolution
 4. Choose ONE hero frame — the most visually powerful image in this batch, strong enough for a YouTube thumbnail. Give it 20 extra words of environmental and atmospheric detail.
-5. Plan shot diversity — no two adjacent scenes share the same: shot size + environment category + dominant color.
+5. Verify shot diversity — check that the shot types assigned to each scene in [brackets] vary meaningfully.
 6. List the metaphors you will use — commit to them, each used only once in this batch.
 
 PER-SCENE INTERNAL REASONING (work through this silently before writing each prompt):
@@ -167,13 +170,55 @@ PER-SCENE INTERNAL REASONING (work through this silently before writing each pro
   E. Environment — two or three concrete details that reveal emotion without stating it:
      ✓  "an untouched dinner cooling, a voicemail light blinking unanswered, rain against the window"
      ✗  "a peaceful place, lush surroundings, beautiful landscape"
-  F. Camera — only if it changes the emotional meaning:
-     wide (scale/isolation) | macro (sacred detail) | overhead (pattern/ritual) | low angle (power/awe) | behind subject (contemplation)
-     Omit entirely if the meaning doesn't depend on it.
+  F. Shot type — the ASSIGNED SHOT TYPE for this scene is shown in [brackets] in the SCENES section below.
+     Use that exact shot type. It determines camera distance and composition:
+       establishing shot → wide view, scene-setting, full environment visible
+       wide shot → landscape-scale subject, environmental context dominant
+       medium shot → subject waist-up or object at mid-distance, context visible
+       close-up → face, hands, or object filling most of the frame
+       extreme close-up → single eye, fingertip, or tiny detail, bokeh background
+       macro → ultra-close, texture-level, abstract patterns in ordinary objects
+       POV → scene from the protagonist's viewpoint, immersive first-person
+       over-the-shoulder → looking past a figure at what they face
+       low angle → camera below subject, looking up — conveys power or awe
+       high angle → camera above subject, looking down — conveys scale or vulnerability
+       drone → aerial overhead or diagonal pull-back, reveals geography
+       tracking shot → camera moves laterally alongside a subject in motion
+       static → locked-off camera, world moves within frame — conveys stillness
+       handheld → slightly unsteady camera suggests intimacy or documentary feel
   G. Lighting — one specific choice: pre-dawn blue | warm candlelight | storm-filtered gold | overcast flat | harsh noon | volumetric shafts
-  H. Self-critique — before writing: Is this specific? Does it avoid every banned pattern above?
+  H. Color palette — two or three dominant colors: e.g. "muted ochre, slate grey, faint amber"
+  I. Self-critique — before writing: Is this specific? Does it avoid every banned pattern above?
      Have I repeated an environment or metaphor from another scene in this batch?
      Would a documentary director choose this exact frame?
+     Does this image naturally connect to the scene before and after it?
+
+══════════════════════════════════════════════════
+PROMPT STRUCTURE — every prompt must include ALL 10 elements
+══════════════════════════════════════════════════
+
+Write one flowing paragraph per scene that naturally weaves in all of these:
+  1. Scene objective — the visual idea or emotion being conveyed
+  2. Main subject — the hero of the frame (person, object, or environment)
+  3. Environment — specific location with two or three concrete physical details
+  4. Emotional tone — the dominant feeling communicated through composition
+  5. Camera shot — the ASSIGNED shot type for this scene (from the brackets)
+  6. Lens / composition — focal length, depth of field, rule-of-thirds or symmetry
+  7. Lighting — one specific, meaningful light source or quality
+  8. Color palette — two or three dominant colors that carry the emotion
+  9. Cinematic details — texture, atmosphere, subtle motion, or environmental storytelling
+  10. Quality markers — include "no text, no watermark, photorealistic" in every prompt
+
+══════════════════════════════════════════════════
+VISUAL CONTINUITY
+══════════════════════════════════════════════════
+
+This is ONE documentary, not 30 independent images:
+  — Each scene must feel like it could be the next cut in a real film
+  — The protagonist (if any) maintains the same appearance across all scenes
+  — The color temperature should shift gradually: warm → cool → warm (or follow a deliberate arc)
+  — Avoid sudden unexplained location jumps — use transitional environments when needed
+  — Do NOT create one masterpiece per scene; create one coherent visual journey
 
 ══════════════════════════════════════════════════
 WRITING RULES
@@ -182,16 +227,16 @@ WRITING RULES
 — One natural flowing paragraph per scene.
 — Begin with the scene's strongest visual element — never with "A person" or "The camera."
 — 60–90 words per scene. Hero frame: 85–110 words.
-— Weave camera and lighting into the description naturally — not as separate sentences starting "The lighting is..." or "The camera is..."
+— Weave camera shot, angle, and lighting into the description naturally.
 — Vary endings — do NOT paste the same phrase at the close of every scene.
-— Include somewhere in each prompt: no text, no watermark, photorealistic.
+— Include in every prompt: no text, no watermark, photorealistic.
 — The {style_label} feeling should come through the imagery — not by stating it as a keyword.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
 [{{"index": N, "visual_prompt": "..."}}]
 
 ══════════════════════════════════════════════════
-SCENES
+SCENES  (shot type pre-assigned in [brackets])
 ══════════════════════════════════════════════════
 {scene_list}\
 """
@@ -206,10 +251,15 @@ def build_visual_prompts_prompt(
 ) -> str:
     style_label = f"{style} documentary" if style else "cinematic documentary"
     num_scenes = len(scenes)
-    scene_list = "\n".join(
-        f"Scene {s['index']}: {s.get('narration', '')}"
-        for s in scenes
-    )
+
+    # V4: include shot_type in [brackets] when present (injected by ImagePromptEngineV4)
+    scene_lines = []
+    for s in scenes:
+        shot = s.get("shot_type", "")
+        shot_tag = f" [{shot}]" if shot else ""
+        scene_lines.append(f"Scene {s['index']}{shot_tag}: {s.get('narration', '')}")
+    scene_list = "\n".join(scene_lines)
+
     if prev_context:
         entries = "\n".join(f"  • {entry}" for entry in prev_context)
         prev_context_block = (

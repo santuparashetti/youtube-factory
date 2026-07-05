@@ -117,9 +117,9 @@ class Settings(BaseSettings):
 
     # ASS color format: &HAABBGGRR (alpha, blue, green, red)
     # AA: 00 = opaque, FF = transparent
-    subtitle_ass_primary_color: str = "&H00FFFFFF"    # white text
-    subtitle_ass_outline_color: str = "&H00000000"    # black outline
-    subtitle_ass_back_color: str = "&H80000000"       # 50% transparent black shadow
+    subtitle_ass_primary_color: str = "&H00FFFFFF"  # white text
+    subtitle_ass_outline_color: str = "&H00000000"  # black outline
+    subtitle_ass_back_color: str = "&H80000000"  # 50% transparent black shadow
 
     # Outline and shadow thickness in pixels
     subtitle_ass_outline: float = 2.0
@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # Script resolution — must match video dimensions
     subtitle_ass_play_res_x: int = 1920
     subtitle_ass_play_res_y: int = 1080
+
+    # ------------------------------------------------------------------
+    # Image Prompt Engine V4 — Debug & Quality Control
+    # ------------------------------------------------------------------
+
+    # Write per-scene debug files to workspace/jobs/<id>/images/debug/
+    # Saves scene-XXX-original.txt, scene-XXX-optimized.txt, image_prompt_debug.json
+    image_prompt_debug: bool = False
 
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
