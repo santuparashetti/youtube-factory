@@ -1,19 +1,40 @@
-"""Script writer agent prompts."""
+"""Script writer agent prompts — V2 pacing and duration rules."""
 
 # Narration pace used throughout the pipeline (speech optimizer, enhancer, scene planner).
 NARRATION_WPM = 130
 
-# Duration targets (minutes → words at NARRATION_WPM)
+# Tolerance window: requested duration ±1 minute is acceptable.
+DURATION_TOLERANCE_MINUTES = 1
+
+# Default targets (used when state provides no target_minutes).
 TARGET_MIN_MINUTES = 5
-TARGET_IDEAL_MINUTES = 8
+TARGET_IDEAL_MINUTES = 7
 TARGET_MAX_MINUTES = 10
 
-TARGET_MIN_WORDS = TARGET_MIN_MINUTES * NARRATION_WPM    # 650
-TARGET_IDEAL_WORDS = TARGET_IDEAL_MINUTES * NARRATION_WPM  # 1040
-TARGET_MAX_WORDS = TARGET_MAX_MINUTES * NARRATION_WPM    # 1300
+TARGET_MIN_WORDS = TARGET_MIN_MINUTES * NARRATION_WPM  # 650
+TARGET_IDEAL_WORDS = TARGET_IDEAL_MINUTES * NARRATION_WPM  # 910
+TARGET_MAX_WORDS = TARGET_MAX_MINUTES * NARRATION_WPM  # 1300
 
 
-WRITE_SCRIPT = """\
+# ── Prompt builders ────────────────────────────────────────────────────────────
+
+
+def build_write_script_prompt(
+    topic: str,
+    research_md: str,
+    script_outline: str,
+    welcome: str,
+    closing: str,
+    topic_transition: str,
+    target_minutes: int = TARGET_IDEAL_MINUTES,
+) -> str:
+    min_m = target_minutes - DURATION_TOLERANCE_MINUTES
+    max_m = target_minutes + DURATION_TOLERANCE_MINUTES
+    ideal_words = target_minutes * NARRATION_WPM
+    min_words = min_m * NARRATION_WPM
+    max_words = max_m * NARRATION_WPM
+
+    return f"""\
 You are a professional documentary scriptwriter for the Atma Theory channel on YouTube.
 
 Write a complete narration script for a YouTube video about: {topic}
@@ -23,11 +44,11 @@ Use the research and outline below as your source material.
 ──────────────────────────────────────────────────────────────
 DURATION TARGET
 ──────────────────────────────────────────────────────────────
-- Ideal: 7–8 minutes of narration (~910–1040 words at 130 wpm)
-- Minimum: 5 minutes (~650 words)
-- Maximum: 10 minutes (~1300 words) — HARD LIMIT, never exceed
-- If the topic naturally fits 6 minutes, write an exceptional 6-minute script.
-  Do NOT pad to reach a longer duration.
+- Requested: {target_minutes} minutes of narration (~{ideal_words} words at 130 wpm)
+- Acceptable range: {min_m}–{max_m} minutes ({min_words}–{max_words} words) — hard limit
+- If the topic naturally fits fewer words, write a tight, exceptional script.
+  Do NOT pad to reach the target — every sentence must earn its place.
+- Prefer a slightly slower, more reflective narration pace over adding extra sentences.
 
 ──────────────────────────────────────────────────────────────
 SCRIPT STRUCTURE (follow this order)
@@ -91,7 +112,7 @@ NEVER include:
 ──────────────────────────────────────────────────────────────
 COMPRESSION (if your draft runs long)
 ──────────────────────────────────────────────────────────────
-If your draft exceeds 1300 words, shorten it by removing in this order:
+If your draft exceeds {max_words} words, shorten by removing in this order:
   1. Repeated examples
   2. Repeated explanations
   3. Weak analogies
@@ -136,11 +157,21 @@ Write the complete narration script now.\
 """
 
 
-SELF_REVIEW_SCRIPT = """\
+def build_review_prompt(
+    topic: str,
+    script: str,
+    word_count: int,
+    estimated_minutes: float,
+    target_minutes: int = TARGET_IDEAL_MINUTES,
+) -> str:
+    min_m = target_minutes - DURATION_TOLERANCE_MINUTES
+    max_m = target_minutes + DURATION_TOLERANCE_MINUTES
+
+    return f"""\
 You are reviewing a narration script for the Atma Theory YouTube channel.
 Topic: "{topic}"
 Estimated narration duration: {estimated_minutes:.1f} minutes ({word_count} words at 130 wpm)
-Target: 5–10 minutes (ideal 7–8 minutes)
+Requested target: {target_minutes} minutes — acceptable range {min_m}–{max_m} minutes
 
 ──────────────────────────────────────────────────────────────
 SCRIPT TO REVIEW
@@ -150,9 +181,9 @@ SCRIPT TO REVIEW
 ──────────────────────────────────────────────────────────────
 QUALITY CHECKLIST — evaluate each item as PASS or FAIL
 ──────────────────────────────────────────────────────────────
-1. DURATION — is estimated duration between 5 and 10 minutes?
-   - If > 10 minutes: compress immediately (see compression rules below)
-   - If < 5 minutes: add depth to underdeveloped sections (not filler)
+1. DURATION — is estimated duration within the {min_m}–{max_m} minute window?
+   - If > {max_m} minutes: compress immediately (see compression rules below)
+   - If < {min_m} minutes: deepen underdeveloped sections (no filler — quality only)
 
 2. HOOK — does the opening grab attention within the first 15–20 seconds?
 
@@ -174,7 +205,7 @@ QUALITY CHECKLIST — evaluate each item as PASS or FAIL
    Flag and rewrite any section that sounds preachy, generic, or promotional.
 
 ──────────────────────────────────────────────────────────────
-COMPRESSION RULES (apply if duration > 10 minutes)
+COMPRESSION RULES (apply if duration > {max_m} minutes)
 ──────────────────────────────────────────────────────────────
 Remove content in this order:
   1. Repeated examples
@@ -195,19 +226,29 @@ NEVER remove:
 INSTRUCTION
 ──────────────────────────────────────────────────────────────
 If ANY checklist item fails: rewrite the affected sections.
-If duration is > 10 minutes: compress before returning.
+If duration is > {max_m} minutes: compress before returning.
 If the script is strong on all counts: return it unchanged.
 
 Return ONLY the final script text. No commentary, no checklist results, no labels.\
 """
 
 
-COMPRESS_SCRIPT = """\
+def build_compress_prompt(
+    script: str,
+    word_count: int,
+    estimated_minutes: float,
+    target_minutes: int = TARGET_IDEAL_MINUTES,
+) -> str:
+    max_m = target_minutes + DURATION_TOLERANCE_MINUTES
+    max_words = max_m * NARRATION_WPM
+    ideal_words = target_minutes * NARRATION_WPM
+
+    return f"""\
 This Atma Theory narration script is too long.
 
 Current: {word_count} words (~{estimated_minutes:.1f} minutes at 130 wpm)
-Target: maximum {target_max_words} words (10 minutes)
-Reduce to approximately {target_ideal_words} words (7–8 minutes) if possible.
+Target: maximum {max_words} words ({max_m} minutes)
+Reduce to approximately {ideal_words} words ({target_minutes} minutes) if possible.
 
 ──────────────────────────────────────────────────────────────
 SCRIPT
@@ -236,4 +277,59 @@ Do NOT rewrite the script for quality — only shorten it.
 Preserve the existing wording wherever possible.
 
 Return ONLY the compressed script text. No commentary.\
+"""
+
+
+def build_expand_pacing_prompt(
+    script: str,
+    word_count: int,
+    estimated_minutes: float,
+    target_minutes: int = TARGET_IDEAL_MINUTES,
+) -> str:
+    min_m = target_minutes - DURATION_TOLERANCE_MINUTES
+    min_words = min_m * NARRATION_WPM
+    shortfall_min = target_minutes - estimated_minutes
+
+    return f"""\
+This Atma Theory narration script is shorter than the requested duration.
+
+Current: {word_count} words (~{estimated_minutes:.1f} minutes at 130 wpm)
+Requested: {target_minutes} minutes — minimum acceptable: {min_m} minutes ({min_words} words)
+Shortfall: approximately {shortfall_min:.1f} minutes
+
+──────────────────────────────────────────────────────────────
+SCRIPT
+──────────────────────────────────────────────────────────────
+{script}
+
+──────────────────────────────────────────────────────────────
+PACING GUIDELINES — prefer these over adding new words
+──────────────────────────────────────────────────────────────
+The goal is a slower, more reflective delivery — not a longer script.
+
+PREFERRED APPROACH (do these first):
+  1. Slow the narration pace of existing lines — write for deliberate, unhurried delivery
+  2. After key insights, leave reflection space: short standalone lines the narrator pauses on
+  3. Give important ideas room to breathe — one idea per paragraph, not three per paragraph
+  4. Use short single-sentence paragraphs at emotional peaks (they naturally slow delivery)
+
+ONLY IF STILL BELOW MINIMUM after pacing adjustments:
+  5. Deepen one underdeveloped section with a meaningful example or analogy
+  6. Expand the practical reflection section with one additional concrete observation
+
+NEVER:
+  ✗ Add filler, repetition, or transitional padding
+  ✗ Repeat ideas already expressed
+  ✗ Add generic motivational language
+  ✗ Restate the same point in different words
+
+──────────────────────────────────────────────────────────────
+PRESERVATION RULES
+──────────────────────────────────────────────────────────────
+- Keep the existing script structure and flow intact
+- Preserve the original wording wherever possible
+- Only make minimal edits — do not rewrite sections that work well
+- Maintain: calm, reflective, compassionate, cinematic brand voice
+
+Return ONLY the revised script text. No commentary.\
 """
