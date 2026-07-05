@@ -5,7 +5,6 @@ from ytfactory.storage.project_repository import ProjectRepository
 
 
 class ImportScriptPipeline:
-
     def __init__(self):
         self.projects = ProjectRepository()
         self.artifacts = ArtifactRepository()

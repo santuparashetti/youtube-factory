@@ -61,7 +61,7 @@ class PollinationsImageProvider(ImageProvider):
             "height": request.height,
             "model": POLLINATIONS_MODEL,
             "nologo": "true",
-            "enhance": "false",   # we already write detailed prompts
+            "enhance": "false",  # we already write detailed prompts
         }
 
         if request.negative_prompt:
@@ -76,8 +76,12 @@ class PollinationsImageProvider(ImageProvider):
         for attempt in range(5):
             response = self._session.get(url, params=params, timeout=120)
             if response.status_code == 429:
-                wait = 20 * (2 ** attempt)  # 20, 40, 80, 160, 320s
-                logger.warning("Pollinations 429 rate limit — waiting {}s (attempt {})", wait, attempt + 1)
+                wait = 20 * (2**attempt)  # 20, 40, 80, 160, 320s
+                logger.warning(
+                    "Pollinations 429 rate limit — waiting {}s (attempt {})",
+                    wait,
+                    attempt + 1,
+                )
                 time.sleep(wait)
                 continue
             response.raise_for_status()

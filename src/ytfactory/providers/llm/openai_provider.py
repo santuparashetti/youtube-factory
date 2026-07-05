@@ -28,7 +28,9 @@ class OpenAICompatibleProvider(LLMProvider):
         temperature: float = 0.2,
     ) -> LLMResponse:
         model = self._settings.anthropic_model
-        logger.info("Generating response via OpenAI-compatible proxy — model: {}", model)
+        logger.info(
+            "Generating response via OpenAI-compatible proxy — model: {}", model
+        )
 
         messages = []
         if system_prompt:

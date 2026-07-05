@@ -40,9 +40,9 @@ class EffectSpec:
     """
 
     color_grade: str
-    vignette:    bool
-    film_grain:  bool
-    blur_sigma:  float
+    vignette: bool
+    film_grain: bool
+    blur_sigma: float
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -61,26 +61,26 @@ class EffectSpec:
 
 _EMOTION_GRADE: dict[str, str] = {
     # High energy / vivid
-    "curiosity":     "eq=contrast=1.06:saturation=1.12",
-    "wonder":        "eq=contrast=1.05:saturation=1.15:gamma=0.97",
-    "awe":           "eq=contrast=1.08:saturation=1.12",
-    "urgency":       "eq=contrast=1.12:brightness=-0.02:saturation=1.20",
+    "curiosity": "eq=contrast=1.06:saturation=1.12",
+    "wonder": "eq=contrast=1.05:saturation=1.15:gamma=0.97",
+    "awe": "eq=contrast=1.08:saturation=1.12",
+    "urgency": "eq=contrast=1.12:brightness=-0.02:saturation=1.20",
     "determination": "eq=contrast=1.10:saturation=1.10",
-    "revelation":    "eq=contrast=1.15:brightness=0.02:saturation=1.05",
-
+    "revelation": "eq=contrast=1.15:brightness=0.02:saturation=1.05",
     # Introspective / desaturated
-    "reflection":    "eq=contrast=1.02:saturation=0.92",
-    "mystery":       "eq=contrast=1.08:brightness=-0.04:saturation=0.88",
-    "sadness":       "eq=contrast=1.00:brightness=-0.02:saturation=0.82",
-
+    "reflection": "eq=contrast=1.02:saturation=0.92",
+    "mystery": "eq=contrast=1.08:brightness=-0.04:saturation=0.88",
+    "sadness": "eq=contrast=1.00:brightness=-0.02:saturation=0.82",
     # Warm / gentle
-    "peace":         "eq=contrast=1.00:brightness=0.01:saturation=1.05",
-    "hope":          "eq=contrast=1.04:brightness=0.02:saturation=1.08",
-    "compassion":    "eq=contrast=1.02:brightness=0.01:saturation=1.05",
+    "peace": "eq=contrast=1.00:brightness=0.01:saturation=1.05",
+    "hope": "eq=contrast=1.04:brightness=0.02:saturation=1.08",
+    "compassion": "eq=contrast=1.02:brightness=0.01:saturation=1.05",
 }
 
 # Profile sets that enable each effect tier
-_GRADE_PROFILES: frozenset[str] = frozenset({RenderProfile.CINEMATIC, RenderProfile.PREMIUM})
+_GRADE_PROFILES: frozenset[str] = frozenset(
+    {RenderProfile.CINEMATIC, RenderProfile.PREMIUM}
+)
 _GRAIN_PROFILES: frozenset[str] = frozenset({RenderProfile.PREMIUM})
 
 
@@ -126,28 +126,30 @@ class EffectsPlanner:
             The same scene list with 'effects' added to every scene.
         """
         effects_on = profile in _GRADE_PROFILES
-        grain_on   = profile in _GRAIN_PROFILES
+        grain_on = profile in _GRAIN_PROFILES
 
         for scene in scenes:
             sigma = _blur_sigma(scene)
 
             if not effects_on:
                 spec = EffectSpec(
-                    color_grade = "",
-                    vignette    = False,
-                    film_grain  = False,
-                    blur_sigma  = sigma,
+                    color_grade="",
+                    vignette=False,
+                    film_grain=False,
+                    blur_sigma=sigma,
                 )
             else:
                 # Emotion comes from MotionPlanner — no re-classification needed
-                emotion     = scene.get("motion", {}).get("emotion", "reflection")
-                color_grade = "" if emotion == "asset" else _EMOTION_GRADE.get(emotion, "")
+                emotion = scene.get("motion", {}).get("emotion", "reflection")
+                color_grade = (
+                    "" if emotion == "asset" else _EMOTION_GRADE.get(emotion, "")
+                )
 
                 spec = EffectSpec(
-                    color_grade = color_grade,
-                    vignette    = True,
-                    film_grain  = grain_on,
-                    blur_sigma  = sigma,
+                    color_grade=color_grade,
+                    vignette=True,
+                    film_grain=grain_on,
+                    blur_sigma=sigma,
                 )
 
             scene["effects"] = spec.to_dict()

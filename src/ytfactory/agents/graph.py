@@ -70,10 +70,14 @@ def build_graph() -> StateGraph:
     # ── Entry ─────────────────────────────────────────────────────────────
     # User provided --script → enhance it → plan scenes
     # No script → full research → script writer → plan scenes
-    workflow.add_conditional_edges(START, _route_entry, {
-        "research_agent": "research_agent",
-        "script_enhancer": "script_enhancer",
-    })
+    workflow.add_conditional_edges(
+        START,
+        _route_entry,
+        {
+            "research_agent": "research_agent",
+            "script_enhancer": "script_enhancer",
+        },
+    )
     workflow.add_edge("research_agent", "script_writer")
     workflow.add_edge("script_writer", "human_review_script")
     workflow.add_edge("human_review_script", "scene_planner")
@@ -98,6 +102,7 @@ def build_graph() -> StateGraph:
 def compile_graph():
     """Compile and return the runnable LangGraph application."""
     from langgraph.checkpoint.memory import MemorySaver
+
     return build_graph().compile(checkpointer=MemorySaver())
 
 

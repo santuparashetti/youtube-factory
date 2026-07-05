@@ -24,19 +24,30 @@ def human_review_script_node(state: VideoState) -> dict:
     script = state.get("script_md", "")
     word_count = len(script.split())
 
-    console.print(Panel(
-        f"[bold]Script Review[/bold]\n"
-        f"Words: {word_count} (~{word_count // 130} min)",
-        title="Human Review Gate",
-        border_style="yellow",
-    ))
-    console.print(Markdown(script[:3000] + ("\n\n*[...truncated for review]*" if len(script) > 3000 else "")))
+    console.print(
+        Panel(
+            f"[bold]Script Review[/bold]\n"
+            f"Words: {word_count} (~{word_count // 130} min)",
+            title="Human Review Gate",
+            border_style="yellow",
+        )
+    )
+    console.print(
+        Markdown(
+            script[:3000]
+            + ("\n\n*[...truncated for review]*" if len(script) > 3000 else "")
+        )
+    )
     console.print()
 
-    action = typer.prompt(
-        "Action? [a]pprove / [s]kip and continue / [q]uit",
-        default="a",
-    ).strip().lower()
+    action = (
+        typer.prompt(
+            "Action? [a]pprove / [s]kip and continue / [q]uit",
+            default="a",
+        )
+        .strip()
+        .lower()
+    )
 
     if action.startswith("q"):
         raise typer.Abort()
@@ -62,17 +73,29 @@ def human_review_scenes_node(state: VideoState) -> dict:
     table.add_column("Visual prompt", max_width=40)
 
     for s in scenes:
-        narration = s["narration"][:80] + "…" if len(s["narration"]) > 80 else s["narration"]
-        visual = s["visual_prompt"][:50] + "…" if len(s["visual_prompt"]) > 50 else s["visual_prompt"]
-        table.add_row(str(s["index"]), s["title"], str(s["duration_seconds"]), narration, visual)
+        narration = (
+            s["narration"][:80] + "…" if len(s["narration"]) > 80 else s["narration"]
+        )
+        visual = (
+            s["visual_prompt"][:50] + "…"
+            if len(s["visual_prompt"]) > 50
+            else s["visual_prompt"]
+        )
+        table.add_row(
+            str(s["index"]), s["title"], str(s["duration_seconds"]), narration, visual
+        )
 
     console.print(table)
     console.print()
 
-    action = typer.prompt(
-        "Action? [a]pprove / [s]kip and continue / [q]uit",
-        default="a",
-    ).strip().lower()
+    action = (
+        typer.prompt(
+            "Action? [a]pprove / [s]kip and continue / [q]uit",
+            default="a",
+        )
+        .strip()
+        .lower()
+    )
 
     if action.startswith("q"):
         raise typer.Abort()

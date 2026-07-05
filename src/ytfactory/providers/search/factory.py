@@ -11,6 +11,4 @@ def get_search_provider(settings: Settings) -> SearchProvider:
             return TavilySearchProvider(settings)
 
         case _:
-            raise ValueError(
-                f"Unsupported search provider: {settings.search_provider}"
-            )
+            raise ValueError(f"Unsupported search provider: {settings.search_provider}")

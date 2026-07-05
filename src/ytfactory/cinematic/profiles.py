@@ -18,10 +18,11 @@ from enum import Enum
 
 class RenderProfile(str, Enum):
     """Named rendering quality profiles."""
-    DRAFT     = "draft"      # Static — fastest render, no motion
-    BALANCED  = "balanced"   # Simple 3-category motion, linear easing
+
+    DRAFT = "draft"  # Static — fastest render, no motion
+    BALANCED = "balanced"  # Simple 3-category motion, linear easing
     CINEMATIC = "cinematic"  # Full 8-type emotion-aware motion, smooth easing
-    PREMIUM   = "premium"    # Full motion + wider scale range + long easing
+    PREMIUM = "premium"  # Full motion + wider scale range + long easing
 
 
 @dataclass(frozen=True)
@@ -46,54 +47,65 @@ class ProfileConfig:
         motion_map: Profile-specific Emotion name → (motion_type, scale_tier).
                     "draft" maps everything to static; others use emotion tables.
     """
-    scale_range_small:  tuple[float, float]
+
+    scale_range_small: tuple[float, float]
     scale_range_medium: tuple[float, float]
-    scale_range_large:  tuple[float, float]
-    drift_amount:       float
-    easing:             str
-    motion_map:         dict[str, tuple[str, str]]
+    scale_range_large: tuple[float, float]
+    drift_amount: float
+    easing: str
+    motion_map: dict[str, tuple[str, str]]
 
 
 # ── Emotion → (motion_type, scale_tier) maps ─────────────────────────────────
 
 _STATIC_MAP: dict[str, tuple[str, str]] = {
-    e: ("static", "small") for e in [
-        "curiosity", "wonder", "reflection", "mystery", "peace",
-        "hope", "compassion", "urgency", "sadness", "awe",
-        "determination", "revelation",
+    e: ("static", "small")
+    for e in [
+        "curiosity",
+        "wonder",
+        "reflection",
+        "mystery",
+        "peace",
+        "hope",
+        "compassion",
+        "urgency",
+        "sadness",
+        "awe",
+        "determination",
+        "revelation",
     ]
 }
 
 # Balanced: three motion categories, linear easing, moderate scale
 _BALANCED_MAP: dict[str, tuple[str, str]] = {
-    "curiosity":     ("push_in",  "medium"),
-    "wonder":        ("pull_out", "medium"),
-    "reflection":    ("drift",    "small"),
-    "mystery":       ("push_in",  "small"),
-    "peace":         ("static",   "small"),
-    "hope":          ("pull_out", "small"),
-    "compassion":    ("push_in",  "small"),
-    "urgency":       ("push_in",  "large"),
-    "sadness":       ("pull_out", "small"),
-    "awe":           ("pull_out", "large"),
-    "determination": ("push_in",  "medium"),
-    "revelation":    ("static",   "small"),
+    "curiosity": ("push_in", "medium"),
+    "wonder": ("pull_out", "medium"),
+    "reflection": ("drift", "small"),
+    "mystery": ("push_in", "small"),
+    "peace": ("static", "small"),
+    "hope": ("pull_out", "small"),
+    "compassion": ("push_in", "small"),
+    "urgency": ("push_in", "large"),
+    "sadness": ("pull_out", "small"),
+    "awe": ("pull_out", "large"),
+    "determination": ("push_in", "medium"),
+    "revelation": ("static", "small"),
 }
 
 # Cinematic & Premium: full eight motion types, emotion-tuned
 _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
-    "curiosity":     ("push_in",       "medium"),
-    "wonder":        ("pull_out_wide", "large"),
-    "reflection":    ("drift",         "small"),
-    "mystery":       ("push_in_slow",  "small"),
-    "peace":         ("static",        "small"),
-    "hope":          ("tilt_up",       "small"),
-    "compassion":    ("push_in",       "small"),
-    "urgency":       ("push_in_fast",  "large"),
-    "sadness":       ("pull_out",      "medium"),
-    "awe":           ("pull_out_wide", "large"),
-    "determination": ("push_in",       "medium"),
-    "revelation":    ("static",        "small"),
+    "curiosity": ("push_in", "medium"),
+    "wonder": ("pull_out_wide", "large"),
+    "reflection": ("drift", "small"),
+    "mystery": ("push_in_slow", "small"),
+    "peace": ("static", "small"),
+    "hope": ("tilt_up", "small"),
+    "compassion": ("push_in", "small"),
+    "urgency": ("push_in_fast", "large"),
+    "sadness": ("pull_out", "medium"),
+    "awe": ("pull_out_wide", "large"),
+    "determination": ("push_in", "medium"),
+    "revelation": ("static", "small"),
 }
 
 
@@ -101,36 +113,36 @@ _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
 
 _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
     RenderProfile.DRAFT: ProfileConfig(
-        scale_range_small  = (1.0, 1.0),
-        scale_range_medium = (1.0, 1.0),
-        scale_range_large  = (1.0, 1.0),
-        drift_amount       = 0.0,
-        easing             = "linear",
-        motion_map         = _STATIC_MAP,
+        scale_range_small=(1.0, 1.0),
+        scale_range_medium=(1.0, 1.0),
+        scale_range_large=(1.0, 1.0),
+        drift_amount=0.0,
+        easing="linear",
+        motion_map=_STATIC_MAP,
     ),
     RenderProfile.BALANCED: ProfileConfig(
-        scale_range_small  = (1.0, 1.07),
-        scale_range_medium = (1.0, 1.12),
-        scale_range_large  = (1.0, 1.15),
-        drift_amount       = 0.04,
-        easing             = "linear",
-        motion_map         = _BALANCED_MAP,
+        scale_range_small=(1.0, 1.07),
+        scale_range_medium=(1.0, 1.12),
+        scale_range_large=(1.0, 1.15),
+        drift_amount=0.04,
+        easing="linear",
+        motion_map=_BALANCED_MAP,
     ),
     RenderProfile.CINEMATIC: ProfileConfig(
-        scale_range_small  = (1.0, 1.07),
-        scale_range_medium = (1.0, 1.12),
-        scale_range_large  = (1.0, 1.18),
-        drift_amount       = 0.05,
-        easing             = "ease_in_out",
-        motion_map         = _CINEMATIC_MAP,
+        scale_range_small=(1.0, 1.07),
+        scale_range_medium=(1.0, 1.12),
+        scale_range_large=(1.0, 1.18),
+        drift_amount=0.05,
+        easing="ease_in_out",
+        motion_map=_CINEMATIC_MAP,
     ),
     RenderProfile.PREMIUM: ProfileConfig(
-        scale_range_small  = (1.0, 1.10),
-        scale_range_medium = (1.0, 1.15),
-        scale_range_large  = (1.0, 1.22),
-        drift_amount       = 0.06,
-        easing             = "ease_in_out",
-        motion_map         = _CINEMATIC_MAP,  # same categories, wider range
+        scale_range_small=(1.0, 1.10),
+        scale_range_medium=(1.0, 1.15),
+        scale_range_large=(1.0, 1.22),
+        drift_amount=0.06,
+        easing="ease_in_out",
+        motion_map=_CINEMATIC_MAP,  # same categories, wider range
     ),
 }
 

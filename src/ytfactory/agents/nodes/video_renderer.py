@@ -16,10 +16,10 @@ from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.video.ffmpeg import FFmpegRenderer
 
-_settings            = Settings()
-_motion_planner      = MotionPlanner()
-_transition_planner  = TransitionPlanner()
-_effects_planner     = EffectsPlanner()
+_settings = Settings()
+_motion_planner = MotionPlanner()
+_transition_planner = TransitionPlanner()
+_effects_planner = EffectsPlanner()
 
 console = Console()
 
@@ -57,13 +57,15 @@ def video_renderer_node(state: VideoState) -> dict:
     errors: list[str] = []
     scene_video_paths: dict[int, str] = {}
 
-    console.print(f"\n[bold cyan]🎥 Video Renderer[/bold cyan] — rendering {len(scene_plan)} scenes\n")
+    console.print(
+        f"\n[bold cyan]🎥 Video Renderer[/bold cyan] — rendering {len(scene_plan)} scenes\n"
+    )
 
     for scene in track(scene_plan, description="Rendering scenes"):
-        index: int        = scene["index"]
-        duration_hint     = float(scene.get("duration_seconds", 10))
+        index: int = scene["index"]
+        duration_hint = float(scene.get("duration_seconds", 10))
         motion_spec: dict | None = scene.get("motion")
-        t_in:  dict | None = scene.get("transition_in")
+        t_in: dict | None = scene.get("transition_in")
         t_out: dict | None = scene.get("transition_out")
         effect_spec: dict | None = scene.get("effects")
 

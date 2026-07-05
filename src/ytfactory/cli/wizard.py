@@ -26,63 +26,71 @@ _PRESETS = [
 
 _STYLES = ["Spiritual", "Documentary", "Educational", "History", "No style"]
 _STYLE_MAP: dict[str, Optional[str]] = {
-    "Spiritual":   "spiritual",
+    "Spiritual": "spiritual",
     "Documentary": "documentary",
     "Educational": "educational",
-    "History":     "history",
-    "No style":    None,
+    "History": "history",
+    "No style": None,
 }
 
 _LANGUAGES: dict[str, str] = {
-    "English (US)":        "en",
-    "English (GB)":        "en-GB",
-    "Hindi":               "hi",
-    "Marathi":             "mr",
-    "Spanish":             "es",
-    "French":              "fr",
-    "German":              "de",
-    "Japanese":            "ja",
-    "Chinese (Mandarin)":  "zh",
+    "English (US)": "en",
+    "English (GB)": "en-GB",
+    "Hindi": "hi",
+    "Marathi": "mr",
+    "Spanish": "es",
+    "French": "fr",
+    "German": "de",
+    "Japanese": "ja",
+    "Chinese (Mandarin)": "zh",
     "Portuguese (Brazil)": "pt",
-    "Arabic":              "ar",
-    "Russian":             "ru",
-    "Korean":              "ko",
-    "Italian":             "it",
+    "Arabic": "ar",
+    "Russian": "ru",
+    "Korean": "ko",
+    "Italian": "it",
 }
 
 _PROFILES = ["Cinematic", "Balanced", "Premium", "Draft"]
 _PROFILE_MAP: dict[str, str] = {
     "Cinematic": "cinematic",
-    "Balanced":  "balanced",
-    "Premium":   "premium",
-    "Draft":     "draft",
+    "Balanced": "balanced",
+    "Premium": "premium",
+    "Draft": "draft",
 }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _print_banner() -> None:
     console.print()
-    console.print(Panel.fit(
-        "[bold cyan]YouTube Factory[/bold cyan]\n"
-        "[dim]Professional AI Video Production[/dim]",
-        border_style="cyan",
-        padding=(1, 4),
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]YouTube Factory[/bold cyan]\n"
+            "[dim]Professional AI Video Production[/dim]",
+            border_style="cyan",
+            padding=(1, 4),
+        )
+    )
     console.print()
 
 
 def _load_settings_defaults() -> dict:
     try:
         from ytfactory.config.settings import Settings
+
         s = Settings()
         return {
             "image_provider": s.image_provider,
-            "tts_provider":   s.tts_provider,
+            "tts_provider": s.tts_provider,
             "render_profile": s.render_profile,
         }
     except Exception:
-        return {"image_provider": "pollinations", "tts_provider": "edge", "render_profile": "balanced"}
+        return {
+            "image_provider": "pollinations",
+            "tts_provider": "edge",
+            "render_profile": "balanced",
+        }
 
 
 def _list_existing_projects() -> list[str]:
@@ -90,7 +98,8 @@ def _list_existing_projects() -> list[str]:
     if not jobs_dir.exists():
         return []
     return sorted(
-        p.name for p in jobs_dir.iterdir()
+        p.name
+        for p in jobs_dir.iterdir()
         if p.is_dir() and (p / "project.json").exists()
     )
 
@@ -115,13 +124,17 @@ def _ask_style(default: str = "Spiritual") -> Optional[str]:
 
 
 def _ask_language(default: str = "English (US)") -> tuple[str, str]:
-    label = questionary.select("Language:", choices=list(_LANGUAGES), default=default).ask()
+    label = questionary.select(
+        "Language:", choices=list(_LANGUAGES), default=default
+    ).ask()
     lang_label = label or "English (US)"
     return lang_label, _LANGUAGES.get(lang_label, "en")
 
 
 def _ask_profile(default: str = "Cinematic") -> str:
-    label = questionary.select("Render profile:", choices=_PROFILES, default=default).ask()
+    label = questionary.select(
+        "Render profile:", choices=_PROFILES, default=default
+    ).ask()
     return _PROFILE_MAP.get(label or "Cinematic", "cinematic")
 
 
@@ -136,12 +149,14 @@ def _ask_target_minutes() -> int:
 def _confirm_launch(params: dict) -> bool:
     console.print()
     lines = "\n".join(f"  [bold]{k}:[/bold] {v}" for k, v in params.items())
-    console.print(Panel(
-        lines,
-        title="[cyan]Ready to produce[/cyan]",
-        border_style="cyan",
-        padding=(0, 2),
-    ))
+    console.print(
+        Panel(
+            lines,
+            title="[cyan]Ready to produce[/cyan]",
+            border_style="cyan",
+            padding=(0, 2),
+        )
+    )
     console.print()
     result = questionary.confirm("Confirm and start?", default=True).ask()
     if result:
@@ -156,33 +171,37 @@ def _apply_profile_env(profile: str) -> None:
 
 # ── Workflow flows ────────────────────────────────────────────────────────────
 
+
 def _flow_full_ai_video(defaults: dict) -> None:
     title = questionary.text("Video title:").ask()
     if not title:
         return
 
-    style                    = _ask_style()
-    target_mins              = _ask_target_minutes()
-    lang_label, language     = _ask_language()
-    profile                  = _ask_profile()
-    auto                     = questionary.confirm(
+    style = _ask_style()
+    target_mins = _ask_target_minutes()
+    lang_label, language = _ask_language()
+    profile = _ask_profile()
+    auto = questionary.confirm(
         "Run fully automatically (skip review gates)?", default=True
     ).ask()
 
-    if not _confirm_launch({
-        "Title":    title,
-        "Style":    style or "none",
-        "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
-        "Language": lang_label,
-        "Profile":  profile,
-        "Images":   defaults.get("image_provider", "?"),
-        "TTS":      defaults.get("tts_provider", "?"),
-        "Mode":     "fully automatic" if auto else "with review gates",
-    }):
+    if not _confirm_launch(
+        {
+            "Title": title,
+            "Style": style or "none",
+            "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
+            "Language": lang_label,
+            "Profile": profile,
+            "Images": defaults.get("image_provider", "?"),
+            "TTS": defaults.get("tts_provider", "?"),
+            "Mode": "fully automatic" if auto else "with review gates",
+        }
+    ):
         return
 
     _apply_profile_env(profile)
     from ytfactory.agents.runner import run_pipeline
+
     run_pipeline(
         title,
         language=language,
@@ -208,29 +227,32 @@ def _flow_existing_script(defaults: dict) -> None:
         console.print(f"[red]File not found: {script_path}[/red]")
         return
 
-    style                    = _ask_style()
-    target_mins              = _ask_target_minutes()
-    lang_label, language     = _ask_language()
-    profile                  = _ask_profile()
-    auto                     = questionary.confirm(
+    style = _ask_style()
+    target_mins = _ask_target_minutes()
+    lang_label, language = _ask_language()
+    profile = _ask_profile()
+    auto = questionary.confirm(
         "Run fully automatically (skip review gates)?", default=True
     ).ask()
 
-    if not _confirm_launch({
-        "Title":    title,
-        "Script":   script_path,
-        "Style":    style or "none",
-        "Duration": f"{target_mins} min (~{target_mins * 130} words)",
-        "Language": lang_label,
-        "Profile":  profile,
-        "Images":   defaults.get("image_provider", "?"),
-        "TTS":      defaults.get("tts_provider", "?"),
-        "Mode":     "fully automatic" if auto else "with review gates",
-    }):
+    if not _confirm_launch(
+        {
+            "Title": title,
+            "Script": script_path,
+            "Style": style or "none",
+            "Duration": f"{target_mins} min (~{target_mins * 130} words)",
+            "Language": lang_label,
+            "Profile": profile,
+            "Images": defaults.get("image_provider", "?"),
+            "TTS": defaults.get("tts_provider", "?"),
+            "Mode": "fully automatic" if auto else "with review gates",
+        }
+    ):
         return
 
     _apply_profile_env(profile)
     from ytfactory.agents.runner import run_pipeline
+
     run_pipeline(
         title,
         script_path=script_path,
@@ -271,6 +293,7 @@ def _flow_images_only() -> None:
 
     from ytfactory.config.settings import Settings
     from ytfactory.images.pipeline import ImagePipeline
+
     ImagePipeline(Settings()).run(project_id)
 
 
@@ -279,14 +302,19 @@ def _flow_voice_only() -> None:
     if not project_id:
         return
 
-    style_label = questionary.select("Style:", choices=_STYLES, default="Spiritual").ask()
+    style_label = questionary.select(
+        "Style:", choices=_STYLES, default="Spiritual"
+    ).ask()
     style = _STYLE_MAP.get(style_label or "Spiritual") or "spiritual"
 
-    if not _confirm_launch({"Project": project_id, "Stage": "Voice generation", "Style": style}):
+    if not _confirm_launch(
+        {"Project": project_id, "Stage": "Voice generation", "Style": style}
+    ):
         return
 
     from ytfactory.config.settings import Settings
     from ytfactory.voice.pipeline import VoicePipeline
+
     VoicePipeline(Settings()).run(project_id, style=style)
 
 
@@ -297,11 +325,14 @@ def _flow_render() -> None:
 
     profile = _ask_profile()
 
-    if not _confirm_launch({"Project": project_id, "Stage": "Render", "Profile": profile}):
+    if not _confirm_launch(
+        {"Project": project_id, "Stage": "Render", "Profile": profile}
+    ):
         return
 
     _apply_profile_env(profile)
     from ytfactory.video.pipeline import VideoPipeline
+
     VideoPipeline().run(project_id)
 
 
@@ -316,18 +347,22 @@ def _flow_resume() -> None:
 
     auto = questionary.confirm("Run fully automatically?", default=True).ask()
 
-    if not _confirm_launch({
-        "Project": project_id,
-        "Title":   title,
-        "Mode":    "fully automatic" if auto else "with review gates",
-    }):
+    if not _confirm_launch(
+        {
+            "Project": project_id,
+            "Title": title,
+            "Mode": "fully automatic" if auto else "with review gates",
+        }
+    ):
         return
 
     from ytfactory.agents.runner import run_pipeline
+
     run_pipeline(title, project_id=project_id, auto=bool(auto))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def run_wizard() -> None:
     _print_banner()

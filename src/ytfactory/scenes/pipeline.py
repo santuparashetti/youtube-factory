@@ -23,9 +23,7 @@ class ScenePipeline:
         script_file = project_dir / "script" / "script.md"
 
         if not script_file.exists():
-            raise FileNotFoundError(
-                "Script not found. Run 'import-script' first."
-            )
+            raise FileNotFoundError("Script not found. Run 'import-script' first.")
 
         script = script_file.read_text(encoding="utf-8")
 

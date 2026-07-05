@@ -3,13 +3,23 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from loguru import logger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse
 from ytfactory.providers.llm.base import LLMProvider
 
-_RETRYABLE = (RuntimeError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectError)
+_RETRYABLE = (
+    RuntimeError,
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpx.ConnectError,
+)
 
 
 class GeminiQuotaError(Exception):
@@ -65,8 +75,7 @@ class GeminiProvider(LLMProvider):
             raise RuntimeError(f"Gemini API error: {exc}") from exc
         except Exception as exc:
             raise RuntimeError(
-                "Gemini request failed. "
-                "The service may be temporarily unavailable."
+                "Gemini request failed. The service may be temporarily unavailable."
             ) from exc
 
         usage = getattr(response, "usage_metadata", None)

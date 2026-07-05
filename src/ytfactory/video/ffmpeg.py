@@ -50,12 +50,12 @@ class FFmpegRenderer:
         """
         motion_type = motion.get("motion_type", "static")
         start_scale = float(motion.get("start_scale", 1.0))
-        end_scale   = float(motion.get("end_scale",   1.0))
-        anchor_x    = float(motion.get("anchor_x",    0.5))
-        anchor_y    = float(motion.get("anchor_y",    0.5))
-        drift_x     = float(motion.get("drift_x",     0.0))
-        drift_y     = float(motion.get("drift_y",     0.0))
-        easing      = motion.get("easing", "linear")
+        end_scale = float(motion.get("end_scale", 1.0))
+        anchor_x = float(motion.get("anchor_x", 0.5))
+        anchor_y = float(motion.get("anchor_y", 0.5))
+        drift_x = float(motion.get("drift_x", 0.0))
+        drift_y = float(motion.get("drift_y", 0.0))
+        easing = motion.get("easing", "linear")
 
         if motion_type == "static":
             return (
@@ -272,15 +272,17 @@ class FFmpegRenderer:
         """
         output.parent.mkdir(parents=True, exist_ok=True)
 
-        width  = self.settings.video_width
+        width = self.settings.video_width
         height = self.settings.video_height
-        fps    = self.settings.video_fps
+        fps = self.settings.video_fps
 
         # 1. Spatial / motion
         if motion_spec is not None:
             spatial = self._vf_spatial(width, height, fps, motion_spec, duration_hint)
         else:
-            spatial = self._vf_spatial_legacy(width, height, fps, animation, duration_hint)
+            spatial = self._vf_spatial_legacy(
+                width, height, fps, animation, duration_hint
+            )
 
         # 2. Visual effects — inserted before subtitle so text stays clean
         effect_parts = self._effects_filters(effect_spec)
@@ -289,7 +291,9 @@ class FFmpegRenderer:
         sub_part = f"subtitles='{subtitle}'"
 
         # 4. Fade transitions — after subtitle for cohesive fade
-        fade_parts = self._fade_filters(transition_in, transition_out, fps, duration_hint)
+        fade_parts = self._fade_filters(
+            transition_in, transition_out, fps, duration_hint
+        )
 
         vf = ",".join([spatial] + effect_parts + [sub_part] + fade_parts)
 
@@ -297,29 +301,41 @@ class FFmpegRenderer:
             [
                 "ffmpeg",
                 "-y",
-
                 # ---------- Input ----------
-                "-loop", "1",
-                "-framerate", str(fps),
-                "-i", str(image),
-                "-i", str(audio),
-
+                "-loop",
+                "1",
+                "-framerate",
+                str(fps),
+                "-i",
+                str(image),
+                "-i",
+                str(audio),
                 # ---------- Video ----------
-                "-vf", vf,
-                "-r", str(fps),
-                "-s", f"{width}x{height}",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "18",
-                "-pix_fmt", "yuv420p",
-                "-profile:v", "high",
-                "-movflags", "+faststart",
-
+                "-vf",
+                vf,
+                "-r",
+                str(fps),
+                "-s",
+                f"{width}x{height}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "high",
+                "-movflags",
+                "+faststart",
                 # ---------- Audio ----------
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-ar", "48000",
-
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "48000",
                 # ---------- Finish ----------
                 "-shortest",
                 str(output),

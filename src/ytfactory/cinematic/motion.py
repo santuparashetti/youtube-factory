@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from ytfactory.cinematic.profiles import ProfileConfig, get_profile_config
-from ytfactory.providers.tts.emotion import Emotion, classify_scene
+from ytfactory.providers.tts.emotion import classify_scene
 
 
 @dataclass(frozen=True)
@@ -43,21 +43,23 @@ class MotionSpec:
         easing:       Interpolation curve: "linear" | "ease_in_out".
         emotion:      Name of the dominant emotion that drove this choice.
     """
+
     motion_type: str
     start_scale: float
-    end_scale:   float
-    anchor_x:    float
-    anchor_y:    float
-    drift_x:     float
-    drift_y:     float
-    easing:      str
-    emotion:     str
+    end_scale: float
+    anchor_x: float
+    anchor_y: float
+    drift_x: float
+    drift_y: float
+    easing: str
+    emotion: str
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ── Motion type → geometry resolver ──────────────────────────────────────────
+
 
 def _resolve_motion(
     motion_type: str,
@@ -73,9 +75,9 @@ def _resolve_motion(
     drift scenes don't all pan in the same direction.
     """
     lo, hi = {
-        "small":  cfg.scale_range_small,
+        "small": cfg.scale_range_small,
         "medium": cfg.scale_range_medium,
-        "large":  cfg.scale_range_large,
+        "large": cfg.scale_range_large,
     }.get(scale_tier, cfg.scale_range_medium)
 
     d = cfg.drift_amount
@@ -109,7 +111,9 @@ def _resolve_motion(
 
         case "drift":
             # Constant slight zoom; motion comes from horizontal x shift
-            zoom = 1.0 + d if d > 0 else 1.04  # enough headroom to pan without black bars
+            zoom = (
+                1.0 + d if d > 0 else 1.04
+            )  # enough headroom to pan without black bars
             return (zoom, zoom, 0.5, 0.5, d * drift_sign, 0.0)
 
         case "tilt_up":
@@ -122,6 +126,7 @@ def _resolve_motion(
 
 
 # ── Asset scene → MotionSpec ──────────────────────────────────────────────────
+
 
 def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
     """
@@ -150,19 +155,20 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
             mtype = "static"
 
     return MotionSpec(
-        motion_type = mtype,
-        start_scale = round(ss, 4),
-        end_scale   = round(es, 4),
-        anchor_x    = ax,
-        anchor_y    = ay,
-        drift_x     = round(dx, 4),
-        drift_y     = round(dy, 4),
-        easing      = cfg.easing,
-        emotion     = "asset",
+        motion_type=mtype,
+        start_scale=round(ss, 4),
+        end_scale=round(es, 4),
+        anchor_x=ax,
+        anchor_y=ay,
+        drift_x=round(dx, 4),
+        drift_y=round(dy, 4),
+        easing=cfg.easing,
+        emotion="asset",
     )
 
 
 # ── Motion Planner ────────────────────────────────────────────────────────────
+
 
 class MotionPlanner:
     """
@@ -204,7 +210,9 @@ class MotionPlanner:
         total = len(scenes)
 
         for scene in scenes:
-            scene_position = (scene["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5
+            scene_position = (
+                (scene["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5
+            )
             scene_type = scene.get("scene_type", "generated_image")
 
             if scene_type == "asset":
@@ -230,22 +238,20 @@ class MotionPlanner:
         emotion_profile = classify_scene(narration, scene_position)
         emotion_name = emotion_profile.emotion.value  # e.g. "curiosity"
 
-        motion_type, scale_tier = profile_map.get(
-            emotion_name, ("static", "small")
-        )
+        motion_type, scale_tier = profile_map.get(emotion_name, ("static", "small"))
 
         start_s, end_s, ax, ay, dx, dy = _resolve_motion(
             motion_type, scale_tier, cfg, scene["index"]
         )
 
         return MotionSpec(
-            motion_type = motion_type,
-            start_scale = round(start_s, 4),
-            end_scale   = round(end_s, 4),
-            anchor_x    = ax,
-            anchor_y    = ay,
-            drift_x     = round(dx, 4),
-            drift_y     = round(dy, 4),
-            easing      = cfg.easing,
-            emotion     = emotion_name,
+            motion_type=motion_type,
+            start_scale=round(start_s, 4),
+            end_scale=round(end_s, 4),
+            anchor_x=ax,
+            anchor_y=ay,
+            drift_x=round(dx, 4),
+            drift_y=round(dy, 4),
+            easing=cfg.easing,
+            emotion=emotion_name,
         )

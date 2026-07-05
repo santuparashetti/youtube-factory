@@ -10,6 +10,4 @@ def render(
 ):
     VideoPipeline().run(project_id)
 
-    console.print(
-        "[green]✓ Video rendered[/green]"
-    )
+    console.print("[green]✓ Video rendered[/green]")

@@ -15,7 +15,7 @@ from ytfactory.voice.cli import generate_voice
 
 app = typer.Typer(
     help="YouTube Factory CLI",
-    no_args_is_help=False,   # wizard launches instead of help when no args given
+    no_args_is_help=False,  # wizard launches instead of help when no args given
 )
 
 app.command(name="doctor")(doctor)
@@ -35,6 +35,7 @@ def main(ctx: typer.Context) -> None:
     """YouTube Factory — run without arguments to open the interactive wizard."""
     if ctx.invoked_subcommand is None:
         from ytfactory.cli.wizard import run_wizard
+
         run_wizard()
 
 
@@ -44,24 +45,32 @@ def run(
     project_id: Optional[str] = typer.Option(
         None, "--project", "-p", help="Resume an existing project by ID"
     ),
-    language: str = typer.Option("en", "--language", "-l", help="BCP-47 language code for TTS"),
+    language: str = typer.Option(
+        "en", "--language", "-l", help="BCP-47 language code for TTS"
+    ),
     auto: bool = typer.Option(
         False, "--auto", help="Skip human-review gates (fully autonomous)"
     ),
     script: Optional[str] = typer.Option(
-        None, "--script", "-s",
+        None,
+        "--script",
+        "-s",
         help="Path to a pre-written script file. Skips research and script-writer stages.",
     ),
     style: Optional[str] = typer.Option(
-        None, "--style",
+        None,
+        "--style",
         help="Visual style: spiritual | documentary | educational | history (affects image prompts)",
     ),
     no_images: bool = typer.Option(
-        False, "--no-images",
+        False,
+        "--no-images",
         help="Skip image generation. Review IMAGE_PROMPTS.md, generate images manually, then re-run.",
     ),
     target_minutes: int = typer.Option(
-        7, "--target-minutes", "-t",
+        7,
+        "--target-minutes",
+        "-t",
         help="Target narration duration in minutes (5-10). Drives script enhancer word count.",
     ),
 ):

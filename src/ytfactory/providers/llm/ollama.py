@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import requests
 from loguru import logger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse

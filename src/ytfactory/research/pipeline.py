@@ -10,7 +10,6 @@ from ytfactory.storage.project_repository import ProjectRepository
 
 
 class ResearchPipeline:
-
     def __init__(self):
 
         settings = Settings()

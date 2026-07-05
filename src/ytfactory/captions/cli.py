@@ -12,6 +12,4 @@ def generate_captions(
 
     CaptionPipeline().run(project_id)
 
-    console.print(
-        "[green]✓ Captions generated[/green]"
-    )
+    console.print("[green]✓ Captions generated[/green]")

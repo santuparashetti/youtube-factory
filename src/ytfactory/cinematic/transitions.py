@@ -53,9 +53,9 @@ class TransitionSpec:
 
     transition_type: str
     duration_frames: int
-    color:           str
-    from_emotion:    str
-    to_emotion:      str
+    color: str
+    from_emotion: str
+    to_emotion: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,10 +64,10 @@ class TransitionSpec:
 # ── Profile → fade duration (frames at 30 fps) ────────────────────────────────
 
 _PROFILE_DURATIONS: dict[str, int] = {
-    RenderProfile.DRAFT:     0,   # hard cut everywhere — fastest render
-    RenderProfile.BALANCED:  10,  # ~0.33 s — subtle, almost imperceptible
+    RenderProfile.DRAFT: 0,  # hard cut everywhere — fastest render
+    RenderProfile.BALANCED: 10,  # ~0.33 s — subtle, almost imperceptible
     RenderProfile.CINEMATIC: 15,  # ~0.50 s — noticeable but not slow
-    RenderProfile.PREMIUM:   20,  # ~0.67 s — deliberate, cinematic weight
+    RenderProfile.PREMIUM: 20,  # ~0.67 s — deliberate, cinematic weight
 }
 
 # Fixed durations for opening / closing regardless of interior profile
@@ -82,52 +82,49 @@ _CLOSING_FRAMES: int = 15  # last scene: fade out to black
 
 _PAIR_TRANSITIONS: dict[tuple[str, str], str] = {
     # Mystery → clarity
-    ("mystery",      "revelation"):  "luma_fade",
-    ("mystery",      "wonder"):      "cross_dissolve",
-    ("mystery",      "curiosity"):   "cross_dissolve",
-
+    ("mystery", "revelation"): "luma_fade",
+    ("mystery", "wonder"): "cross_dissolve",
+    ("mystery", "curiosity"): "cross_dissolve",
     # Darkness → light (emotional pivot)
-    ("sadness",      "hope"):        "light_leak",
-    ("sadness",      "peace"):       "cross_dissolve",
-    ("sadness",      "revelation"):  "light_leak",
-
+    ("sadness", "hope"): "light_leak",
+    ("sadness", "peace"): "cross_dissolve",
+    ("sadness", "revelation"): "light_leak",
     # Reflection → insight
-    ("reflection",   "revelation"):  "luma_fade",
-    ("reflection",   "wonder"):      "cross_dissolve",
-    ("reflection",   "hope"):        "cross_dissolve",
-
+    ("reflection", "revelation"): "luma_fade",
+    ("reflection", "wonder"): "cross_dissolve",
+    ("reflection", "hope"): "cross_dissolve",
     # Urgency → calm
-    ("urgency",      "reflection"):  "cross_dissolve",
-    ("urgency",      "peace"):       "cross_dissolve",
-    ("urgency",      "sadness"):     "cross_dissolve",
-
+    ("urgency", "reflection"): "cross_dissolve",
+    ("urgency", "peace"): "cross_dissolve",
+    ("urgency", "sadness"): "cross_dissolve",
     # Awe and wonder arcs
-    ("awe",          "wonder"):      "cross_dissolve",
-    ("awe",          "peace"):       "cross_dissolve",
-    ("wonder",       "revelation"):  "luma_fade",
-    ("wonder",       "peace"):       "cross_dissolve",
-
+    ("awe", "wonder"): "cross_dissolve",
+    ("awe", "peace"): "cross_dissolve",
+    ("wonder", "revelation"): "luma_fade",
+    ("wonder", "peace"): "cross_dissolve",
     # Curiosity → discovery
-    ("curiosity",    "wonder"):      "cross_dissolve",
-    ("curiosity",    "revelation"):  "luma_fade",
-    ("curiosity",    "awe"):         "cross_dissolve",
-
+    ("curiosity", "wonder"): "cross_dissolve",
+    ("curiosity", "revelation"): "luma_fade",
+    ("curiosity", "awe"): "cross_dissolve",
     # Compassion / hope arcs
-    ("compassion",   "hope"):        "light_leak",
-    ("compassion",   "peace"):       "cross_dissolve",
-    ("hope",         "peace"):       "cross_dissolve",
-    ("determination","revelation"):  "luma_fade",
+    ("compassion", "hope"): "light_leak",
+    ("compassion", "peace"): "cross_dissolve",
+    ("hope", "peace"): "cross_dissolve",
+    ("determination", "revelation"): "luma_fade",
 }
 
 # High-energy same-emotion continuity → hard cut keeps the pace
-_HARD_CUT_EMOTIONS: frozenset[str] = frozenset({
-    "curiosity",
-    "urgency",
-    "determination",
-})
+_HARD_CUT_EMOTIONS: frozenset[str] = frozenset(
+    {
+        "curiosity",
+        "urgency",
+        "determination",
+    }
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _get_emotion(scene: dict, position: float) -> str:
     """Classify the dominant emotion for one scene."""
@@ -143,9 +140,9 @@ def _short_narration(scene: dict, threshold: int = 20) -> bool:
 
 def _select_transition(
     from_emotion: str,
-    to_emotion:   str,
-    to_scene:     dict,
-    profile:      str,
+    to_emotion: str,
+    to_scene: dict,
+    profile: str,
     duration_frames: int,
 ) -> tuple[str, int, str]:
     """
@@ -191,6 +188,7 @@ def _select_transition(
 
 
 # ── Transition Planner ────────────────────────────────────────────────────────
+
 
 class TransitionPlanner:
     """
@@ -239,55 +237,54 @@ class TransitionPlanner:
 
         # Pre-classify emotions for all scenes in one pass
         positions = [
-            (s["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5
-            for s in scenes
+            (s["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5 for s in scenes
         ]
         emotions = [_get_emotion(s, p) for s, p in zip(scenes, positions)]
 
         # ── Opening: first scene fades in from black ──────────────────────────
         open_frames = _OPENING_FRAMES if profile != RenderProfile.DRAFT else 0
         scenes[0]["transition_in"] = TransitionSpec(
-            transition_type = "cross_dissolve" if open_frames else "hard_cut",
-            duration_frames = open_frames,
-            color           = "black",
-            from_emotion    = "none",
-            to_emotion      = emotions[0],
+            transition_type="cross_dissolve" if open_frames else "hard_cut",
+            duration_frames=open_frames,
+            color="black",
+            from_emotion="none",
+            to_emotion=emotions[0],
         ).to_dict()
 
         # ── Interior boundaries ───────────────────────────────────────────────
         for i in range(total - 1):
             from_scene = scenes[i]
-            to_scene   = scenes[i + 1]
-            fe, te     = emotions[i], emotions[i + 1]
+            to_scene = scenes[i + 1]
+            fe, te = emotions[i], emotions[i + 1]
 
             ttype, frames, color = _select_transition(
                 fe, te, to_scene, profile, duration_frames
             )
 
             shared = dict(
-                transition_type = ttype,
-                duration_frames = frames,
-                color           = color,
-                from_emotion    = fe,
-                to_emotion      = te,
+                transition_type=ttype,
+                duration_frames=frames,
+                color=color,
+                from_emotion=fe,
+                to_emotion=te,
             )
             from_scene["transition_out"] = TransitionSpec(**shared).to_dict()
-            to_scene["transition_in"]    = TransitionSpec(**shared).to_dict()
+            to_scene["transition_in"] = TransitionSpec(**shared).to_dict()
 
         # ── Closing: last scene fades to black ───────────────────────────────
         close_frames = _CLOSING_FRAMES if profile != RenderProfile.DRAFT else 0
         scenes[-1]["transition_out"] = TransitionSpec(
-            transition_type = "cross_dissolve" if close_frames else "hard_cut",
-            duration_frames = close_frames,
-            color           = "black",
-            from_emotion    = emotions[-1],
-            to_emotion      = "none",
+            transition_type="cross_dissolve" if close_frames else "hard_cut",
+            duration_frames=close_frames,
+            color="black",
+            from_emotion=emotions[-1],
+            to_emotion="none",
         ).to_dict()
 
         # ── Safety net: ensure every scene has both keys ──────────────────────
         _null = TransitionSpec("hard_cut", 0, "black", "none", "none").to_dict()
         for scene in scenes:
-            scene.setdefault("transition_in",  _null)
+            scene.setdefault("transition_in", _null)
             scene.setdefault("transition_out", _null)
 
         return scenes

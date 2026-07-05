@@ -9,7 +9,12 @@ from google import genai
 from google.genai import types
 from loguru import logger
 from PIL import Image
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.image import ImageRequest, ImageResponse
@@ -39,8 +44,7 @@ class GeminiImageProvider(ImageProvider):
         prompt = (
             "Generate a high-quality photorealistic cinematic image in 16:9 landscape "
             "format for a YouTube documentary. Ultra realistic, professional photography, "
-            "sharp focus, high detail, no text or watermarks. "
-            + request.prompt
+            "sharp focus, high detail, no text or watermarks. " + request.prompt
         )
         if request.negative_prompt:
             prompt += f"\n\nDo NOT include: {request.negative_prompt}"
@@ -80,7 +84,10 @@ class GeminiImageProvider(ImageProvider):
 
         elapsed = time.perf_counter() - start
         logger.info(
-            "Gemini image generated in {:.1f}s — {}×{}", elapsed, request.width, request.height
+            "Gemini image generated in {:.1f}s — {}×{}",
+            elapsed,
+            request.width,
+            request.height,
         )
 
         return ImageResponse(
@@ -91,7 +98,9 @@ class GeminiImageProvider(ImageProvider):
             generation_time=elapsed,
         )
 
-    def _fit_to_target(self, image: Image.Image, width: int, height: int) -> Image.Image:
+    def _fit_to_target(
+        self, image: Image.Image, width: int, height: int
+    ) -> Image.Image:
         """Center-crop to target 16:9 ratio then resize. Never stretches."""
         target_ratio = width / height
         current_ratio = image.width / image.height

@@ -2,7 +2,6 @@ from ytfactory.domain.search import SearchResult
 
 
 class PromptBuilder:
-
     def build(
         self,
         topic: str,

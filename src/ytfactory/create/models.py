@@ -20,9 +20,7 @@ class Project:
 
     status: str = "created"
 
-    created_at: str = field(
-        default_factory=lambda: datetime.utcnow().isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     stages: dict = field(
         default_factory=lambda: {

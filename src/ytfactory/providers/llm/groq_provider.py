@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import requests
 from loguru import logger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse
@@ -24,13 +29,17 @@ class GroqProvider(LLMProvider):
     def __init__(self, settings: Settings):
         self._model = settings.groq_model
         self._session = requests.Session()
-        self._session.headers.update({
-            "Authorization": f"Bearer {settings.groq_api_key}",
-            "Content-Type": "application/json",
-        })
+        self._session.headers.update(
+            {
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            }
+        )
 
     @retry(
-        retry=retry_if_exception_type((requests.HTTPError, requests.ConnectionError, requests.Timeout)),
+        retry=retry_if_exception_type(
+            (requests.HTTPError, requests.ConnectionError, requests.Timeout)
+        ),
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=2, min=5, max=30),
         reraise=True,
@@ -51,7 +60,11 @@ class GroqProvider(LLMProvider):
 
         response = self._session.post(
             _API_URL,
-            json={"model": self._model, "messages": messages, "temperature": temperature},
+            json={
+                "model": self._model,
+                "messages": messages,
+                "temperature": temperature,
+            },
             timeout=120,
         )
 
@@ -63,12 +76,17 @@ class GroqProvider(LLMProvider):
                 retry_after,
             )
             import time
+
             for remaining in range(retry_after, 0, -10):
                 logger.info("Rate limit cooldown — {}s remaining...", remaining)
                 time.sleep(min(10, remaining))
             response = self._session.post(
                 _API_URL,
-                json={"model": self._model, "messages": messages, "temperature": temperature},
+                json={
+                    "model": self._model,
+                    "messages": messages,
+                    "temperature": temperature,
+                },
                 timeout=120,
             )
 

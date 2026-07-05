@@ -36,7 +36,6 @@ class TavilySearchProvider(SearchProvider):
         results: list[SearchResult] = []
 
         for item in response.get("results", []):
-
             results.append(
                 SearchResult(
                     title=item.get("title", ""),

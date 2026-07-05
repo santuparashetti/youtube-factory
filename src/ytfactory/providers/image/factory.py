@@ -10,7 +10,6 @@ def get_image_provider(settings: Settings) -> ImageProvider:
     """Return configured image provider."""
 
     match settings.image_provider.lower():
-
         case "pollinations":
             return PollinationsImageProvider(settings)
 
@@ -22,6 +21,7 @@ def get_image_provider(settings: Settings) -> ImageProvider:
 
         case "a1111" | "automatic1111" | "sd-webui":
             from .a1111 import A1111ImageProvider
+
             return A1111ImageProvider(settings)
 
         case _:

@@ -81,7 +81,9 @@ def research_node(state: VideoState) -> dict:
     project_id = state["project_id"]
 
     project_repo.update_stage(project_id, "research", "running")
-    console.print(f"\n[bold cyan]🔬 Research Agent[/bold cyan] — topic: [italic]{topic}[/italic]\n")
+    console.print(
+        f"\n[bold cyan]🔬 Research Agent[/bold cyan] — topic: [italic]{topic}[/italic]\n"
+    )
 
     # ── Step 1: Detect topic category ────────────────────────────────────
     category_response = llm.generate(DETECT_TOPIC_CATEGORY.format(topic=topic))
@@ -125,7 +127,9 @@ def research_node(state: VideoState) -> dict:
     gap_queries = _parse_json_list(critique_response.text, default=[])
 
     if gap_queries:
-        console.print(f"  [yellow]→[/yellow] Self-critique found gaps, running {len(gap_queries)} follow-up searches")
+        console.print(
+            f"  [yellow]→[/yellow] Self-critique found gaps, running {len(gap_queries)} follow-up searches"
+        )
         for query in gap_queries[:2]:
             try:
                 results = search.search(query, max_results=4)
@@ -143,7 +147,9 @@ def research_node(state: VideoState) -> dict:
             temperature=0.3,
         )
         research_md = final_response.text
-        console.print(f"  [green]✓[/green] Research enriched to {len(all_results)} sources")
+        console.print(
+            f"  [green]✓[/green] Research enriched to {len(all_results)} sources"
+        )
 
     # ── Step 6: Generate script outline ──────────────────────────────────
     outline_response = llm.generate(
@@ -166,15 +172,19 @@ def research_node(state: VideoState) -> dict:
         "sources.json",
         [asdict(r) for r in all_results],
     )
-    artifact_repo.write_markdown(project_id, "research", "script_outline.md", script_outline)
+    artifact_repo.write_markdown(
+        project_id, "research", "script_outline.md", script_outline
+    )
 
     project_repo.update_stage(project_id, "research", "completed")
-    console.print(Panel(
-        f"[green]Research complete[/green] — {len(research_md.split())} words, "
-        f"{len(all_results)} sources, outline saved",
-        title="Research Agent",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            f"[green]Research complete[/green] — {len(research_md.split())} words, "
+            f"{len(all_results)} sources, outline saved",
+            title="Research Agent",
+            border_style="green",
+        )
+    )
 
     return {
         "topic_category": category,

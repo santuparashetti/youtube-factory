@@ -143,16 +143,23 @@ def run_pipeline(
     console.print()
     console.print(Rule("[bold green]Pipeline Complete[/bold green]"))
     console.print()
-    console.print(Panel(
-        f"[bold]Topic:[/bold] {topic}\n"
-        f"[bold]Project:[/bold] {project_id}\n"
-        f"[bold]Pipeline ran in:[/bold] {minutes}m {seconds}s"
-        + estimated_video_str
-        + f"\n[bold]Final video:[/bold] {final_video or 'not produced'}\n"
-        f"[bold]Errors:[/bold] {len(errors)} non-fatal"
-        + ("\n\n[yellow]Warnings:[/yellow]\n" + "\n".join(f"  • {e}" for e in errors) if errors else ""),
-        title="Summary",
-        border_style="green" if not errors else "yellow",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Topic:[/bold] {topic}\n"
+            f"[bold]Project:[/bold] {project_id}\n"
+            f"[bold]Pipeline ran in:[/bold] {minutes}m {seconds}s"
+            + estimated_video_str
+            + f"\n[bold]Final video:[/bold] {final_video or 'not produced'}\n"
+            f"[bold]Errors:[/bold] {len(errors)} non-fatal"
+            + (
+                "\n\n[yellow]Warnings:[/yellow]\n"
+                + "\n".join(f"  • {e}" for e in errors)
+                if errors
+                else ""
+            ),
+            title="Summary",
+            border_style="green" if not errors else "yellow",
+        )
+    )
 
     return project_id

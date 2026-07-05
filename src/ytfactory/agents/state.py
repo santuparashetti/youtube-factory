@@ -15,17 +15,17 @@ class VideoState(TypedDict, total=False):
     # ── Project metadata ──────────────────────────────────────────────────
     project_id: str
     topic: str
-    language: str                # BCP-47 code, e.g. "en", "hi", "mr"
-    topic_category: str          # history | tech | science | finance | health | other
-    style: Optional[str]         # visual style hint: "spiritual" | "documentary" | None
-    target_minutes: int          # target narration duration (5-10); drives enhancer word count
-    auto_mode: bool              # True → skip all human-review gates
-    skip_images: bool            # True → skip image generation (for manual-image workflow)
+    language: str  # BCP-47 code, e.g. "en", "hi", "mr"
+    topic_category: str  # history | tech | science | finance | health | other
+    style: Optional[str]  # visual style hint: "spiritual" | "documentary" | None
+    target_minutes: int  # target narration duration (5-10); drives enhancer word count
+    auto_mode: bool  # True → skip all human-review gates
+    skip_images: bool  # True → skip image generation (for manual-image workflow)
 
     # ── Stage text outputs ────────────────────────────────────────────────
     research_md: str
     script_md: str
-    scene_plan: list[dict]       # validated JSON list from scene planner
+    scene_plan: list[dict]  # validated JSON list from scene planner
 
     # ── Per-scene current pointer (set by Send during parallel fan-out) ───
     current_scene: Optional[dict]

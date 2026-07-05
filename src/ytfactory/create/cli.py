@@ -12,10 +12,6 @@ def create(title: str):
 
     console.print()
 
-    console.print(
-        f"[green]✓[/green] Project created: {project.id}"
-    )
+    console.print(f"[green]✓[/green] Project created: {project.id}")
 
-    console.print(
-        f"workspace/jobs/{project.id}"
-    )
+    console.print(f"workspace/jobs/{project.id}")

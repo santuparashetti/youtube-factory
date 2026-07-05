@@ -16,6 +16,4 @@ def generate_voice(
 
     VoicePipeline(settings).run(project_id)
 
-    console.print(
-        "[green]✓ Voice generated[/green]"
-    )
+    console.print("[green]✓ Voice generated[/green]")

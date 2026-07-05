@@ -14,14 +14,17 @@ def get_llm_provider(
 
         case "groq":
             from ytfactory.providers.llm.groq_provider import GroqProvider
+
             return GroqProvider(settings)
 
         case "ollama":
             from ytfactory.providers.llm.ollama import OllamaProvider
+
             return OllamaProvider(settings)
 
         case "anthropic":
             from ytfactory.providers.llm.openai_provider import OpenAICompatibleProvider
+
             return OpenAICompatibleProvider(settings)
 
         case _:

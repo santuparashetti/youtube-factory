@@ -6,16 +6,12 @@ from .models import CaptionArtifact
 
 
 class CaptionRepository:
-
     def save(
         self,
         artifact: CaptionArtifact,
     ) -> None:
 
-        manifest = (
-            artifact.srt_path.parent
-            / "captions.json"
-        )
+        manifest = artifact.srt_path.parent / "captions.json"
 
         data = []
 

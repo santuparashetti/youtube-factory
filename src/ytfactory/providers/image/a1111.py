@@ -61,10 +61,10 @@ class A1111ImageProvider(ImageProvider):
             "prompt": (
                 "ultra realistic cinematic documentary photograph, "
                 "16:9 widescreen, professional photography, "
-                "sharp focus, photorealistic, high detail, 8k. "
-                + request.prompt
+                "sharp focus, photorealistic, high detail, 8k. " + request.prompt
             ),
-            "negative_prompt": request.negative_prompt or (
+            "negative_prompt": request.negative_prompt
+            or (
                 "text, watermark, logo, words, letters, numbers, subtitles, "
                 "blurry, distorted, ugly, low quality, bad anatomy, "
                 "cartoon, anime, illustration, painting, drawing, "
@@ -97,7 +97,9 @@ class A1111ImageProvider(ImageProvider):
         image = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
 
         if image.size != (request.width, request.height):
-            image = image.resize((request.width, request.height), Image.Resampling.LANCZOS)
+            image = image.resize(
+                (request.width, request.height), Image.Resampling.LANCZOS
+            )
 
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         image.save(request.output_path, format="PNG")
@@ -105,7 +107,9 @@ class A1111ImageProvider(ImageProvider):
         elapsed = time.perf_counter() - start
         logger.info(
             "A1111 generated scene image in {:.1f}s — {}×{}",
-            elapsed, request.width, request.height,
+            elapsed,
+            request.width,
+            request.height,
         )
 
         return ImageResponse(

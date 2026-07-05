@@ -51,10 +51,14 @@ def video_concatenator_node(state: VideoState) -> dict:
             [
                 "ffmpeg",
                 "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",          # stream copy — no re-encode
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",  # stream copy — no re-encode
                 str(final_path),
             ],
             capture_output=True,
@@ -62,14 +66,16 @@ def video_concatenator_node(state: VideoState) -> dict:
             check=True,
         )
         size_mb = final_path.stat().st_size / (1024 * 1024)
-        console.print(Panel(
-            f"[green]✓ final.mp4 created[/green]\n"
-            f"Path: {final_path}\n"
-            f"Size: {size_mb:.1f} MB\n"
-            f"Scenes: {len(sorted_indices)}",
-            title="Video Concatenator",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                f"[green]✓ final.mp4 created[/green]\n"
+                f"Path: {final_path}\n"
+                f"Size: {size_mb:.1f} MB\n"
+                f"Scenes: {len(sorted_indices)}",
+                title="Video Concatenator",
+                border_style="green",
+            )
+        )
         return {"final_video_path": str(final_path)}
 
     except subprocess.CalledProcessError as exc:

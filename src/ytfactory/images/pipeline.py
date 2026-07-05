@@ -29,16 +29,10 @@ class ImagePipeline:
 
         project_dir = Path("workspace/jobs") / project_id
 
-        scene_plan_file = (
-            project_dir
-            / "scenes"
-            / "scene-plan.json"
-        )
+        scene_plan_file = project_dir / "scenes" / "scene-plan.json"
 
         if not scene_plan_file.exists():
-            raise FileNotFoundError(
-                f"Scene plan not found: {scene_plan_file}"
-            )
+            raise FileNotFoundError(f"Scene plan not found: {scene_plan_file}")
 
         with open(
             scene_plan_file,
@@ -67,10 +61,7 @@ class ImagePipeline:
             scenes,
             start=1,
         ):
-
-            filename = (
-                f"scene-{scene['index']:03d}.png"
-            )
+            filename = f"scene-{scene['index']:03d}.png"
 
             output_path = output_dir / filename
 
@@ -107,9 +98,7 @@ class ImagePipeline:
                 )
                 continue
 
-            print(
-                f"[{index}/{total}] {filename}"
-            )
+            print(f"[{index}/{total}] {filename}")
 
             self._provider.generate(request)
 

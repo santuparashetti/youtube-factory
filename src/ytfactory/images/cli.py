@@ -15,6 +15,4 @@ def generate_images(
 
     ImagePipeline(settings).run(project_id)
 
-    console.print(
-        "[green]✓ Images generated[/green]"
-    )
+    console.print("[green]✓ Images generated[/green]")
