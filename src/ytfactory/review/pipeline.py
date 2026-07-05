@@ -12,6 +12,7 @@ from ytfactory.review.config import ReviewConfig
 from ytfactory.review.engine import VideoQualityReviewEngine
 from ytfactory.review.models import ReviewReport
 from ytfactory.review.reporter import ReviewReporter
+from ytfactory.review.validation.config import ValidationRulesConfig
 
 console = Console()
 
@@ -19,8 +20,12 @@ console = Console()
 class ReviewPipeline:
     """Run the Video Quality Review Engine and write all artefacts."""
 
-    def __init__(self, config: ReviewConfig | None = None) -> None:
-        self._engine = VideoQualityReviewEngine(config)
+    def __init__(
+        self,
+        config: ReviewConfig | None = None,
+        validation_config: ValidationRulesConfig | None = None,
+    ) -> None:
+        self._engine = VideoQualityReviewEngine(config, validation_config)
         self._reporter = ReviewReporter()
 
     def run(self, project_id: str) -> ReviewReport:

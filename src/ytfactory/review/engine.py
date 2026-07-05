@@ -23,6 +23,9 @@ from ytfactory.review.stages.asset_integrity import AssetIntegrityStage
 from ytfactory.review.stages.content import ContentReviewStage
 from ytfactory.review.stages.production import ProductionQualityStage
 from ytfactory.review.stages.timeline import TimelineReviewStage
+from ytfactory.review.validation.config import ValidationRulesConfig
+from ytfactory.review.validation.reporter import ValidationReporter
+from ytfactory.review.validation.runner import ValidationRunner
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 
@@ -38,8 +41,13 @@ class VideoQualityReviewEngine:
             ...
     """
 
-    def __init__(self, config: ReviewConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ReviewConfig | None = None,
+        validation_config: ValidationRulesConfig | None = None,
+    ) -> None:
         self._config = config or ReviewConfig()
+        self._val_config = validation_config or ValidationRulesConfig()
         self._stages = [
             AssetIntegrityStage(self._config),
             TimelineReviewStage(self._config),
@@ -87,6 +95,15 @@ class VideoQualityReviewEngine:
             for issue in sv.issues:
                 all_warnings.append(f"Scene {sv.index}: {issue}")
 
+        # ── Validation Rules V1 ───────────────────────────────────────────
+        val_runner = ValidationRunner(self._val_config)
+        val_report = val_runner.run(project_dir, scenes, context)
+        ValidationReporter().write(val_report)
+
+        # Critical validation failures bubble up into all_errors → affect verdict
+        for failure in val_report.critical_failures:
+            all_errors.append(f"[validation:{failure.rule_id}] {failure.description}")
+
         # ── PASS / FAIL ───────────────────────────────────────────────────
         has_critical = bool(all_errors)
         if self._config.fail_on_warnings:
@@ -119,6 +136,7 @@ class VideoQualityReviewEngine:
                 "final_video_duration_seconds", 0.0
             ),
             processing_time_seconds=round(elapsed, 3),
+            validation_report=val_report.to_dict(),
         )
 
         return report

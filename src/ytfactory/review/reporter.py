@@ -109,6 +109,35 @@ class ReviewReporter:
                 lines.append(f"- ⚠️  {w}")
             lines.append("")
 
+        # Validation Rules V1 summary
+        val = report.validation_report
+        if val:
+            lines += ["---", "", "## Validation Rules V1", ""]
+            val_verdict_icon = "✅ PASS" if val.get("verdict") == "PASS" else "❌ FAIL"
+            lines += [
+                f"**Validation verdict:** {val_verdict_icon}  ",
+                f"**Rules run:** {val.get('total_rules_run', 0)}  ",
+                f"**Passed:** {val.get('total_passed', 0)} | "
+                f"**Failed:** {val.get('total_failed', 0)} | "
+                f"**Warnings:** {val.get('total_warnings', 0)} | "
+                f"**Skipped:** {val.get('total_skipped', 0)}  ",
+                "",
+            ]
+            scores = val.get("category_scores", {})
+            if scores:
+                lines += ["### Category Scores", "", "| Category | Pass Rate |", "|----------|-----------|"]
+                for cat, score in sorted(scores.items()):
+                    bar = "✅" if score >= 1.0 else ("⚠️" if score >= 0.7 else "❌")
+                    lines.append(f"| {cat} | {bar} {score:.0%} |")
+                lines.append("")
+            critical = val.get("critical_failures", [])
+            if critical:
+                lines += ["### Critical Validation Failures", ""]
+                for f in critical:
+                    lines.append(f"- ❌ `{f['rule_id']}` ({f['severity']}): {f['description']}")
+                lines.append("")
+            lines += ["_Full details: `review/validation-report.json`_", ""]
+
         # Extension points note
         lines += [
             "---",

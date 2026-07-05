@@ -42,3 +42,8 @@ def root_cause_report_path(project_id: str) -> Path:
 def engine_feedback_path(project_id: str) -> Path:
     """Reserved for future Engine Feedback Loop V1."""
     return review_directory(project_id) / "engine-feedback.json"
+
+
+def validation_report_path(project_id: str) -> Path:
+    """Path to the Video Validation Rules V1 report."""
+    return review_directory(project_id) / "validation-report.json"

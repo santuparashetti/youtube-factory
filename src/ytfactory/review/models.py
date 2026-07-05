@@ -107,6 +107,9 @@ class ReviewReport:
     # Engine Feedback Loop will populate this
     feedback_payload: dict = field(default_factory=dict)
 
+    # Video Validation Rules V1 — populated by ValidationRunner
+    validation_report: dict | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["stage_results"] = [s.to_dict() for s in self.stage_results]
