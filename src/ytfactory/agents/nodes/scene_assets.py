@@ -10,11 +10,15 @@ from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
 from ytfactory.domain.image import ImageRequest
 from ytfactory.providers.image.factory import get_image_provider
+from ytfactory.providers.tts.debug import TTSDebugWriter
 from ytfactory.providers.tts.factory import get_tts_provider
 from ytfactory.providers.tts.optimizer import SpeechOptimizer
+from ytfactory.providers.tts.validator import AudioValidator
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.subtitles import SubtitleEngine
 
 _optimizer = SpeechOptimizer()
+_validator = AudioValidator()
 
 _NEGATIVE_PROMPT = (
     "text, watermark, logo, words, letters, numbers, captions, subtitles, "
@@ -23,89 +27,21 @@ _NEGATIVE_PROMPT = (
 )
 
 
-# ── SRT helpers ───────────────────────────────────────────────────────────────
-
-def _fmt_time(seconds: float) -> str:
-    """Format float seconds as SRT timestamp HH:MM:SS,mmm."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds % 1) * 1000))
-    # Clamp ms to [0, 999] to avoid rounding to 1000
-    if ms >= 1000:
-        ms = 999
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _build_srt_from_boundaries(
-    boundaries: list[dict],
-    words_per_line: int = 7,
-) -> str:
-    """
-    Build an SRT file from Edge TTS word boundary events.
-    Each block groups ~7 words and uses their real start/end timestamps —
-    so captions appear and disappear in exact sync with the spoken audio.
-    """
-    if not boundaries:
-        return ""
-
-    blocks: list[str] = []
-    i = 0
-    block_num = 1
-
-    while i < len(boundaries):
-        chunk = boundaries[i : i + words_per_line]
-        text = " ".join(b["word"] for b in chunk)
-        start = chunk[0]["start"]
-        end = chunk[-1]["end"]
-        blocks.append(f"{block_num}\n{_fmt_time(start)} --> {_fmt_time(end)}\n{text}\n")
-        block_num += 1
-        i += words_per_line
-
-    return "\n".join(blocks)
-
-
-def _build_srt_fallback(narration: str, total_duration: float) -> str:
-    """
-    Proportional-timing fallback when word boundaries aren't available.
-    Used by non-EdgeTTS providers.
-    """
-    words = narration.split()
-    if not words:
-        return f"1\n00:00:00,000 --> {_fmt_time(total_duration)}\n{narration}\n"
-
-    phrase_size = 7
-    phrases = [words[i : i + phrase_size] for i in range(0, len(words), phrase_size)]
-    total_words = len(words)
-    blocks: list[str] = []
-    cursor = 0.0
-
-    for idx, phrase_words in enumerate(phrases, start=1):
-        phrase_duration = (len(phrase_words) / total_words) * total_duration
-        end_time = cursor + phrase_duration
-        text = " ".join(phrase_words)
-        blocks.append(f"{idx}\n{_fmt_time(cursor)} --> {_fmt_time(end_time)}\n{text}\n")
-        cursor = end_time
-
-    return "\n".join(blocks)
-
-
 def _get_audio_duration(path: Path) -> float:
-    try:
-        from mutagen.mp3 import MP3
-        return MP3(str(path)).info.length
-    except Exception:
-        return 0.0
+    from ytfactory.providers.tts.validator import _measure_duration
+
+    return _measure_duration(path)
 
 
 # ── Main node ─────────────────────────────────────────────────────────────────
+
 
 def generate_scene_assets(state: VideoState) -> dict:
     """
     Process one scene (invoked in parallel via LangGraph Send API):
       1. Generate image  (idempotent — skip if PNG already exists)
       2. Generate voice  (streaming → captures word boundary events)
-      3. Build SRT from real word timestamps  (frame-perfect sync)
+      3. Build SRT via SubtitleEngine (semantic, validated, typography-clean)
     Returns partial state updates merged by reducers.
     """
     scene = state["current_scene"]
@@ -139,23 +75,22 @@ def generate_scene_assets(state: VideoState) -> dict:
     scene_type: str = scene.get("scene_type", "generated_image")
 
     if scene_type == "asset":
-        # Asset scenes use a pre-designed local file — no provider, no credits.
         asset_path = Path(scene.get("asset_path", ""))
         if not asset_path.is_absolute():
             asset_path = Path.cwd() / asset_path
         if asset_path.exists():
-            # Point image_path at the asset so the renderer picks it up transparently.
             image_path = asset_path
             logger.info("Scene {} — asset scene: {}", index, asset_path)
         else:
-            errors.append(f"Scene {index}: asset not found: {scene.get('asset_path')} — scene will be skipped")
+            errors.append(
+                f"Scene {index}: asset not found: {scene.get('asset_path')} — scene will be skipped"
+            )
             logger.error("Scene {} asset missing: {}", index, asset_path)
     elif skip_images:
         logger.info("Scene {} — image generation skipped (--no-images mode)", index)
     elif not image_path.exists():
-        # Stagger parallel requests: scene N waits N*3 seconds before hitting
-        # the image API so all scenes don't burst-request simultaneously.
         import time
+
         time.sleep(index * 3)
 
         try:
@@ -174,11 +109,19 @@ def generate_scene_assets(state: VideoState) -> dict:
                     break
                 except Exception as exc:
                     if attempt == 4:
-                        errors.append(f"Scene {index} image failed after 5 attempts: {exc}")
+                        errors.append(
+                            f"Scene {index} image failed after 5 attempts: {exc}"
+                        )
                         logger.error("Scene {} image failed: {}", index, exc)
                     else:
-                        wait = 15 * (2 ** attempt)
-                        logger.warning("Scene {} image attempt {} failed, retrying in {}s: {}", index, attempt + 1, wait, exc)
+                        wait = 15 * (2**attempt)
+                        logger.warning(
+                            "Scene {} image attempt {} failed, retrying in {}s: {}",
+                            index,
+                            attempt + 1,
+                            wait,
+                            exc,
+                        )
                         time.sleep(wait)
         except Exception as exc:
             errors.append(f"Scene {index} image provider error: {exc}")
@@ -188,34 +131,71 @@ def generate_scene_assets(state: VideoState) -> dict:
     # ── 2. Generate voice + capture word boundaries ───────────────────────
     boundaries: list[dict] = []
 
+    # Calculate scene_position for emotional arc (0.0 = first, 1.0 = last)
+    all_scenes = state.get("scene_plan", [])
+    total_scenes = len(all_scenes)
+    scene_position = (index - 1) / max(total_scenes - 1, 1) if total_scenes > 1 else 0.5
+
+    debug = TTSDebugWriter(
+        project_id=project_id,
+        scene_index=index,
+        enabled=settings.tts_debug,
+    )
+
     if not audio_path.exists():
         try:
             tts = get_tts_provider(settings)
 
-            # Speech Optimizer: restructure written narration into spoken phrases.
-            # scene_position drives emotional arc bias (0.0 = first, 1.0 = last).
-            all_scenes = state.get("scene_plan", [])
-            total_scenes = len(all_scenes)
-            scene_position = (index - 1) / max(total_scenes - 1, 1) if total_scenes > 1 else 0.5
             optimized_narration = _optimizer.optimize(
                 narration,
                 style=style,
                 scene_position=scene_position,
             )
+            debug.write_original(narration)
+            debug.write_optimized(optimized_narration)
+            debug.write_provider_request(
+                {
+                    "text": optimized_narration,
+                    "language": language,
+                    "style": style,
+                    "scene_position": scene_position,
+                }
+            )
 
-            for attempt in range(3):
+            max_retries = settings.tts_max_retries if settings.tts_auto_retry else 1
+            for attempt in range(max_retries):
                 try:
                     _, boundaries = tts.generate_with_boundaries(
                         text=optimized_narration,
                         output_path=audio_path,
                         language=language,
                         style=style,
+                        scene_position=scene_position,
                     )
-                    break
+                    debug.write_provider_response(boundaries)
+                    debug.write_timing(boundaries)
+
+                    if settings.tts_validate_audio:
+                        word_count = len(narration.split())
+                        vresult = _validator.validate(
+                            audio_path, word_count, scene_index=index
+                        )
+                        debug.write_validation(vresult.to_dict())
+                        if vresult.passed or attempt + 1 >= max_retries:
+                            break
+                        audio_path.unlink(missing_ok=True)
+                    else:
+                        break
                 except Exception as exc:
-                    if attempt == 2:
-                        errors.append(f"Scene {index} voice failed after 3 attempts: {exc}")
+                    if attempt + 1 >= max_retries:
+                        errors.append(
+                            f"Scene {index} voice failed after {max_retries} attempts: {exc}"
+                        )
                         logger.error("Scene {} voice failed: {}", index, exc)
+                    else:
+                        import time as _time
+
+                        _time.sleep(2**attempt)
         except Exception as exc:
             errors.append(f"Scene {index} TTS provider error: {exc}")
     else:
@@ -224,32 +204,29 @@ def generate_scene_assets(state: VideoState) -> dict:
     # ── 3. Determine real audio duration ─────────────────────────────────
     real_duration = estimated_duration
     if boundaries:
-        # Duration from the last word boundary event (most accurate)
         real_duration = boundaries[-1]["end"]
     elif audio_path.exists():
         measured = _get_audio_duration(audio_path)
         if measured > 0.5:
             real_duration = measured
 
-    # ── 4. Build SRT ─────────────────────────────────────────────────────
-    if boundaries:
-        # Frame-perfect: every word appears at its exact spoken timestamp
-        srt_content = _build_srt_from_boundaries(boundaries)
-        method = "word-boundary"
-    else:
-        # Fallback: proportional estimate (non-EdgeTTS providers)
-        srt_content = _build_srt_fallback(narration, real_duration)
-        method = "proportional-estimate"
-
+    # ── 4. Build SRT via SubtitleEngine ──────────────────────────────────
+    engine = SubtitleEngine.from_settings(settings)
+    srt_content = engine.build(
+        boundaries=boundaries,
+        narration=narration,
+        scene_index=index,
+        project_id=project_id,
+        total_duration=real_duration,
+    )
     srt_path.write_text(srt_content, encoding="utf-8")
 
     logger.info(
-        "Scene {} — image:{} audio:{:.1f}s srt:{} blocks ({})",
+        "Scene {} — image:{} audio:{:.1f}s srt:{} cues",
         index,
         "✓" if image_path.exists() else "✗",
         real_duration,
-        srt_content.count("\n\n") + 1,
-        method,
+        srt_content.count("\n\n") + 1 if srt_content.strip() else 0,
     )
 
     return {

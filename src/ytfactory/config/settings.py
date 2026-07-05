@@ -74,6 +74,44 @@ class Settings(BaseSettings):
     render_profile: str = "balanced"
 
     # ------------------------------------------------------------------
+    # Subtitle Intelligence Engine
+    # ------------------------------------------------------------------
+
+    # Write per-scene debug files to workspace/jobs/<id>/subtitle-debug/
+    subtitle_debug: bool = False
+
+    # Run validation checks on every generated subtitle
+    subtitle_validate: bool = True
+
+    # Maximum characters per second (Netflix: 17, BBC: 17, default: 18)
+    subtitle_max_cps: float = 18.0
+
+    # Maximum characters per subtitle line (SRT convention: 42)
+    subtitle_max_chars_per_line: int = 42
+
+    # Maximum number of display lines per subtitle cue
+    subtitle_max_lines: int = 2
+
+    # Output format: "srt" (default); "webvtt" and "ass" reserved for future
+    subtitle_format: str = "srt"
+
+    # ------------------------------------------------------------------
+    # TTS Debug & Quality Control
+    # ------------------------------------------------------------------
+
+    # Write intermediate text files + metadata to workspace/jobs/<id>/tts-debug/
+    tts_debug: bool = False
+
+    # Validate every generated audio clip (file size, duration, word-count ratio)
+    tts_validate_audio: bool = True
+
+    # Automatically retry synthesis when validation fails
+    tts_auto_retry: bool = True
+
+    # Maximum retry attempts per scene (exponential backoff between attempts)
+    tts_max_retries: int = 3
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 

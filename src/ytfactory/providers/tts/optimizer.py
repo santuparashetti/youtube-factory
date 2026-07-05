@@ -20,14 +20,14 @@ from .emotion import Emotion, classify_scene, split_sentences
 
 # Split BEFORE subordinating conjunctions (they open a new dependent clause).
 _SUBORD_RE = re.compile(
-    r'\s+(?=\b(?:because|although|though|while|when|where|unless|since|whereas)\b)',
+    r"\s+(?=\b(?:because|although|though|while|when|where|unless|since|whereas)\b)",
     re.IGNORECASE,
 )
 
 # Split at comma + coordinating conjunction (e.g. "force, and we don't").
 # Requiring a comma avoids splitting "bread and butter" type phrases.
 _COORD_RE = re.compile(
-    r',\s+(?=\b(?:and|but|or|so|yet)\b)',
+    r",\s+(?=\b(?:and|but|or|so|yet)\b)",
     re.IGNORECASE,
 )
 
@@ -48,10 +48,26 @@ _QUESTION_OPENERS = (
 )
 
 # Function words that look awkward as the last word of a phrase.
-_NO_TRAIL = frozenset({
-    "a", "an", "the", "in", "on", "at", "by", "of", "to",
-    "and", "or", "but", "is", "are", "was", "were",
-})
+_NO_TRAIL = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "in",
+        "on",
+        "at",
+        "by",
+        "of",
+        "to",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+    }
+)
 
 
 class SpeechOptimizer:
@@ -110,21 +126,22 @@ class SpeechOptimizer:
 
 # ── Internal helpers (module-level functions keep the class thin) ─────────────
 
+
 def _phrase_limit(emotion: Emotion) -> int:
     """Maximum words per spoken phrase. Shorter = more dramatic pauses."""
     _LIMITS: dict[Emotion, int] = {
-        Emotion.URGENCY:       7,
-        Emotion.REVELATION:    8,
-        Emotion.MYSTERY:       9,
-        Emotion.SADNESS:       9,
-        Emotion.REFLECTION:    9,
+        Emotion.URGENCY: 7,
+        Emotion.REVELATION: 8,
+        Emotion.MYSTERY: 9,
+        Emotion.SADNESS: 9,
+        Emotion.REFLECTION: 9,
         Emotion.DETERMINATION: 10,
-        Emotion.CURIOSITY:     10,
-        Emotion.WONDER:        10,
-        Emotion.COMPASSION:    11,
-        Emotion.AWE:           11,
-        Emotion.HOPE:          13,
-        Emotion.PEACE:         13,
+        Emotion.CURIOSITY: 10,
+        Emotion.WONDER: 10,
+        Emotion.COMPASSION: 11,
+        Emotion.AWE: 11,
+        Emotion.HOPE: 13,
+        Emotion.PEACE: 13,
     }
     return _LIMITS.get(emotion, 10)
 
@@ -230,7 +247,7 @@ def _apply_opener(phrase: str, emotion: Emotion) -> str:
     low = phrase.lower()
     for opener in _QUESTION_OPENERS:
         if low.startswith(opener):
-            tail = phrase[len(opener):].lstrip()
+            tail = phrase[len(opener) :].lstrip()
             # Only split if the rest of the phrase is substantial
             if len(tail.split()) >= 3:
                 head = phrase[: len(opener)]

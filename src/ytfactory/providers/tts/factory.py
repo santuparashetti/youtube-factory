@@ -13,7 +13,16 @@ def get_tts_provider(settings: Settings) -> TTSProvider:
         case "edge":
             return EdgeTTSProvider(settings)
 
+        case "elevenlabs":
+            raise NotImplementedError(
+                "ElevenLabs TTS is not yet implemented. "
+                "Set TTS_PROVIDER=edge in your .env to use Edge TTS. "
+                "To add ElevenLabs: implement providers/tts/elevenlabs.py "
+                "subclassing TTSProvider, then add a case here."
+            )
+
         case _:
             raise ValueError(
-                f"Unsupported TTS provider: {settings.tts_provider}"
+                f"Unsupported TTS provider: {settings.tts_provider!r}. "
+                f"Valid values: edge, elevenlabs (coming soon)."
             )
