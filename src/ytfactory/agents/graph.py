@@ -11,7 +11,10 @@ Flow:
               → video_renderer
                 → video_concatenator
                   → quality_review        ← Video Quality Review Engine V1
-                    → publish             ← Publishing & Growth Engine V1
+                    PASS → publish        ← Publishing & Growth Engine V1
+                    FAIL → remediation    ← Auto Remediation Engine V1
+                      PASS → publish
+                      FAIL → END (pipeline stopped, publishing skipped)
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from ytfactory.agents.nodes.script_enhancer import script_enhancer_node
 from ytfactory.agents.nodes.script_writer import script_writer_node
 from ytfactory.agents.nodes.publish import publish_node
 from ytfactory.agents.nodes.quality_review import quality_review_node
+from ytfactory.agents.nodes.remediation import remediation_node
 from ytfactory.agents.nodes.video_concatenator import video_concatenator_node
 from ytfactory.agents.nodes.video_renderer import video_renderer_node
 from ytfactory.agents.state import VideoState
@@ -57,6 +61,22 @@ def _route_after_assets(state: VideoState) -> str:
     return "video_renderer"
 
 
+def _route_after_review(state: VideoState) -> str:
+    """Gate publish on review verdict: PASS continues, FAIL goes to remediation."""
+    verdict = (state.get("review_result") or {}).get("verdict", "FAIL")
+    if verdict == "PASS":
+        return "publish"
+    return "remediation"
+
+
+def _route_after_remediation(state: VideoState) -> str:
+    """Gate publish on remediation outcome: PASS continues, FAIL stops pipeline."""
+    verdict = (state.get("remediation_result") or {}).get("final_verdict", "FAIL")
+    if verdict == "PASS":
+        return "publish"
+    return END
+
+
 def build_graph() -> StateGraph:
     workflow = StateGraph(VideoState)
 
@@ -71,6 +91,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("video_renderer", video_renderer_node)
     workflow.add_node("video_concatenator", video_concatenator_node)
     workflow.add_node("quality_review", quality_review_node)
+    workflow.add_node("remediation", remediation_node)
     workflow.add_node("publish", publish_node)
 
     # ── Entry ─────────────────────────────────────────────────────────────
@@ -101,7 +122,16 @@ def build_graph() -> StateGraph:
     )
     workflow.add_edge("video_renderer", "video_concatenator")
     workflow.add_edge("video_concatenator", "quality_review")
-    workflow.add_edge("quality_review", "publish")
+    workflow.add_conditional_edges(
+        "quality_review",
+        _route_after_review,
+        {"publish": "publish", "remediation": "remediation"},
+    )
+    workflow.add_conditional_edges(
+        "remediation",
+        _route_after_remediation,
+        {"publish": "publish", END: END},
+    )
     workflow.add_edge("publish", END)
 
     return workflow

@@ -45,13 +45,30 @@ class BuildPipeline:
 
         review_report = self.review.run(project_id)
 
-        # Auto Remediation: run when review fails and auto_remediate is enabled
-        if auto_remediate and review_report.verdict == "FAIL":
-            config = RemediationConfig(
-                quality_threshold=remediation_threshold,
-                max_retries=remediation_max_retries,
-                dry_run=False,
-            )
-            AutoRemediationEngine(config=config).remediate(project_id, review_report)
+        if review_report.verdict == "FAIL":
+            if auto_remediate:
+                config = RemediationConfig(
+                    quality_threshold=remediation_threshold,
+                    max_retries=remediation_max_retries,
+                    dry_run=False,
+                )
+                remediation_report = AutoRemediationEngine(config=config).remediate(
+                    project_id, review_report
+                )
+                if remediation_report.final_verdict != "PASS":
+                    raise RuntimeError(
+                        f"Pipeline stopped: quality review failed after "
+                        f"{remediation_report.total_cycles} remediation cycle(s) "
+                        f"(reason: {remediation_report.stopped_reason}). "
+                        "Publishing skipped. Run `ytfactory review <id>` to inspect "
+                        "the report or fix issues manually."
+                    )
+            else:
+                raise RuntimeError(
+                    "Pipeline stopped: quality review FAIL. "
+                    "Auto-remediation is disabled (--no-remediate). "
+                    "Run `ytfactory remediate <id>` to attempt repair, "
+                    "or inspect workspace/<id>/review/ for details."
+                )
 
         self.publish.run(project_id)

@@ -806,6 +806,63 @@ class TestRenderingValidator:
         results = v.validate(proj, [], {})
         assert all(r.status == "SKIP" for r in results)
 
+    # ── REND_006: black-frame detection ──────────────────────────────────────
+
+    def test_rend006_passes_when_no_black_frames(self, proj, cfg, scenes, monkeypatch):
+        import ytfactory.review.validation.rules.rendering as rmod
+        monkeypatch.setattr(rmod, "_detect_unexpected_black_frames", lambda *a, **kw: [])
+        v = RenderingValidator(cfg)
+        results = v.validate(proj, scenes, {})
+        rend006 = [r for r in results if r.rule_id == "REND_006"]
+        assert rend006, "REND_006 results should exist"
+        assert all(r.status == "PASS" for r in rend006)
+
+    def test_rend006_fails_when_black_frames_detected(self, proj, cfg, scenes, monkeypatch):
+        import ytfactory.review.validation.rules.rendering as rmod
+        segment = {"start": 3.0, "end": 3.5, "duration": 0.5}
+        monkeypatch.setattr(
+            rmod,
+            "_detect_unexpected_black_frames",
+            lambda *a, **kw: [segment],
+        )
+        v = RenderingValidator(cfg)
+        results = v.validate(proj, scenes, {})
+        rend006_fails = [r for r in results if r.rule_id == "REND_006" and r.status == "FAIL"]
+        assert rend006_fails, "At least one REND_006 FAIL expected"
+        assert rend006_fails[0].severity == "high"
+        assert "1 unexpected black segment" in rend006_fails[0].description
+
+    def test_rend006_skips_missing_clip(self, tmp_path, cfg):
+        (tmp_path / "video").mkdir()
+        # No scene-001.mp4 written → clip missing
+        scenes = [{"index": 1, "narration": "x", "duration_seconds": 5.0}]
+        v = RenderingValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rend006 = next((r for r in results if r.rule_id == "REND_006"), None)
+        assert rend006 is not None
+        assert rend006.status == "SKIP"
+
+    def test_rend006_disabled_produces_no_results(self, proj, scenes):
+        cfg_off = ValidationRulesConfig(
+            rules={"REND_006": RuleConfig(enabled=False)}
+        )
+        v = RenderingValidator(cfg_off)
+        results = v.validate(proj, scenes, {})
+        assert not any(r.rule_id == "REND_006" for r in results)
+
+    def test_rend006_skips_gracefully_on_exception(self, proj, cfg, scenes, monkeypatch):
+        import ytfactory.review.validation.rules.rendering as rmod
+        monkeypatch.setattr(
+            rmod,
+            "_detect_unexpected_black_frames",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("ffmpeg not found")),
+        )
+        v = RenderingValidator(cfg)
+        results = v.validate(proj, scenes, {})
+        rend006 = [r for r in results if r.rule_id == "REND_006"]
+        assert rend006, "Should still produce REND_006 results"
+        assert all(r.status == "SKIP" for r in rend006)
+
 
 # ── TestStoryValidator ────────────────────────────────────────────────────────
 

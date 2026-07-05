@@ -6,14 +6,105 @@ Rules:
   REND_003 [critical] — Final video file exists
   REND_004 [high]     — Final video meets minimum size
   REND_005 [high]     — All expected scene clips are present
+  REND_006 [high]     — No unexpected black frames > 100 ms mid-scene
 """
 
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
+
+
+def _clip_duration_seconds(clip: Path) -> float:
+    """Return the duration of a video clip in seconds via ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(clip),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        val = result.stdout.strip()
+        if val:
+            return float(val)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _detect_unexpected_black_frames(
+    clip: Path,
+    skip_start: float,
+    skip_end: float,
+    min_duration: float,
+    pic_th: float,
+) -> list[dict]:
+    """Run ffmpeg blackdetect on *clip* and return unexpected black segments.
+
+    Segments that fall entirely within the fade-in window (first *skip_start*
+    seconds) or entirely within the fade-out window (last *skip_end* seconds)
+    are excluded — those are intentional cinematic transitions.
+
+    Returns a list of dicts: [{start, end, duration}, ...].
+    """
+    clip_dur = _clip_duration_seconds(clip)
+
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-i", str(clip),
+                "-vf",
+                (
+                    f"blackdetect=d={min_duration:.4f}"
+                    f":pic_th={pic_th:.4f}"
+                    ":pix_th=0.10"
+                ),
+                "-an",
+                "-f", "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        stderr = result.stderr
+    except subprocess.TimeoutExpired:
+        return []
+    except Exception:
+        return []
+
+    unexpected: list[dict] = []
+    pattern = re.compile(
+        r"black_start:(\S+)\s+black_end:(\S+)\s+black_duration:(\S+)"
+    )
+    for line in stderr.splitlines():
+        m = pattern.search(line)
+        if not m:
+            continue
+        bs = float(m.group(1))
+        be = float(m.group(2))
+        dur = float(m.group(3))
+
+        # Skip segments that are entirely within the fade-in window
+        if be <= skip_start:
+            continue
+        # Skip segments that are entirely within the fade-out window
+        if clip_dur > 0 and bs >= max(0.0, clip_dur - skip_end):
+            continue
+        unexpected.append({"start": bs, "end": be, "duration": dur})
+
+    return unexpected
 
 
 class RenderingValidator(BaseValidator):
@@ -29,7 +120,9 @@ class RenderingValidator(BaseValidator):
         results: list[ValidationResult] = []
 
         if not scenes:
-            for rule_id in ("REND_001", "REND_002", "REND_003", "REND_004", "REND_005"):
+            for rule_id in (
+                "REND_001", "REND_002", "REND_003", "REND_004", "REND_005", "REND_006"
+            ):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
             return results
@@ -154,5 +247,72 @@ class RenderingValidator(BaseValidator):
                         f"{len(expected_indices)} clips",
                     )
                 )
+
+        # REND_006: No unexpected black frames > 100 ms mid-scene
+        # Checks every rendered scene clip using FFmpeg's blackdetect filter.
+        # Segments within the configured fade-in / fade-out windows are exempt.
+        if self._config.is_enabled("REND_006"):
+            skip_start = self._config.rendering_black_frame_skip_start_seconds
+            skip_end = self._config.rendering_black_frame_skip_end_seconds
+            min_dur = self._config.rendering_black_frame_min_duration
+            pic_th = self._config.rendering_black_frame_pic_threshold
+
+            for scene in scenes:
+                idx = scene.get("index", 0)
+                clip_path = project_dir / "video" / f"scene-{idx:03d}.mp4"
+
+                if not clip_path.exists():
+                    results.append(
+                        self._skip(
+                            "REND_006",
+                            f"Scene {idx}: clip not found, skipping black-frame check",
+                            scene_index=idx,
+                        )
+                    )
+                    continue
+
+                try:
+                    segments = _detect_unexpected_black_frames(
+                        clip_path,
+                        skip_start=skip_start,
+                        skip_end=skip_end,
+                        min_duration=min_dur,
+                        pic_th=pic_th,
+                    )
+                except Exception as exc:
+                    results.append(
+                        self._skip(
+                            "REND_006",
+                            f"Scene {idx}: blackdetect error — {exc}",
+                            scene_index=idx,
+                        )
+                    )
+                    continue
+
+                if segments:
+                    seg_desc = "; ".join(
+                        f"{s['start']:.2f}s–{s['end']:.2f}s ({s['duration']:.3f}s)"
+                        for s in segments[:3]
+                    )
+                    results.append(
+                        self._fail(
+                            "REND_006",
+                            f"Scene {idx}: {len(segments)} unexpected black segment(s) detected",
+                            f"segments: {seg_desc}",
+                            "high",
+                            scene_index=idx,
+                            black_segment_count=len(segments),
+                            black_segments=segments[:5],
+                        )
+                    )
+                else:
+                    results.append(
+                        self._pass(
+                            "REND_006",
+                            f"Scene {idx}: no unexpected black frames detected",
+                            f"skip_start={skip_start}s, skip_end={skip_end}s",
+                            scene_index=idx,
+                        )
+                    )
 
         return results

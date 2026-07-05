@@ -15,13 +15,89 @@ from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
 
 
+def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> float:
+    """Return actual audio duration in seconds.
+
+    Primary source: timing.json written by VoicePipeline (last entry's "end").
+    Fallback: ffprobe on the MP3 file.
+    Final fallback: the supplied fallback value (scene plan estimate).
+    """
+    try:
+        data = json.loads(timing_path.read_text(encoding="utf-8"))
+        if data and isinstance(data, list):
+            end = float(data[-1]["end"])
+            if end > 0.0:
+                return end
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        val = float(result.stdout.strip())
+        if val > 0.0:
+            return val
+    except Exception:
+        pass
+
+    return fallback
+
+
+def _generate_intro_clip(
+    output_dir: Path,
+    width: int,
+    height: int,
+    fps: int,
+    duration: float,
+) -> Path:
+    """Generate a silent black intro clip for the cinematic opening."""
+    intro_path = output_dir / "intro.mp4"
+    if intro_path.exists():
+        return intro_path
+
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f", "lavfi",
+            "-i", f"color=c=black:s={width}x{height}:r={fps}:d={duration:.4f}",
+            "-f", "lavfi",
+            "-i", "anullsrc=r=48000:cl=stereo",
+            "-t", f"{duration:.4f}",
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-profile:v", "high",
+            "-movflags", "+faststart",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-ar", "48000",
+            str(intro_path),
+        ],
+        check=True,
+    )
+    return intro_path
+
+
 class VideoPipeline:
     """Render all scenes into individual clips, then concatenate into final.mp4."""
 
     def __init__(self):
         self.renderer = FFmpegRenderer()
-        settings = Settings()
-        self._profile = settings.render_profile
+        self._settings = Settings()
+        self._profile = self._settings.render_profile
         self._motion_planner = MotionPlanner()
         self._transition_planner = TransitionPlanner()
         self._effects_planner = EffectsPlanner()
@@ -60,7 +136,10 @@ class VideoPipeline:
             description="Rendering",
         ):
             index = scene["index"]
-            duration_hint = float(scene.get("duration_seconds", 10))
+            # Use the scene plan estimate as the initial fallback; actual audio
+            # duration (from timing.json or ffprobe) takes precedence so that
+            # fade-out and zoompan frame counts cover the full narration.
+            plan_duration = float(scene.get("duration_seconds", 10))
             motion_spec = scene.get("motion")
             t_in = scene.get("transition_in")
             t_out = scene.get("transition_out")
@@ -77,6 +156,7 @@ class VideoPipeline:
                 image = project_dir / "images" / f"scene-{index:03d}.png"
 
             audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+            timing_path = project_dir / "audio" / f"scene-{index:03d}.timing.json"
 
             # Prefer ASS (styled) over SRT — both may exist after the caption stage
             ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
@@ -98,6 +178,12 @@ class VideoPipeline:
                 )
 
             if not output.exists():
+                # Measure actual audio duration so fade-out and zoompan frame
+                # counts are anchored to the real narration length, not the
+                # scene plan estimate.  This prevents black frames appearing
+                # when TTS produces audio longer than duration_seconds.
+                duration_hint = _actual_audio_duration(audio, timing_path, plan_duration)
+
                 self.renderer.render(
                     image=image,
                     audio=audio,
@@ -117,8 +203,22 @@ class VideoPipeline:
         final_video = output_dir / "final.mp4"
         concat_list = output_dir / "concat_list.txt"
 
+        # Optional cinematic intro: silent black screen prepended once before
+        # Scene 1.  Subtitles and audio begin naturally when Scene 1 starts.
+        clips_to_concat: list[Path] = []
+        if self._settings.video_intro_enabled and self._settings.video_intro_seconds > 0:
+            intro_clip = _generate_intro_clip(
+                output_dir,
+                self._settings.video_width,
+                self._settings.video_height,
+                self._settings.video_fps,
+                self._settings.video_intro_seconds,
+            )
+            clips_to_concat.append(intro_clip)
+        clips_to_concat.extend(scene_clips)
+
         concat_list.write_text(
-            "\n".join(f"file '{clip.resolve()}'" for clip in scene_clips),
+            "\n".join(f"file '{clip.resolve()}'" for clip in clips_to_concat),
             encoding="utf-8",
         )
 

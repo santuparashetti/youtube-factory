@@ -90,6 +90,16 @@ class ValidationRulesConfig:
     rendering_min_clip_size_bytes: int = 10_000
     rendering_min_final_size_bytes: int = 100_000
 
+    # REND_006: Black-frame detection
+    # Minimum consecutive black duration (seconds) before a segment is flagged.
+    rendering_black_frame_min_duration: float = 0.1  # 100 ms
+    # Fraction of each frame that must be black to count as a "black frame".
+    rendering_black_frame_pic_threshold: float = 0.98
+    # Seconds to skip at the start of each clip — covers intentional fade-in.
+    rendering_black_frame_skip_start_seconds: float = 1.0
+    # Seconds to skip at the end of each clip — covers intentional fade-out.
+    rendering_black_frame_skip_end_seconds: float = 1.0
+
     # ── Story ─────────────────────────────────────────────────────────────
     story_min_scenes: int = 3
     story_max_scenes: int = 50

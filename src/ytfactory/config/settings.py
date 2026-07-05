@@ -165,6 +165,15 @@ class Settings(BaseSettings):
     tts_max_retries: int = 3
 
     # ------------------------------------------------------------------
+    # Cinematic Intro
+    # ------------------------------------------------------------------
+
+    # Prepend a silent black screen before Scene 1 in the final video.
+    # Intentional cinematic pause — does NOT trigger black-frame validation.
+    video_intro_enabled: bool = True
+    video_intro_seconds: float = 1.5
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 
