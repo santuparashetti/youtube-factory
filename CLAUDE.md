@@ -44,6 +44,7 @@ ytfactory generate-captions <project-id>        # .srt per scene
 ytfactory render <project-id>                   # FFmpeg: image + audio + srt → .mp4
 ytfactory review <project-id>                   # Quality review: PASS / FAIL report
 ytfactory remediate <project-id>                # Auto-repair failures (dry-run safe: --dry-run)
+ytfactory publish <project-id>                  # Generate YouTube publishing package
 ```
 
 Or run the full pipeline at once:
@@ -100,7 +101,18 @@ workspace/jobs/<project-id>/
 ├── subtitles/         # scene-001.srt …
 ├── video/             # scene-001.mp4 … + final.mp4
 ├── review/            # All quality gate outputs (see below)
-└── publish/
+├── remediation/       # Auto Remediation Engine outputs
+└── publish/           # YouTube publishing package (see Publishing Layer below)
+    ├── thumbnail.png                  # 1280×720 primary thumbnail
+    ├── thumbnail-variants/            # variant-1.png … variant-3.png
+    ├── title.txt                      # primary YouTube title
+    ├── alternate-titles.txt           # 5 alternatives (one per line)
+    ├── description.md                 # full YouTube description
+    ├── keywords.txt                   # all keywords (one per line)
+    ├── hashtags.txt                   # #hashtags (one per line)
+    ├── youtube-tags.txt               # tags (comma-separated)
+    ├── chapters.txt                   # timestamp chapters
+    └── youtube-metadata.json          # structured metadata (all sub-results)
 ```
 
 `scene-plan.json` is the central artifact: every downstream stage (images, voice, captions, video) reads `scenes[].visual_prompt`, `scenes[].narration`, and `scenes[].duration_seconds` from it.
@@ -160,6 +172,21 @@ remediation/                     # RemediationReporter — written by `ytfactory
 ├── retry-history.json           # per-action execution attempts across all cycles
 └── regenerated-assets.json      # all artifacts deleted + regenerated (with backup paths)
 ```
+
+### Publishing Layer (`src/ytfactory/publish/`)
+
+`PublishPipeline.run(project_id)` is the final pipeline stage — runs after `remediate` (or `review`) and writes the complete upload-ready YouTube package to `workspace/jobs/<id>/publish/`:
+
+| Generator | Input | Output |
+|---|---|---|
+| `ChaptersGenerator` | `scenes/scene-plan.json` + `audio/scene-NNN.timing.json` | `chapters.txt` |
+| `TitleGenerator` | LLM + title + script excerpt | `title.txt`, `alternate-titles.txt` |
+| `SEOGenerator` | LLM + title + scene titles | `keywords.txt`, `hashtags.txt`, `youtube-tags.txt` |
+| `DescriptionGenerator` | LLM + chapters block + keywords | `description.md` |
+| `ThumbnailGenerator` | image provider (1280×720) | `thumbnail.png`, `thumbnail-variants/` |
+| `UploadPackageGenerator` | all sub-results | `youtube-metadata.json` |
+
+`PublishConfig(skip_thumbnail=True)` skips image API calls. All LLM generators return JSON only; `_parse_json_response()` strips markdown fences and falls back to safe defaults on parse error. `ChaptersGenerator` reads real audio duration from `timing.json` last entry's `"end"` field (falls back to `scene["duration_seconds"]` if file absent).
 
 **Debug level differences**: BASIC/DETAILED/VERBOSE all write all 7 files. BASIC omits rule-level `debug_metadata` and category scoring contributions. DETAILED adds scoring contributions. VERBOSE also includes `debug_metadata` from each validation rule.
 

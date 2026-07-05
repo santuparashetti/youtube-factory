@@ -10,6 +10,7 @@ from ytfactory.images.cli import generate_images
 from ytfactory.import_script.cli import import_script
 from ytfactory.research.cli import research
 from ytfactory.review.cli import review
+from ytfactory.publish.cli import publish
 from ytfactory.review.remediation.cli import remediate
 from ytfactory.scenes.cli import plan_scenes
 from ytfactory.video.cli import render
@@ -31,6 +32,7 @@ app.command(name="generate-captions")(generate_captions)
 app.command(name="render")(render)
 app.command(name="review")(review)
 app.command(name="remediate")(remediate)
+app.command(name="publish")(publish)
 app.command(name="build")(build)
 
 

@@ -2,6 +2,7 @@ from ytfactory.config.settings import Settings
 
 from ytfactory.captions.pipeline import CaptionPipeline
 from ytfactory.images.pipeline import ImagePipeline
+from ytfactory.publish.pipeline import PublishPipeline
 from ytfactory.review.pipeline import ReviewPipeline
 from ytfactory.scenes.pipeline import ScenePipeline
 from ytfactory.video.pipeline import VideoPipeline
@@ -20,6 +21,7 @@ class BuildPipeline:
         self.captions = CaptionPipeline()
         self.video = VideoPipeline()
         self.review = ReviewPipeline()
+        self.publish = PublishPipeline(settings=settings)
 
     def run(
         self,
@@ -36,3 +38,4 @@ class BuildPipeline:
         self.captions.run(project_id)
         self.video.run(project_id)
         self.review.run(project_id)
+        self.publish.run(project_id)
