@@ -58,23 +58,26 @@ class ContentReviewStage(BaseReviewStage):
 
             narration = scene.get("narration", "").strip()
             wc = len(narration.split()) if narration else 0
+            scene_type = scene.get("scene_type", "generated_image")
 
             if sr:
                 sr.narration_word_count = wc
 
-            self._check(
-                wc >= self._config.min_narration_words,
-                f"Scene {idx}: narration missing or too short ({wc} words)",
-            )
-            if sr and wc < self._config.min_narration_words:
-                sr.issues.append(f"Narration too short ({wc} words)")
+            # Asset scenes (brand images, outro cards) carry intentionally short
+            # taglines — exempt them from the minimum word-count check.
+            if scene_type != "asset":
+                self._check(
+                    wc >= self._config.min_narration_words,
+                    f"Scene {idx}: narration missing or too short ({wc} words)",
+                )
+                if sr and wc < self._config.min_narration_words:
+                    sr.issues.append(f"Narration too short ({wc} words)")
 
             # Title
             title = scene.get("title", "").strip()
             self._check(bool(title), f"Scene {idx}: title is empty")
 
             # Visual prompt (generated scenes only)
-            scene_type = scene.get("scene_type", "generated_image")
             if sr:
                 sr.has_visual_prompt = bool(scene.get("visual_prompt", "").strip())
                 sr.has_shot_type = bool(scene.get("shot_type", ""))

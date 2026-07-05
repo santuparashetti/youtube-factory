@@ -140,6 +140,10 @@ class Settings(BaseSettings):
     subtitle_ass_play_res_x: int = 1920
     subtitle_ass_play_res_y: int = 1080
 
+    # Extend the last subtitle cue by this many seconds so it remains visible
+    # through the fade-to-black transition at the end of each scene.
+    subtitle_tail_extension_seconds: float = 1.0
+
     # ------------------------------------------------------------------
     # Image Prompt Engine V4 — Debug & Quality Control
     # ------------------------------------------------------------------
@@ -163,6 +167,36 @@ class Settings(BaseSettings):
 
     # Maximum retry attempts per scene (exponential backoff between attempts)
     tts_max_retries: int = 3
+
+    # ------------------------------------------------------------------
+    # Video Encoding — FFmpeg H.264 parameters
+    # ------------------------------------------------------------------
+
+    # H.264 Constant Rate Factor (CRF) — 0=lossless, 51=worst.
+    # 23 is the H.264 default ("visually lossless" for cinematic content).
+    # Lower = higher quality and larger files; 18 is overkill for YouTube.
+    video_crf: int = 23
+
+    # x264 encoder preset. Slower presets compress better for motion-heavy content,
+    # but for near-static slideshow content (slow zoompan on still images) "medium"
+    # is optimal — "slow"/"veryslow" add encoding time without size benefit and can
+    # even produce slightly larger files due to increased lookahead overhead.
+    # Options: ultrafast fast medium slow veryslow
+    video_preset: str = "medium"
+
+    # x264 tune. "film" increases PSY-RD which adds bitrate for fine-detail
+    # preservation — counterproductive for AI-generated images at documentary
+    # quality. Empty string disables tuning, keeping bitrate as low as possible.
+    # Set to "film" for live-action photorealistic content.
+    video_tune: str = ""
+
+    # Keyframe (GOP) interval in frames. 60 = every 2 s at 30 fps.
+    # Controls seek accuracy; lower = larger files, faster seeking.
+    video_keyframe_interval: int = 60
+
+    # AAC audio bitrate for the scene narration track.
+    # 128k is sufficient and indistinguishable from 192k for voice content.
+    video_audio_bitrate: str = "128k"
 
     # ------------------------------------------------------------------
     # Cinematic Intro

@@ -86,6 +86,12 @@ class ValidationRulesConfig:
     audio_min_size_bytes: int = 1_000
     audio_short_clip_bytes: int = 5_000  # size proxy for clips likely < 1s
 
+    # AUD_005: Quiet start detection — measures first 300 ms vs rest of clip.
+    # Flag if opening section is more than this many dB quieter than the rest.
+    audio_quiet_start_threshold_db: float = 6.0
+    # Duration of the "opening window" to check (seconds)
+    audio_quiet_start_window_seconds: float = 0.3
+
     # ── Rendering ─────────────────────────────────────────────────────────
     rendering_min_clip_size_bytes: int = 10_000
     rendering_min_final_size_bytes: int = 100_000

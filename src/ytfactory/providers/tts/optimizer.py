@@ -18,6 +18,28 @@ import re
 from .emotion import Emotion, classify_scene, split_sentences
 
 
+# Important vocabulary: philosophical, spiritual, emotional, and documentary terms.
+# Single-word phrases matching these are capitalised so Edge TTS gives extra stress.
+_EMPHASIS_VOCAB: frozenset[str] = frozenset(
+    {
+        # philosophical / spiritual
+        "desire", "truth", "love", "death", "life", "soul", "god", "faith",
+        "hope", "fear", "freedom", "power", "choice", "change", "purpose",
+        "meaning", "karma", "dharma", "peace", "war", "justice", "wisdom",
+        "mind", "ego", "self", "time", "silence", "courage", "pain", "joy",
+        "sacrifice", "devotion", "consciousness", "awareness", "liberation",
+        "surrender", "compassion", "forgiveness", "anger", "grief", "rage",
+        "bliss", "suffering", "enlightenment", "duty", "honor", "pride",
+        "shame", "guilt", "rebellion", "resistance", "submission", "empire",
+        # documentary / narrative
+        "discovery", "revolution", "crisis", "victory", "defeat", "legacy",
+        "secret", "mystery", "transformation", "betrayal", "rise", "fall",
+        "collapse", "birth", "end", "beginning", "glory", "ruin", "hunger",
+        "thirst", "search", "quest", "journey", "return", "exile",
+    }
+)
+
+
 # Split BEFORE subordinating conjunctions (they open a new dependent clause).
 _SUBORD_RE = re.compile(
     r"\s+(?=\b(?:because|although|though|while|when|where|unless|since|whereas)\b)",
@@ -91,6 +113,7 @@ class SpeechOptimizer:
         style: str | None = None,
         scene_position: float = 0.5,
         supports_ssml: bool = False,
+        keywords: list[str] | None = None,
     ) -> str:
         """
         Convert written narration into spoken narration.
@@ -101,6 +124,9 @@ class SpeechOptimizer:
             scene_position: 0.0 = first scene, 1.0 = last scene.
                             Used by the emotion classifier for arc bias.
             supports_ssml: Reserved for future SSML-capable providers.
+            keywords: Optional scene title or topic words used to boost
+                      emphasis on key concepts (capitalises matching
+                      single-word phrases for Edge TTS stress cues).
 
         Returns:
             Optimized text with \\n\\n phrase breaks. Empty input is returned
@@ -120,6 +146,9 @@ class SpeechOptimizer:
         phrases: list[str] = []
         for sent in sentences:
             phrases.extend(_process_sentence(sent, limit, emotion))
+
+        topic_words = _extract_topic_words(keywords)
+        phrases = _apply_keyword_emphasis(phrases, topic_words)
 
         return "\n\n".join(p for p in phrases if p.strip())
 
@@ -223,6 +252,45 @@ def _mechanical_split(text: str, limit: int, emotion: Emotion) -> list[str]:
         i = end
 
     return chunks
+
+
+def _extract_topic_words(keywords: list[str] | None) -> frozenset[str]:
+    """Extract lowercase, punctuation-stripped words from scene title keywords."""
+    if not keywords:
+        return frozenset()
+    words: set[str] = set()
+    for kw in keywords:
+        for word in kw.split():
+            clean = word.lower().strip(".,!?;:'\"()")
+            if len(clean) >= 4:
+                words.add(clean)
+    return frozenset(words)
+
+
+def _apply_keyword_emphasis(phrases: list[str], topic_words: frozenset[str]) -> list[str]:
+    """
+    Capitalise single-word key phrases so Edge TTS gives them extra stress.
+
+    Only acts on phrases that are a single meaningful word (ignoring trailing
+    punctuation) and that match either the curated _EMPHASIS_VOCAB or the
+    scene-specific topic_words.  Multi-word phrases are left unchanged — their
+    natural isolation via \\n\\n already creates audible pauses around them.
+    """
+    result: list[str] = []
+    for phrase in phrases:
+        core = phrase.strip()
+        # Strip trailing punctuation to test the bare word
+        bare = core.rstrip(".,!?;:").strip()
+        words = bare.split()
+        if len(words) == 1:
+            word_lower = words[0].lower()
+            if word_lower in _EMPHASIS_VOCAB or word_lower in topic_words:
+                # Preserve trailing punctuation; capitalise the word itself
+                suffix = core[len(bare):]
+                result.append(bare.upper() + suffix)
+                continue
+        result.append(phrase)
+    return result
 
 
 def _apply_opener(phrase: str, emotion: Emotion) -> str:

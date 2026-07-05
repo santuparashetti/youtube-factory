@@ -37,6 +37,7 @@ class NarrationValidator(BaseValidator):
             idx = scene.get("index", 0)
             narration = scene.get("narration", "")
             words = narration.split() if narration else []
+            scene_type = scene.get("scene_type", "generated_image")
 
             # NARR_001: Narration present for every scene
             if self._config.is_enabled("NARR_001"):
@@ -63,8 +64,9 @@ class NarrationValidator(BaseValidator):
             if not narration.strip():
                 continue
 
-            # NARR_002: Word count within bounds
-            if self._config.is_enabled("NARR_002"):
+            # NARR_002: Word count within bounds (asset scenes are exempt — they
+            # carry intentionally short taglines, not full narration).
+            if self._config.is_enabled("NARR_002") and scene_type != "asset":
                 min_w = self._config.narration_min_words
                 max_w = self._config.narration_max_words
                 wc = len(words)

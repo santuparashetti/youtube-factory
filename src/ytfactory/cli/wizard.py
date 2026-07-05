@@ -21,6 +21,7 @@ _PRESETS = [
     "🖼   Images Only",
     "🎙   Voice Only",
     "🎞   Render Existing Project",
+    "📦  Publish Existing Project",
     "▶   Resume Existing Project",
 ]
 
@@ -336,6 +337,31 @@ def _flow_render() -> None:
     VideoPipeline().run(project_id)
 
 
+def _flow_publish() -> None:
+    project_id = _ask_project_id("Project ID to publish")
+    if not project_id:
+        return
+
+    skip_thumbnail = questionary.confirm(
+        "Skip thumbnail generation? (saves image API calls)",
+        default=False,
+    ).ask()
+
+    if not _confirm_launch(
+        {
+            "Project": project_id,
+            "Stage": "Publish",
+            "Thumbnail": "skipped" if skip_thumbnail else "generate",
+        }
+    ):
+        return
+
+    from ytfactory.publish.pipeline import PublishConfig, PublishPipeline
+
+    config = PublishConfig(skip_thumbnail=bool(skip_thumbnail))
+    PublishPipeline(config=config).run(project_id)
+
+
 def _flow_resume() -> None:
     project_id = _ask_project_id("Project ID to resume")
     if not project_id:
@@ -396,6 +422,8 @@ def run_wizard() -> None:
             _flow_voice_only()
         elif "Render Existing" in preset:
             _flow_render()
+        elif "Publish" in preset:
+            _flow_publish()
         elif "Resume" in preset:
             _flow_resume()
     except KeyboardInterrupt:

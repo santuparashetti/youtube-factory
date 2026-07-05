@@ -59,9 +59,16 @@ class TimingEngine:
     def repair(
         self,
         cues: list[SubtitleCue],
+        tail_extension_seconds: float = 0.0,
     ) -> tuple[list[SubtitleCue], tuple[int, int]]:
         """
         Repair timing issues in a list of subtitle cues.
+
+        Args:
+            cues: List of subtitle cues to repair.
+            tail_extension_seconds: Extend the last cue's end time by this
+                amount (seconds). Use to keep the final subtitle visible
+                through a fade-to-black transition at the end of the scene.
 
         Returns:
             (repaired_cues, (overlap_count, gap_count))
@@ -108,7 +115,17 @@ class TimingEngine:
                 )
                 gap_count += 1
 
-        # ── Pass 4: renumber ──────────────────────────────────────────────────
+        # ── Pass 4: extend last cue for fade-out visibility ───────────────────
+        if tail_extension_seconds > 0 and result:
+            last = result[-1]
+            result[-1] = SubtitleCue(
+                index=last.index,
+                start=last.start,
+                end=last.end + tail_extension_seconds,
+                lines=last.lines,
+            )
+
+        # ── Pass 5: renumber ──────────────────────────────────────────────────
         result = [
             SubtitleCue(index=i + 1, start=c.start, end=c.end, lines=c.lines)
             for i, c in enumerate(result)

@@ -5,14 +5,39 @@ Rules:
   AUD_002 [high]     — Audio file meets minimum size
   AUD_003 [high]     — Audio clip not suspiciously short (size heuristic)
   AUD_004 [medium]   — Voice clarity (SKIP — requires audio analysis library)
+  AUD_005 [medium]   — Opening 300 ms not significantly quieter than rest of clip
 """
 
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
+
+
+def _measure_mean_volume_db(audio_path: Path, start: float = 0.0, duration: float | None = None) -> float | None:
+    """Return mean volume in dBFS for a segment of *audio_path* using ffmpeg volumedetect.
+
+    Returns None on error or when the segment is too short to measure.
+    """
+    cmd = ["ffmpeg", "-nostdin"]
+    if start > 0.0:
+        cmd += ["-ss", f"{start:.4f}"]
+    if duration is not None:
+        cmd += ["-t", f"{duration:.4f}"]
+    cmd += ["-i", str(audio_path), "-af", "volumedetect", "-f", "null", "-"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        for line in result.stderr.splitlines():
+            m = re.search(r"mean_volume:\s*(-?\d+\.?\d*)\s*dB", line)
+            if m:
+                return float(m.group(1))
+    except Exception:
+        pass
+    return None
 
 
 class AudioValidator(BaseValidator):
@@ -28,7 +53,7 @@ class AudioValidator(BaseValidator):
         results: list[ValidationResult] = []
 
         if not scenes:
-            for rule_id in ("AUD_001", "AUD_002", "AUD_003", "AUD_004"):
+            for rule_id in ("AUD_001", "AUD_002", "AUD_003", "AUD_004", "AUD_005"):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
             return results
@@ -127,5 +152,55 @@ class AudioValidator(BaseValidator):
                     "voice clarity analysis requires librosa/scipy — not available",
                 )
             )
+
+        # AUD_005: Opening 300 ms not significantly quieter than rest of clip
+        if self._config.is_enabled("AUD_005"):
+            window = self._config.audio_quiet_start_window_seconds
+            threshold = self._config.audio_quiet_start_threshold_db
+            for scene in scenes:
+                idx = scene.get("index", 0)
+                audio_path = project_dir / "audio" / f"scene-{idx:03d}.mp3"
+                if not audio_path.exists():
+                    results.append(
+                        self._skip("AUD_005", f"Scene {idx}: audio missing", scene_index=idx)
+                    )
+                    continue
+
+                opening_db = _measure_mean_volume_db(audio_path, start=0.0, duration=window)
+                body_db = _measure_mean_volume_db(audio_path, start=window)
+
+                if opening_db is None or body_db is None:
+                    results.append(
+                        self._skip(
+                            "AUD_005",
+                            f"Scene {idx}: volumedetect unavailable",
+                            scene_index=idx,
+                        )
+                    )
+                    continue
+
+                diff = body_db - opening_db
+                if diff > threshold:
+                    results.append(
+                        self._warn(
+                            "AUD_005",
+                            f"Scene {idx}: opening {window:.0f}s is {diff:.1f} dB quieter than rest",
+                            f"opening={opening_db:.1f} dBFS, body={body_db:.1f} dBFS, diff={diff:.1f} dB > {threshold} dB",
+                            "medium",
+                            scene_index=idx,
+                            opening_db=opening_db,
+                            body_db=body_db,
+                            diff_db=diff,
+                        )
+                    )
+                else:
+                    results.append(
+                        self._pass(
+                            "AUD_005",
+                            f"Scene {idx}: opening volume OK",
+                            f"opening={opening_db:.1f} dBFS, body={body_db:.1f} dBFS",
+                            scene_index=idx,
+                        )
+                    )
 
         return results

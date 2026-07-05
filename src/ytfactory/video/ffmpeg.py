@@ -246,13 +246,15 @@ class FFmpegRenderer:
         Filter chain order (all stages are optional):
             spatial / motion
             → effects (blur, colour grade, vignette, grain)
-            → subtitle burn-in
             → fade-in transition
             → fade-out transition
+            → subtitle burn-in
 
-        Effects run BEFORE subtitle burn-in so subtitle text renders clean on
-        top of the graded / vignetted image.  Fades run AFTER subtitles so
-        the text fades with the image as a cohesive unit.
+        Subtitle burn-in runs AFTER fades so the text is always rendered at
+        full brightness.  During fade-to-black the background darkens while
+        the subtitle text stays white — readable through the entire transition.
+        This also means an extended last-cue tail stays fully visible even
+        when the image has already faded to black.
 
         Phase 3 params (take precedence when provided):
             motion_spec:    MotionSpec dict from MotionPlanner.
@@ -295,47 +297,40 @@ class FFmpegRenderer:
             transition_in, transition_out, fps, duration_hint
         )
 
-        vf = ",".join([spatial] + effect_parts + [sub_part] + fade_parts)
+        vf = ",".join([spatial] + effect_parts + fade_parts + [sub_part])
+
+        # Build the encoder argument list from settings so CRF, preset, tune,
+        # keyframe interval, and audio bitrate are all configurable.
+        enc_args: list[str] = [
+            "-c:v", "libx264",
+            "-preset", self.settings.video_preset,
+            "-crf", str(self.settings.video_crf),
+            "-pix_fmt", "yuv420p",
+            "-profile:v", "high",
+            "-g", str(self.settings.video_keyframe_interval),
+            "-movflags", "+faststart",
+        ]
+        if self.settings.video_tune:
+            enc_args += ["-tune", self.settings.video_tune]
 
         subprocess.run(
             [
                 "ffmpeg",
                 "-y",
                 # ---------- Input ----------
-                "-loop",
-                "1",
-                "-framerate",
-                str(fps),
-                "-i",
-                str(image),
-                "-i",
-                str(audio),
+                "-loop", "1",
+                "-framerate", str(fps),
+                "-i", str(image),
+                "-i", str(audio),
                 # ---------- Video ----------
-                "-vf",
-                vf,
-                "-r",
-                str(fps),
-                "-s",
-                f"{width}x{height}",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
-                "-pix_fmt",
-                "yuv420p",
-                "-profile:v",
-                "high",
-                "-movflags",
-                "+faststart",
+                "-vf", vf,
+                "-r", str(fps),
+                "-s", f"{width}x{height}",
+                *enc_args,
                 # ---------- Audio ----------
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-ar",
-                "48000",
+                "-c:a", "aac",
+                "-b:a", self.settings.video_audio_bitrate,
+                "-ar", "48000",
                 # ---------- Finish ----------
                 "-shortest",
                 str(output),

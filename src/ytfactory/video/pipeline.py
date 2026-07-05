@@ -60,11 +60,24 @@ def _generate_intro_clip(
     height: int,
     fps: int,
     duration: float,
+    settings: Settings | None = None,
 ) -> Path:
     """Generate a silent black intro clip for the cinematic opening."""
     intro_path = output_dir / "intro.mp4"
     if intro_path.exists():
         return intro_path
+
+    cfg = settings or Settings()
+    enc_args: list[str] = [
+        "-c:v", "libx264",
+        "-preset", cfg.video_preset,
+        "-crf", str(cfg.video_crf),
+        "-pix_fmt", "yuv420p",
+        "-profile:v", "high",
+        "-movflags", "+faststart",
+    ]
+    if cfg.video_tune:
+        enc_args += ["-tune", cfg.video_tune]
 
     subprocess.run(
         [
@@ -75,14 +88,9 @@ def _generate_intro_clip(
             "-f", "lavfi",
             "-i", "anullsrc=r=48000:cl=stereo",
             "-t", f"{duration:.4f}",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-profile:v", "high",
-            "-movflags", "+faststart",
+            *enc_args,
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", cfg.video_audio_bitrate,
             "-ar", "48000",
             str(intro_path),
         ],
@@ -213,6 +221,7 @@ class VideoPipeline:
                 self._settings.video_height,
                 self._settings.video_fps,
                 self._settings.video_intro_seconds,
+                settings=self._settings,
             )
             clips_to_concat.append(intro_clip)
         clips_to_concat.extend(scene_clips)

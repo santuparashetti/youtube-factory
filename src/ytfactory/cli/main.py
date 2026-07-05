@@ -13,7 +13,7 @@ from ytfactory.review.cli import review
 from ytfactory.publish.cli import publish
 from ytfactory.review.remediation.cli import remediate
 from ytfactory.scenes.cli import plan_scenes
-from ytfactory.video.cli import render
+from ytfactory.video.cli import compare_video, render
 from ytfactory.voice.cli import generate_voice
 
 app = typer.Typer(
@@ -30,6 +30,7 @@ app.command(name="generate-images")(generate_images)
 app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="render")(render)
+app.command(name="compare-video")(compare_video)
 app.command(name="review")(review)
 app.command(name="remediate")(remediate)
 app.command(name="publish")(publish)

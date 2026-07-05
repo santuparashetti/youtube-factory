@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -21,6 +22,34 @@ _validator = AudioValidator()
 
 # Exponential backoff base delay (doubles on each retry)
 _RETRY_BASE_DELAY_S = 2.0
+
+
+def _normalize_audio_attack(audio_path: Path) -> None:
+    """Apply dynamic normalization to fix Edge TTS soft attack at the start of speech.
+
+    Edge TTS neural synthesis applies a natural soft-attack envelope to the first
+    ~200–300 ms of each utterance. dynaudnorm corrects this by normalising
+    per-frame gain so the opening word starts at full volume.
+    """
+    tmp = audio_path.with_suffix(".norm.mp3")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(audio_path),
+                "-af", "dynaudnorm=p=0.95:m=100",
+                "-codec:a", "libmp3lame",
+                "-q:a", "2",
+                str(tmp),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        tmp.replace(audio_path)
+    except Exception as exc:
+        logger.warning("Audio normalization failed for {}: {}", audio_path.name, exc)
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 class VoicePipeline:
@@ -67,10 +96,12 @@ class VoicePipeline:
             debug.write_original(original_text)
 
             # Speech Optimizer: restructure written narration into spoken phrases
+            scene_title = scene.get("title", "")
             optimized = _optimizer.optimize(
                 original_text,
                 style=style,
                 scene_position=scene_position,
+                keywords=[scene_title] if scene_title else None,
             )
             debug.write_optimized(optimized)
 
@@ -146,6 +177,10 @@ class VoicePipeline:
                 else:
                     retry_count = attempt
                     break
+
+            # Normalise TTS audio to fix soft attack at start of speech
+            if output.exists():
+                _normalize_audio_attack(output)
 
             # Write timing even on partial success
             timing_output.write_text(
