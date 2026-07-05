@@ -116,6 +116,9 @@ class ReviewReport:
     # Quality Scoring Engine V1 — populated by QualityScoringEngine
     quality_score_report: dict | None = None
 
+    # Engine Feedback Loop V1 — populated by EngineFeedbackLoopEngine
+    efl_report: dict | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["stage_results"] = [s.to_dict() for s in self.stage_results]

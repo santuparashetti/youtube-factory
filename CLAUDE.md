@@ -116,29 +116,35 @@ workspace/jobs/<project-id>/
 
 **Layer 4 — Quality Scoring Engine** (`review/scoring/`): Converts all validation results and RCA output into objective quality scores (0–100), a letter grade (A+→F), a PASS/FAIL decision, and ranked improvement recommendations. Eight `BaseCategoryScorer` subclasses (one per validation category) use a point-budget model; `QualityScoringEngine` computes a weighted average. `QualityScoringReporter` writes four files.
 
-All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, and `quality_score_report` dicts.
+**Layer 5 — Engine Feedback Loop** (`review/efl/`): Converts every RCA issue into a structured `FeedbackItem` assigned to a canonical engine target (12 engines defined in `efl/config.py`). Recurring issues get priority escalated (high→critical). `EngineFeedbackLoopEngine.generate()` returns an `EngineFeedbackReport`; `EFLReporter` writes five files including a cross-run accumulating `recurring-patterns.json`.
+
+All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, `quality_score_report`, and `efl_report` dicts.
 
 **Output files** (`review/` directory):
 ```
 review/
-├── review-report.md          # human-readable summary (all layers)
-├── scene-review.json         # per-scene detail
-├── review-debug.json         # full machine-readable diagnostics
-├── validation-report.json    # ValidationRunner → ValidationReport
-├── root-cause-report.md      # RCAReporter — human-readable RCA
-├── root-cause.json           # RCAReporter — full structured report
-├── engine-owner-summary.json # RCAReporter — per-engine failure counts
-├── recurring-issues.json     # RCAReporter — cross-scene patterns
-├── quality-score.json        # QualityScoringReporter — overall score summary
-├── quality-report.md         # QualityScoringReporter — full grade report
-├── score-breakdown.json      # QualityScoringReporter — per-category detail
-├── score-history.json        # QualityScoringReporter — cumulative run history
-└── engine-feedback.json      # stub (future Engine Feedback Loop V1)
+├── review-report.md             # human-readable summary (all layers)
+├── scene-review.json            # per-scene detail
+├── review-debug.json            # full machine-readable diagnostics
+├── validation-report.json       # ValidationRunner → ValidationReport
+├── root-cause-report.md         # RCAReporter — human-readable RCA
+├── root-cause.json              # RCAReporter — full structured report
+├── engine-owner-summary.json    # RCAReporter — per-engine failure counts
+├── recurring-issues.json        # RCAReporter — cross-scene patterns
+├── quality-score.json           # QualityScoringReporter — overall score summary
+├── quality-report.md            # QualityScoringReporter — full grade report
+├── score-breakdown.json         # QualityScoringReporter — per-category detail
+├── score-history.json           # QualityScoringReporter — cumulative run history
+├── engine-feedback.json         # EFLReporter — full structured feedback
+├── engine-feedback.md           # EFLReporter — human-readable feedback
+├── engine-priority-report.json  # EFLReporter — items grouped by priority
+├── recurring-patterns.json      # EFLReporter — cross-run accumulated patterns
+└── improvement-roadmap.md       # EFLReporter — actionable improvement roadmap
 ```
 
 **Scoring model**: each of the 8 categories has a fixed point budget (rules sum to 100 pts within their category); PASS=full pts, WARNING=½ pts, FAIL=0 pts, SKIP=excluded from denominator. Category raw scores are combined via weighted average (see `DEFAULT_WEIGHTS` in `review/scoring/config.py`).
 
-**Extension point** — `engine-feedback.json` is a stub for the future Engine Feedback Loop V1 (`"status": "not_implemented"`).
+**EFL engine targets**: Research Engine, Script Generation Engine, Script Pacing Engine, Speech Optimizer, TTS Engine, Scene Planner, Image Prompt Engine, Image Generation Engine, Motion Engine, ASS Subtitle Engine, Video Renderer, Video Quality Review Engine. Engine names from RCA are normalized via `ENGINE_NORMALIZATION` in `efl/config.py`.
 
 ### Domain Models
 

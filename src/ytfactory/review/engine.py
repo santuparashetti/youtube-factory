@@ -4,9 +4,9 @@ Runs the four validation stages in order, aggregates results into a
 ReviewReport, determines PASS / FAIL, and returns the report.
 
 Extension points:
-  - Quality Scoring Engine V1: sets ReviewReport.quality_score
   - Root Cause Analysis Engine V1: implemented — populates review/root-cause*.json
-  - Engine Feedback Loop V1: sets ReviewReport.feedback_payload
+  - Quality Scoring Engine V1: implemented — sets ReviewReport.quality_score
+  - Engine Feedback Loop V1: implemented — populates review/engine-feedback*.json
   - Auto Remediation Engine V1: consumes ReviewReport to trigger re-runs
 """
 
@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ytfactory.review.config import ReviewConfig
+from ytfactory.review.efl.config import EFLConfig
+from ytfactory.review.efl.engine import EngineFeedbackLoopEngine
+from ytfactory.review.efl.reporter import EFLReporter
 from ytfactory.review.models import ReviewReport, SceneReview
 from ytfactory.review.rca.config import RCAConfig
 from ytfactory.review.rca.engine import RootCauseAnalysisEngine
@@ -53,11 +56,13 @@ class VideoQualityReviewEngine:
         validation_config: ValidationRulesConfig | None = None,
         rca_config: RCAConfig | None = None,
         scoring_config: QualityScoringConfig | None = None,
+        efl_config: EFLConfig | None = None,
     ) -> None:
         self._config = config or ReviewConfig()
         self._val_config = validation_config or ValidationRulesConfig()
         self._rca_config = rca_config or RCAConfig()
         self._scoring_config = scoring_config or QualityScoringConfig()
+        self._efl_config = efl_config or EFLConfig()
         self._stages = [
             AssetIntegrityStage(self._config),
             TimelineReviewStage(self._config),
@@ -124,6 +129,13 @@ class VideoQualityReviewEngine:
         score_report = score_engine.score(project_dir, scenes, val_report, rca_report, context)
         QualityScoringReporter().write(score_report)
 
+        # ── Engine Feedback Loop V1 ───────────────────────────────────────
+        efl_engine = EngineFeedbackLoopEngine(self._efl_config)
+        efl_report = efl_engine.generate(
+            project_dir, scenes, val_report, rca_report, score_report, context
+        )
+        EFLReporter().write(efl_report)
+
         # ── PASS / FAIL ───────────────────────────────────────────────────
         has_critical = bool(all_errors)
         if self._config.fail_on_warnings:
@@ -160,6 +172,7 @@ class VideoQualityReviewEngine:
             rca_report=rca_report.to_dict(),
             quality_score=score_report.overall_score,
             quality_score_report=score_report.to_dict(),
+            efl_report=efl_report.to_dict(),
         )
 
         return report

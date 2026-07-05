@@ -785,7 +785,7 @@ class TestReviewReporter:
         assert data["version"] == "v1"
         assert data["verdict"] == "PASS"
 
-    def test_writes_extension_stubs(self, tmp_path, monkeypatch):
+    def test_writes_core_review_files(self, tmp_path, monkeypatch):
         self._patch(monkeypatch, tmp_path)
         project_id = "stub-test"
         (tmp_path / project_id).mkdir()
@@ -794,11 +794,14 @@ class TestReviewReporter:
         ReviewReporter().write(report)
 
         review_dir = tmp_path / project_id / "review"
-        # quality-score.json is now written by QualityScoringReporter (not a stub)
-        # root-cause files are now written by RCAReporter (not a stub)
-        assert (review_dir / "engine-feedback.json").exists()
+        # All three former stub files are now written by their dedicated reporters
+        # (QualityScoringReporter, RCAReporter, EFLReporter). ReviewReporter
+        # only writes the core three review files.
+        assert (review_dir / "review-report.md").exists()
+        assert (review_dir / "scene-review.json").exists()
+        assert (review_dir / "review-debug.json").exists()
 
-    def test_stubs_have_not_implemented_status(self, tmp_path, monkeypatch):
+    def test_no_stubs_written_by_review_reporter(self, tmp_path, monkeypatch):
         self._patch(monkeypatch, tmp_path)
         project_id = "stub2-test"
         (tmp_path / project_id).mkdir()
@@ -806,12 +809,16 @@ class TestReviewReporter:
         report = self._make_report(project_id)
         ReviewReporter().write(report)
 
-        # engine-feedback.json is the remaining stub; quality-score.json is now
-        # written by QualityScoringReporter with real data
-        ef = json.loads(
-            (tmp_path / project_id / "review" / "engine-feedback.json").read_text()
-        )
-        assert ef["status"] == "not_implemented"
+        # All extension-point engines are now implemented — ReviewReporter writes
+        # no stubs. Verify _write_extension_stubs is a harmless no-op.
+        review_dir = tmp_path / project_id / "review"
+        files_written = {f.name for f in review_dir.iterdir()}
+        # Only the three core review files should exist from ReviewReporter
+        assert "review-report.md" in files_written
+        # engine-feedback.json is NOT written by ReviewReporter (owned by EFLReporter)
+        # It may or may not exist depending on whether the full VQRE ran
+        # — in this isolated test it should NOT be present
+        assert "engine-feedback.json" not in files_written
 
     def test_fail_verdict_appears_in_report_md(self, tmp_path, monkeypatch):
         self._patch(monkeypatch, tmp_path)

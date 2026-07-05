@@ -5,14 +5,13 @@ Produces:
   - scene-review.json — per-scene detail
   - review-debug.json — full machine-readable diagnostics
 
-Stub (written by a future module):
-  - engine-feedback.json
-
 Implemented (written by dedicated reporters, not stubs):
   - quality-score.json / quality-report.md / score-breakdown.json /
     score-history.json — written by QualityScoringReporter
   - root-cause-report.md / root-cause.json / engine-owner-summary.json /
     recurring-issues.json — written by RCAReporter
+  - engine-feedback.json / engine-feedback.md / engine-priority-report.json /
+    recurring-patterns.json / improvement-roadmap.md — written by EFLReporter
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ import json
 from pathlib import Path
 
 from ytfactory.review.artifacts import (
-    engine_feedback_path,
     review_debug_path,
     review_directory,
     review_report_path,
@@ -144,15 +142,15 @@ class ReviewReporter:
         lines += [
             "---",
             "",
-            "## Extension Points (Future Modules)",
+            "## Module Status",
             "",
-            "The following modules are designed as integration points for future V1 specifications:",
+            "Status of all review-layer V1 modules:",
             "",
             "| Module | Status | Output file |",
             "|--------|--------|-------------|",
             "| Quality Scoring Engine V1 | ✅ implemented | `quality-score.json`, `quality-report.md`, `score-breakdown.json`, `score-history.json` |",
             "| Root Cause Analysis Engine V1 | ✅ implemented | `root-cause-report.md`, `root-cause.json`, `engine-owner-summary.json`, `recurring-issues.json` |",
-            "| Engine Feedback Loop V1 | _not implemented_ | `engine-feedback.json` |",
+            "| Engine Feedback Loop V1 | ✅ implemented | `engine-feedback.json`, `engine-feedback.md`, `engine-priority-report.json`, `recurring-patterns.json`, `improvement-roadmap.md` |",
             "| Auto Remediation Engine V1 | _not implemented_ | — |",
             "",
         ]
@@ -207,24 +205,12 @@ class ReviewReporter:
 
     # ── Extension-point stub files ────────────────────────────────────────
 
-    def _write_extension_stubs(self, report: ReviewReport) -> None:
-        """Write placeholder JSON for future module outputs.
+    def _write_extension_stubs(self, _report: ReviewReport) -> None:
+        """All extension-point engines are now implemented; no stubs remain.
 
-        These files mark the extension points so downstream tools can detect
-        them even before the respective engines are implemented.
+        Formerly wrote quality-score.json, root-cause-report.json, and
+        engine-feedback.json as "not_implemented" stubs. All three are now
+        written by their dedicated reporters (QualityScoringReporter,
+        RCAReporter, EFLReporter). This method is retained so that tests
+        relying on the call graph continue to work without modification.
         """
-        stub_meta = {
-            "version": "stub",
-            "project_id": report.project_id,
-            "verdict": report.verdict,
-            "timestamp": report.timestamp,
-            "status": "not_implemented",
-            "message": "This file will be populated by the corresponding V1 engine.",
-        }
-
-        # quality-score.json is now written by QualityScoringReporter (not a stub)
-        # root-cause-report.json is now written by RCAReporter (not a stub)
-        engine_feedback_path(report.project_id).write_text(
-            json.dumps({**stub_meta, "engine": "Engine Feedback Loop V1"}, indent=2),
-            encoding="utf-8",
-        )
