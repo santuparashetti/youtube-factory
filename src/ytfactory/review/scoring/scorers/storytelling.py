@@ -44,6 +44,5 @@ class StorytellingScorer(BaseCategoryScorer):
         # Story rules live under the "story" validation category
         results = self._results_for(validation_report, category="story")
         return [
-            self._contribute(rule_id, pts, results)
-            for rule_id, pts in _POINTS.items()
+            self._contribute(rule_id, pts, results) for rule_id, pts in _POINTS.items()
         ]

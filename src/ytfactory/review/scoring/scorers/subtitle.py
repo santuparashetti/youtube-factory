@@ -24,7 +24,7 @@ _POINTS = {
     "SUBT_003": 15.0,
     "SUBT_004": 10.0,
     "SUBT_005": 10.0,
-    "SUBT_006":  5.0,
+    "SUBT_006": 5.0,
 }
 
 
@@ -42,6 +42,5 @@ class SubtitleScorer(BaseCategoryScorer):
     ) -> list[RuleContribution]:
         results = self._results_for(validation_report)
         return [
-            self._contribute(rule_id, pts, results)
-            for rule_id, pts in _POINTS.items()
+            self._contribute(rule_id, pts, results) for rule_id, pts in _POINTS.items()
         ]

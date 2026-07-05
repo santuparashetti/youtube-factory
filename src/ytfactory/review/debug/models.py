@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 class ExecutionTimelineEntry:
     """A single event in the pipeline execution timeline."""
 
-    event: str                    # e.g. "stages:start", "validation:end"
-    layer: str                    # e.g. "stages", "validation", "rca", "scoring", "efl"
-    timestamp: str                # ISO-8601 UTC
+    event: str  # e.g. "stages:start", "validation:end"
+    layer: str  # e.g. "stages", "validation", "rca", "scoring", "efl"
+    timestamp: str  # ISO-8601 UTC
     duration_seconds: float | None = None  # set only on ":end" events
     details: dict = field(default_factory=dict)
 
@@ -46,9 +46,9 @@ class SceneDebugInfo:
     has_video_clip: bool
     narration_word_count: int
     declared_duration_seconds: float
-    validation_rule_ids: list[str]    # all rule IDs that ran for this scene
-    failed_rule_ids: list[str]        # rules that FAIL or WARNING for this scene
-    issues: list[str]                 # issues from SceneReview
+    validation_rule_ids: list[str]  # all rule IDs that ran for this scene
+    failed_rule_ids: list[str]  # rules that FAIL or WARNING for this scene
+    issues: list[str]  # issues from SceneReview
 
     def to_dict(self) -> dict:
         return {
@@ -71,7 +71,7 @@ class ValidationRuleDebugEntry:
 
     rule_id: str
     category: str
-    status: str               # PASS | FAIL | WARNING | SKIP
+    status: str  # PASS | FAIL | WARNING | SKIP
     severity: str
     confidence: float
     evidence: str
@@ -160,9 +160,9 @@ class DebugDiagnostics:
     """Aggregate timing and artifact-availability diagnostics."""
 
     total_processing_seconds: float
-    layer_timings: dict[str, float]    # layer_name → elapsed seconds
-    stage_timings: dict[str, float]    # stage_name → elapsed seconds
-    missing_artifacts: list[str]       # e.g. ["scene-003: no image"]
+    layer_timings: dict[str, float]  # layer_name → elapsed seconds
+    stage_timings: dict[str, float]  # stage_name → elapsed seconds
+    missing_artifacts: list[str]  # e.g. ["scene-003: no image"]
     error_count: int
     warning_count: int
     total_scenes: int

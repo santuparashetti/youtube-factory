@@ -94,7 +94,9 @@ class StoryValidator(BaseValidator):
 
         # STOR_003: Scene titles are unique
         if self._config.is_enabled("STOR_003"):
-            titles = [s.get("title", "").strip() for s in scenes if s.get("title", "").strip()]
+            titles = [
+                s.get("title", "").strip() for s in scenes if s.get("title", "").strip()
+            ]
             if not titles:
                 results.append(self._skip("STOR_003", "no scene titles present"))
             else:
@@ -128,7 +130,9 @@ class StoryValidator(BaseValidator):
                 if s.get("narration", "").strip()
             ]
             if len(narrations) < 2:
-                results.append(self._skip("STOR_004", "fewer than 2 scenes with narration"))
+                results.append(
+                    self._skip("STOR_004", "fewer than 2 scenes with narration")
+                )
             else:
                 unique_narrations = set(narrations)
                 if len(unique_narrations) == 1:

@@ -17,19 +17,19 @@ class ValidationResult:
     when those V1 specifications are implemented.
     """
 
-    rule_id: str               # e.g. "SCRIPT_001"
-    category: str              # "script" | "narration" | "subtitle" | ...
-    status: str                # "PASS" | "FAIL" | "WARNING" | "SKIP"
-    severity: str              # "critical" | "high" | "medium" | "low"
-    description: str           # human-readable rule description
-    evidence: str              # what was found / why rule failed
-    confidence: float          # 0.0–1.0
-    responsible_engine: str    # placeholder for RCA routing
-    timestamp: str             # ISO-8601 UTC
+    rule_id: str  # e.g. "SCRIPT_001"
+    category: str  # "script" | "narration" | "subtitle" | ...
+    status: str  # "PASS" | "FAIL" | "WARNING" | "SKIP"
+    severity: str  # "critical" | "high" | "medium" | "low"
+    description: str  # human-readable rule description
+    evidence: str  # what was found / why rule failed
+    confidence: float  # 0.0–1.0
+    responsible_engine: str  # placeholder for RCA routing
+    timestamp: str  # ISO-8601 UTC
 
     # Optional positional context
     scene_index: int | None = None
-    timestamp_seconds: float | None = None   # position within video/scene
+    timestamp_seconds: float | None = None  # position within video/scene
 
     # Arbitrary key-value data for RCA and debugging
     debug_metadata: dict = field(default_factory=dict)

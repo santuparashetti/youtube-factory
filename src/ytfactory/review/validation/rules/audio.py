@@ -52,11 +52,18 @@ class AudioValidator(BaseValidator):
                     for rule_id in ("AUD_002", "AUD_003"):
                         if self._config.is_enabled(rule_id):
                             results.append(
-                                self._skip(rule_id, "audio file unavailable", scene_index=idx)
+                                self._skip(
+                                    rule_id, "audio file unavailable", scene_index=idx
+                                )
                             )
                     continue
                 results.append(
-                    self._pass("AUD_001", f"Scene {idx} audio exists", audio_path.name, scene_index=idx)
+                    self._pass(
+                        "AUD_001",
+                        f"Scene {idx} audio exists",
+                        audio_path.name,
+                        scene_index=idx,
+                    )
                 )
 
             if not audio_path.exists():

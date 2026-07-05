@@ -77,7 +77,10 @@ class ValidationRunner:
                         confidence=0.0,
                         responsible_engine=validator.responsible_engine,
                         timestamp=timestamp,
-                        debug_metadata={"exception_type": type(exc).__name__, "exception": str(exc)},
+                        debug_metadata={
+                            "exception_type": type(exc).__name__,
+                            "exception": str(exc),
+                        },
                     )
                 )
 

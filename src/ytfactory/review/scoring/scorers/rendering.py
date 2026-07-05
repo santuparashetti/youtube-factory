@@ -22,7 +22,7 @@ _POINTS = {
     "REND_001": 25.0,
     "REND_004": 20.0,
     "REND_002": 10.0,
-    "REND_005":  5.0,
+    "REND_005": 5.0,
 }
 
 
@@ -40,6 +40,5 @@ class RenderingScorer(BaseCategoryScorer):
     ) -> list[RuleContribution]:
         results = self._results_for(validation_report)
         return [
-            self._contribute(rule_id, pts, results)
-            for rule_id, pts in _POINTS.items()
+            self._contribute(rule_id, pts, results) for rule_id, pts in _POINTS.items()
         ]

@@ -131,7 +131,8 @@ class RenderingValidator(BaseValidator):
         if self._config.is_enabled("REND_005"):
             expected_indices = {s.get("index", 0) for s in scenes}
             missing = sorted(
-                i for i in expected_indices
+                i
+                for i in expected_indices
                 if not (project_dir / "video" / f"scene-{i:03d}.mp4").exists()
             )
             if missing:

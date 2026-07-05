@@ -21,7 +21,12 @@ from ytfactory.review.rca.analyzers.story import StoryRCAAnalyzer
 from ytfactory.review.rca.analyzers.subtitle import SubtitleRCAAnalyzer
 from ytfactory.review.rca.config import RCAConfig
 from ytfactory.review.rca.framework import BaseRCAAnalyzer
-from ytfactory.review.rca.models import EngineOwnerSummary, RCAIssue, RCAReport, RecurringIssue
+from ytfactory.review.rca.models import (
+    EngineOwnerSummary,
+    RCAIssue,
+    RCAReport,
+    RecurringIssue,
+)
 from ytfactory.review.validation.models import ValidationReport
 
 

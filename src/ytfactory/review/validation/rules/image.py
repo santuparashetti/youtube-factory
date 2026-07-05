@@ -38,12 +38,20 @@ class ImageValidator(BaseValidator):
         results: list[ValidationResult] = []
 
         generated = [
-            s for s in scenes
+            s
+            for s in scenes
             if s.get("scene_type", "generated_image") == "generated_image"
         ]
 
         if not scenes:
-            for rule_id in ("IMG_001", "IMG_002", "IMG_003", "IMG_004", "IMG_005", "IMG_006"):
+            for rule_id in (
+                "IMG_001",
+                "IMG_002",
+                "IMG_003",
+                "IMG_004",
+                "IMG_005",
+                "IMG_006",
+            ):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
             return results
@@ -68,7 +76,12 @@ class ImageValidator(BaseValidator):
                     )
                 else:
                     results.append(
-                        self._pass("IMG_001", f"Scene {idx} image exists", img_path.name, scene_index=idx)
+                        self._pass(
+                            "IMG_001",
+                            f"Scene {idx} image exists",
+                            img_path.name,
+                            scene_index=idx,
+                        )
                     )
 
             # IMG_002: Image minimum size
@@ -174,7 +187,9 @@ class ImageValidator(BaseValidator):
         # IMG_004: No repeated visual prompts across generated scenes
         if self._config.is_enabled("IMG_004"):
             if len(prompts) < 2:
-                results.append(self._skip("IMG_004", "fewer than 2 generated scenes with prompts"))
+                results.append(
+                    self._skip("IMG_004", "fewer than 2 generated scenes with prompts")
+                )
             else:
                 threshold = self._config.image_prompt_similarity_threshold
                 repeated: list[tuple[int, int, float]] = []
@@ -182,7 +197,9 @@ class ImageValidator(BaseValidator):
                     for j in range(i + 1, len(prompts)):
                         sim = _jaccard(prompts[i][1], prompts[j][1])
                         if sim >= threshold:
-                            repeated.append((prompts[i][0], prompts[j][0], round(sim, 2)))
+                            repeated.append(
+                                (prompts[i][0], prompts[j][0], round(sim, 2))
+                            )
                 if repeated:
                     evidence = "; ".join(
                         f"scenes {a}&{b} sim={s}" for a, b, s in repeated[:3]
@@ -197,6 +214,8 @@ class ImageValidator(BaseValidator):
                         )
                     )
                 else:
-                    results.append(self._pass("IMG_004", "No repeated visual prompts detected"))
+                    results.append(
+                        self._pass("IMG_004", "No repeated visual prompts detected")
+                    )
 
         return results

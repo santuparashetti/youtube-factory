@@ -23,9 +23,9 @@ class QualityScoringConfig:
     """Controls all configurable aspects of the Quality Scoring Engine."""
 
     # PASS/FAIL and warning thresholds
-    publish_threshold: float = 70.0    # overall_score >= this → PASS
-    warning_threshold: float = 60.0    # below this → surface a warning
-    critical_threshold: float = 50.0   # below this → pipeline should halt
+    publish_threshold: float = 70.0  # overall_score >= this → PASS
+    warning_threshold: float = 60.0  # below this → surface a warning
+    critical_threshold: float = 50.0  # below this → pipeline should halt
 
     # Category weights — must sum to 1.0
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
@@ -42,7 +42,7 @@ class QualityScoringConfig:
             (80.0, "B"),
             (70.0, "C"),
             (60.0, "D"),
-            (0.0,  "F"),
+            (0.0, "F"),
         ]
     )
 
@@ -52,7 +52,9 @@ class QualityScoringConfig:
                 return grade
         return "F"
 
-    def verdict_for(self, overall_score: float, category_scores: dict[str, float]) -> str:
+    def verdict_for(
+        self, overall_score: float, category_scores: dict[str, float]
+    ) -> str:
         """Return PASS or FAIL based on overall score and per-category minimums."""
         if overall_score < self.publish_threshold:
             return "FAIL"

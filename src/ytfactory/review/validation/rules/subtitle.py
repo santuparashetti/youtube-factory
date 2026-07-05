@@ -70,7 +70,14 @@ class SubtitleValidator(BaseValidator):
         results: list[ValidationResult] = []
 
         if not scenes:
-            for rule_id in ("SUBT_001", "SUBT_002", "SUBT_003", "SUBT_004", "SUBT_005", "SUBT_006"):
+            for rule_id in (
+                "SUBT_001",
+                "SUBT_002",
+                "SUBT_003",
+                "SUBT_004",
+                "SUBT_005",
+                "SUBT_006",
+            ):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
             return results
@@ -92,14 +99,29 @@ class SubtitleValidator(BaseValidator):
                             scene_index=idx,
                         )
                     )
-                    for rule_id in ("SUBT_002", "SUBT_003", "SUBT_004", "SUBT_005", "SUBT_006"):
+                    for rule_id in (
+                        "SUBT_002",
+                        "SUBT_003",
+                        "SUBT_004",
+                        "SUBT_005",
+                        "SUBT_006",
+                    ):
                         if self._config.is_enabled(rule_id):
                             results.append(
-                                self._skip(rule_id, "subtitle file unavailable", scene_index=idx)
+                                self._skip(
+                                    rule_id,
+                                    "subtitle file unavailable",
+                                    scene_index=idx,
+                                )
                             )
                     continue
                 results.append(
-                    self._pass("SUBT_001", f"Scene {idx} subtitle exists", srt_path.name, scene_index=idx)
+                    self._pass(
+                        "SUBT_001",
+                        f"Scene {idx} subtitle exists",
+                        srt_path.name,
+                        scene_index=idx,
+                    )
                 )
 
             if not srt_path.exists():
@@ -108,10 +130,18 @@ class SubtitleValidator(BaseValidator):
             try:
                 srt_text = srt_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
-                for rule_id in ("SUBT_002", "SUBT_003", "SUBT_004", "SUBT_005", "SUBT_006"):
+                for rule_id in (
+                    "SUBT_002",
+                    "SUBT_003",
+                    "SUBT_004",
+                    "SUBT_005",
+                    "SUBT_006",
+                ):
                     if self._config.is_enabled(rule_id):
                         results.append(
-                            self._skip(rule_id, "cannot read subtitle file", scene_index=idx)
+                            self._skip(
+                                rule_id, "cannot read subtitle file", scene_index=idx
+                            )
                         )
                 continue
 
@@ -134,10 +164,12 @@ class SubtitleValidator(BaseValidator):
                     prev_end = 0.0
                     for i, (start, end, _) in enumerate(blocks):
                         if end <= start:
-                            overlaps.append(f"block {i+1}: end≤start ({start:.2f}→{end:.2f}s)")
+                            overlaps.append(
+                                f"block {i + 1}: end≤start ({start:.2f}→{end:.2f}s)"
+                            )
                         if start < prev_end - 0.001:
                             overlaps.append(
-                                f"block {i+1}: overlaps previous ({start:.2f}<{prev_end:.2f}s)"
+                                f"block {i + 1}: overlaps previous ({start:.2f}<{prev_end:.2f}s)"
                             )
                         prev_end = end
                     if overlaps:
@@ -165,7 +197,11 @@ class SubtitleValidator(BaseValidator):
             if self._config.is_enabled("SUBT_003"):
                 max_cps = self._config.subtitle_max_cps
                 if not blocks:
-                    results.append(self._skip("SUBT_003", "no SRT blocks to evaluate", scene_index=idx))
+                    results.append(
+                        self._skip(
+                            "SUBT_003", "no SRT blocks to evaluate", scene_index=idx
+                        )
+                    )
                 else:
                     violations: list[str] = []
                     for i, (start, end, cue_text) in enumerate(blocks):
@@ -174,7 +210,7 @@ class SubtitleValidator(BaseValidator):
                             continue
                         cps = len(cue_text) / duration
                         if cps > max_cps:
-                            violations.append(f"block {i+1}: {cps:.1f} CPS")
+                            violations.append(f"block {i + 1}: {cps:.1f} CPS")
                     if violations:
                         results.append(
                             self._warn(
@@ -220,7 +256,9 @@ class SubtitleValidator(BaseValidator):
                     )
                 else:
                     results.append(
-                        self._pass("SUBT_004", f"Scene {idx} line lengths OK", scene_index=idx)
+                        self._pass(
+                            "SUBT_004", f"Scene {idx} line lengths OK", scene_index=idx
+                        )
                     )
 
             # SUBT_005: No empty cues
@@ -239,7 +277,9 @@ class SubtitleValidator(BaseValidator):
                     )
                 else:
                     results.append(
-                        self._pass("SUBT_005", f"Scene {idx} no empty cues", scene_index=idx)
+                        self._pass(
+                            "SUBT_005", f"Scene {idx} no empty cues", scene_index=idx
+                        )
                     )
 
             # SUBT_006: Subtitle text overlaps with narration (Jaccard)

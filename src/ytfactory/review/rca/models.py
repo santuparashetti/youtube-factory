@@ -13,19 +13,21 @@ from dataclasses import asdict, dataclass, field
 class RCAIssue:
     """A single identified root cause linked to a validation failure."""
 
-    issue_id: str                   # assigned by engine, e.g. "RCA-0001"
-    rule_id: str                    # source ValidationResult.rule_id
-    category: str                   # RCA category: script|narration|subtitle|image|motion|audio|rendering
-    root_cause_code: str            # snake_case code, e.g. "wrong_duration"
-    root_cause_description: str     # human-readable explanation of the root cause
-    confidence: int                 # 0–100
-    severity: str                   # "critical" | "high" | "medium" | "low"
-    evidence: str                   # what evidence supports this root cause
-    primary_engine: str             # engine primarily responsible
-    secondary_engines: list[str]    # engines with secondary responsibility
-    suggested_fix: str              # recommended permanent fix
-    suggested_tests: list[str]      # tests to prevent recurrence
-    timestamp: str                  # ISO-8601 UTC
+    issue_id: str  # assigned by engine, e.g. "RCA-0001"
+    rule_id: str  # source ValidationResult.rule_id
+    category: (
+        str  # RCA category: script|narration|subtitle|image|motion|audio|rendering
+    )
+    root_cause_code: str  # snake_case code, e.g. "wrong_duration"
+    root_cause_description: str  # human-readable explanation of the root cause
+    confidence: int  # 0–100
+    severity: str  # "critical" | "high" | "medium" | "low"
+    evidence: str  # what evidence supports this root cause
+    primary_engine: str  # engine primarily responsible
+    secondary_engines: list[str]  # engines with secondary responsibility
+    suggested_fix: str  # recommended permanent fix
+    suggested_tests: list[str]  # tests to prevent recurrence
+    timestamp: str  # ISO-8601 UTC
 
     scene_index: int | None = None
     timestamp_seconds: float | None = None
@@ -62,7 +64,7 @@ class EngineOwnerSummary:
     high_issues: int
     medium_issues: int
     low_issues: int
-    root_causes: dict[str, int]     # root_cause_code → occurrence count
+    root_causes: dict[str, int]  # root_cause_code → occurrence count
     avg_confidence: float
     primary_recommendations: list[str]
 
@@ -78,7 +80,7 @@ class RecurringIssue:
     root_cause_code: str
     occurrence_count: int
     affected_scenes: list[int]
-    severity_distribution: dict[str, int]   # severity → count
+    severity_distribution: dict[str, int]  # severity → count
     suggested_systemic_fix: str
 
     def to_dict(self) -> dict:
@@ -114,7 +116,9 @@ class RCAReport:
             "medium_issues": self.medium_issues,
             "low_issues": self.low_issues,
             "issues": [i.to_dict() for i in self.issues],
-            "engine_summaries": {k: v.to_dict() for k, v in self.engine_summaries.items()},
+            "engine_summaries": {
+                k: v.to_dict() for k, v in self.engine_summaries.items()
+            },
             "recurring_issues": [r.to_dict() for r in self.recurring_issues],
             "processing_time_seconds": self.processing_time_seconds,
         }

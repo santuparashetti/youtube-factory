@@ -84,9 +84,12 @@ class RCAReporter:
                 issues = by_category[cat]
                 lines += [f"### {cat.title()} ({len(issues)} issue(s))", ""]
                 for issue in issues:
-                    sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(
-                        issue.severity, "⚪"
-                    )
+                    sev_icon = {
+                        "critical": "🔴",
+                        "high": "🟠",
+                        "medium": "🟡",
+                        "low": "🔵",
+                    }.get(issue.severity, "⚪")
                     lines += [
                         f"#### `{issue.issue_id}` — {issue.root_cause_code} ({sev_icon} {issue.severity})",
                         "",

@@ -22,7 +22,7 @@ class RuleMapping:
 
     root_cause_code: str
     root_cause_description: str
-    rca_category: str               # one of the 7 RCA categories
+    rca_category: str  # one of the 7 RCA categories
     primary_engine: str
     secondary_engines: list[str] = field(default_factory=list)
     base_confidence: int = 80
@@ -57,7 +57,8 @@ class BaseRCAAnalyzer(ABC):
             statuses.add("WARNING")
 
         my_results = [
-            r for r in results
+            r
+            for r in results
             if r.category == self.validation_category and r.status in statuses
         ]
 
@@ -121,9 +122,7 @@ class BaseRCAAnalyzer(ABC):
             debug_metadata={"validation_description": result.description},
         )
 
-    def _unknown_issue(
-        self, result: ValidationResult, reason: str = ""
-    ) -> RCAIssue:
+    def _unknown_issue(self, result: ValidationResult, reason: str = "") -> RCAIssue:
         """Produce an Unknown-class issue when no mapping matches."""
         detail = reason or "no matching rule mapping"
         return RCAIssue(

@@ -43,6 +43,7 @@ ytfactory generate-voice <project-id>           # TTS audio per scene
 ytfactory generate-captions <project-id>        # .srt per scene
 ytfactory render <project-id>                   # FFmpeg: image + audio + srt → .mp4
 ytfactory review <project-id>                   # Quality review: PASS / FAIL report
+ytfactory remediate <project-id>                # Auto-repair failures (dry-run safe: --dry-run)
 ```
 
 Or run the full pipeline at once:
@@ -120,6 +121,8 @@ workspace/jobs/<project-id>/
 
 **Layer 6 — Video Review Debug Mode** (`review/debug/`): Captures timing and diagnostic data from every pipeline layer. Controlled by `DebugConfig(level=DebugLevel.OFF|BASIC|DETAILED|VERBOSE)` passed to `VideoQualityReviewEngine`. When not OFF, `DebugCollector` wraps each layer with `time_layer()` context managers, then `DebugReporter` writes seven files to the `review/debug/` subdirectory. Zero overhead when OFF (the default).
 
+**Layer 7 — Auto Remediation Engine** (`review/remediation/`): Automatically repairs failed pipeline components instead of requiring a full re-run. `DecisionEngine.plan()` maps EFL feedback and RCA issues → `RemediationPlan` (deduped, sorted by severity then cost). `ProductionExecutor` deletes the failed artifact, then calls the existing idempotent pipeline to regenerate only what was deleted. `AutoRemediationEngine.remediate()` orchestrates the decision→execute→re-validate loop (up to `max_retries` cycles) stopping when `overall_score ≥ quality_threshold` (default 70). `RemediationReporter` writes four files to `workspace/jobs/<id>/remediation/`. Use `RemediationConfig(dry_run=True)` to plan without touching files.
+
 All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, `quality_score_report`, `efl_report`, and `debug_report` dicts.
 
 **Output files** (`review/` directory):
@@ -150,6 +153,12 @@ review/
     ├── scoring-debug.json       # per-category scoring breakdown with weights
     ├── feedback-debug.json      # EFL feedback items for debug inspection
     └── execution-timeline.json  # ordered pipeline events with timestamps/durations
+
+remediation/                     # RemediationReporter — written by `ytfactory remediate`
+├── remediation-plan.json        # planned actions (strategy, engine, cost, status)
+├── remediation-report.md        # human-readable remediation summary + cycles
+├── retry-history.json           # per-action execution attempts across all cycles
+└── regenerated-assets.json      # all artifacts deleted + regenerated (with backup paths)
 ```
 
 **Debug level differences**: BASIC/DETAILED/VERBOSE all write all 7 files. BASIC omits rule-level `debug_metadata` and category scoring contributions. DETAILED adds scoring contributions. VERBOSE also includes `debug_metadata` from each validation rule.

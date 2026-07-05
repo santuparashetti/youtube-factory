@@ -102,13 +102,18 @@ class EFLReporter:
             for item in report.feedback_items:
                 by_engine.setdefault(item.engine_owner, []).append(item)
 
-            for engine in sorted(by_engine, key=lambda e: _engine_priority(by_engine[e])):
+            for engine in sorted(
+                by_engine, key=lambda e: _engine_priority(by_engine[e])
+            ):
                 eng_items = by_engine[engine]
                 lines += [f"### {engine} ({len(eng_items)} item(s))", ""]
                 for item in sorted(eng_items, key=lambda x: _rank(x.priority)):
-                    p_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(
-                        item.priority, "⚪"
-                    )
+                    p_icon = {
+                        "critical": "🔴",
+                        "high": "🟠",
+                        "medium": "🟡",
+                        "low": "🔵",
+                    }.get(item.priority, "⚪")
                     recurring_tag = " ♻️ _recurring_" if item.is_recurring else ""
                     lines += [
                         f"#### `{item.feedback_id}` — {p_icon} {item.priority.upper()}"
@@ -226,7 +231,9 @@ class EFLReporter:
 
         # Load existing history
         try:
-            existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            existing = (
+                json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            )
             history: list[dict] = existing.get("patterns", [])
         except (json.JSONDecodeError, OSError):
             history = []
@@ -238,12 +245,16 @@ class EFLReporter:
 
         merged: list[dict] = []
         for existing_pat in history:
-            key = (existing_pat.get("engine", ""), existing_pat.get("root_cause_code", ""))
+            key = (
+                existing_pat.get("engine", ""),
+                existing_pat.get("root_cause_code", ""),
+            )
             if key in current_keys:
                 cur = current_keys.pop(key)
                 # Merge: accumulate occurrence count, extend project list
                 existing_pat["total_occurrence_count"] = (
-                    existing_pat.get("total_occurrence_count", 0) + cur.current_run_count
+                    existing_pat.get("total_occurrence_count", 0)
+                    + cur.current_run_count
                 )
                 existing_pat["current_run_count"] = cur.current_run_count
                 existing_pat["last_seen"] = report.timestamp
@@ -296,7 +307,9 @@ class EFLReporter:
                 p_items = [r for r in report.improvement_roadmap if r.priority == p]
                 if not p_items:
                     continue
-                p_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}[p]
+                p_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}[
+                    p
+                ]
                 lines += [
                     "---",
                     "",

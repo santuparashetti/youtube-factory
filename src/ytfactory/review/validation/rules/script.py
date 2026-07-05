@@ -40,7 +40,9 @@ class ScriptValidator(BaseValidator):
 
         # SCRIPT_001: Script file exists and is non-empty
         if self._config.is_enabled("SCRIPT_001"):
-            exists_and_nonempty = script_file.exists() and script_file.stat().st_size > 0
+            exists_and_nonempty = (
+                script_file.exists() and script_file.stat().st_size > 0
+            )
             if not exists_and_nonempty:
                 results.append(
                     self._fail(
@@ -106,9 +108,7 @@ class ScriptValidator(BaseValidator):
         # SCRIPT_003: No repeated paragraphs
         if self._config.is_enabled("SCRIPT_003"):
             paragraphs = [
-                p.strip()
-                for p in re.split(r"\n{2,}", text)
-                if len(p.split()) > 5
+                p.strip() for p in re.split(r"\n{2,}", text) if len(p.split()) > 5
             ]
             threshold = self._config.script_paragraph_similarity_threshold
             repeated: list[tuple[int, int, float]] = []
@@ -131,7 +131,9 @@ class ScriptValidator(BaseValidator):
                     )
                 )
             else:
-                results.append(self._pass("SCRIPT_003", "No repeated paragraphs detected"))
+                results.append(
+                    self._pass("SCRIPT_003", "No repeated paragraphs detected")
+                )
 
         # SCRIPT_004: Minimum sentence count
         if self._config.is_enabled("SCRIPT_004"):

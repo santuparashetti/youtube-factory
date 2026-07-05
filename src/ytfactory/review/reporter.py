@@ -125,7 +125,12 @@ class ReviewReporter:
             ]
             scores = val.get("category_scores", {})
             if scores:
-                lines += ["### Category Scores", "", "| Category | Pass Rate |", "|----------|-----------|"]
+                lines += [
+                    "### Category Scores",
+                    "",
+                    "| Category | Pass Rate |",
+                    "|----------|-----------|",
+                ]
                 for cat, score in sorted(scores.items()):
                     bar = "✅" if score >= 1.0 else ("⚠️" if score >= 0.7 else "❌")
                     lines.append(f"| {cat} | {bar} {score:.0%} |")
@@ -134,7 +139,9 @@ class ReviewReporter:
             if critical:
                 lines += ["### Critical Validation Failures", ""]
                 for f in critical:
-                    lines.append(f"- ❌ `{f['rule_id']}` ({f['severity']}): {f['description']}")
+                    lines.append(
+                        f"- ❌ `{f['rule_id']}` ({f['severity']}): {f['description']}"
+                    )
                 lines.append("")
             lines += ["_Full details: `review/validation-report.json`_", ""]
 
@@ -152,7 +159,7 @@ class ReviewReporter:
             "| Root Cause Analysis Engine V1 | ✅ implemented | `root-cause-report.md`, `root-cause.json`, `engine-owner-summary.json`, `recurring-issues.json` |",
             "| Engine Feedback Loop V1 | ✅ implemented | `engine-feedback.json`, `engine-feedback.md`, `engine-priority-report.json`, `recurring-patterns.json`, `improvement-roadmap.md` |",
             "| Video Review Debug Mode V1 | ✅ implemented | `debug/debug-report.md`, `debug/debug-summary.json`, `debug/scene-debug.json`, `debug/validation-debug.json`, `debug/scoring-debug.json`, `debug/feedback-debug.json`, `debug/execution-timeline.json` |",
-            "| Auto Remediation Engine V1 | _not implemented_ | — |",
+            "| Auto Remediation Engine V1 | ✅ implemented | `remediation/remediation-plan.json`, `remediation/remediation-report.md`, `remediation/retry-history.json`, `remediation/regenerated-assets.json` |",
             "",
         ]
 

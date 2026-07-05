@@ -126,7 +126,11 @@ class BaseCategoryScorer(ABC):
         If ``rule_results`` is supplied, uses them directly; otherwise filters
         ``results`` by ``rule_id``.
         """
-        rr = rule_results if rule_results is not None else self._rule_results(results, rule_id)
+        rr = (
+            rule_results
+            if rule_results is not None
+            else self._rule_results(results, rule_id)
+        )
 
         if not rr:
             # Rule never ran (no scenes, no data) — treat as absent/neutral
@@ -190,15 +194,15 @@ class BaseCategoryScorer(ABC):
     ) -> tuple[float, float, list[str], list[str]]:
         """Return (raw_score, confidence, evidence_list, failed_rules)."""
         available = sum(
-            c.points_available for c in contributions if c.status not in ("skip", "absent")
+            c.points_available
+            for c in contributions
+            if c.status not in ("skip", "absent")
         )
         earned = sum(
             c.points_earned for c in contributions if c.status not in ("skip", "absent")
         )
 
-        non_neutral = sum(
-            1 for c in contributions if c.status not in ("absent",)
-        )
+        non_neutral = sum(1 for c in contributions if c.status not in ("absent",))
         skip_count = sum(1 for c in contributions if c.status == "skip")
 
         raw_score = (earned / available * 100) if available > 0 else 100.0

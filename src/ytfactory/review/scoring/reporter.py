@@ -69,7 +69,12 @@ class QualityScoringReporter:
     def _write_quality_report_md(self, report: QualityScoreReport) -> None:
         verdict_icon = "✅ PASS" if report.verdict == "PASS" else "❌ FAIL"
         grade_emoji = {
-            "A+": "🏆", "A": "🥇", "B": "🥈", "C": "🥉", "D": "⚠️", "F": "❌"
+            "A+": "🏆",
+            "A": "🥇",
+            "B": "🥈",
+            "C": "🥉",
+            "D": "⚠️",
+            "F": "❌",
         }.get(report.letter_grade, "")
 
         lines = [
@@ -105,7 +110,14 @@ class QualityScoringReporter:
 
         for cat, cs in sorted(report.category_scores.items()):
             grade = _grade_from_score(cs.raw_score)
-            grade_icon = {"A+": "🏆", "A": "🥇", "B": "🥈", "C": "🥉", "D": "⚠️", "F": "❌"}.get(grade, "")
+            grade_icon = {
+                "A+": "🏆",
+                "A": "🥇",
+                "B": "🥈",
+                "C": "🥉",
+                "D": "⚠️",
+                "F": "❌",
+            }.get(grade, "")
             lines.append(
                 f"| {cat.title()} | {cs.raw_score:.1f} | {cs.weight:.0%} | "
                 f"{cs.weighted_score:.2f} | {grade_icon} {grade} | {cs.confidence:.0%} |"
@@ -156,9 +168,7 @@ class QualityScoringReporter:
             "overall_score": report.overall_score,
             "letter_grade": report.letter_grade,
             "verdict": report.verdict,
-            "weights": {
-                cat: cs.weight for cat, cs in report.category_scores.items()
-            },
+            "weights": {cat: cs.weight for cat, cs in report.category_scores.items()},
             "categories": {
                 cat: cs.to_dict() for cat, cs in report.category_scores.items()
             },
@@ -167,7 +177,8 @@ class QualityScoringReporter:
                 cat: f"{cs.weight:.0%}" for cat, cs in report.category_scores.items()
             },
             "confidence_distribution": {
-                cat: round(cs.confidence, 3) for cat, cs in report.category_scores.items()
+                cat: round(cs.confidence, 3)
+                for cat, cs in report.category_scores.items()
             },
             "failed_category_summary": {
                 cat: cs.failed_rules

@@ -36,7 +36,5 @@ def quality_review_node(state: VideoState) -> dict:
             "total_scenes": report.total_scenes,
             "processing_time_seconds": report.processing_time_seconds,
         },
-        "stage_errors": [
-            f"[review] {e}" for e in report.all_errors
-        ],
+        "stage_errors": [f"[review] {e}" for e in report.all_errors],
     }

@@ -89,13 +89,23 @@ class DebugReporter:
         ]
 
         if d.layer_timings:
-            lines += ["### Layer Timings", "", "| Layer | Duration |", "|-------|----------|"]
+            lines += [
+                "### Layer Timings",
+                "",
+                "| Layer | Duration |",
+                "|-------|----------|",
+            ]
             for layer, secs in sorted(d.layer_timings.items()):
                 lines.append(f"| {layer} | {secs:.3f}s |")
             lines.append("")
 
         if d.stage_timings:
-            lines += ["### Stage Timings", "", "| Stage | Duration |", "|-------|----------|"]
+            lines += [
+                "### Stage Timings",
+                "",
+                "| Stage | Duration |",
+                "|-------|----------|",
+            ]
             for stage, secs in sorted(d.stage_timings.items()):
                 lines.append(f"| {stage} | {secs:.3f}s |")
             lines.append("")
@@ -125,8 +135,14 @@ class DebugReporter:
                 "|----------|-------|--------|",
             ]
             for cs in sorted(report.scoring_debug, key=lambda x: x.raw_score):
-                grade_icon = "✅" if cs.raw_score >= 70 else ("⚠️" if cs.raw_score >= 50 else "❌")
-                lines.append(f"| {cs.category} | {cs.raw_score:.1f} {grade_icon} | {cs.weight:.2f} |")
+                grade_icon = (
+                    "✅"
+                    if cs.raw_score >= 70
+                    else ("⚠️" if cs.raw_score >= 50 else "❌")
+                )
+                lines.append(
+                    f"| {cs.category} | {cs.raw_score:.1f} {grade_icon} | {cs.weight:.2f} |"
+                )
             lines.append("")
 
         if report.validation_debug:
@@ -144,7 +160,9 @@ class DebugReporter:
                 f"**Warning:** {n_warn} | **Skip:** {n_skip}  ",
                 "",
             ]
-            failed = [v for v in report.validation_debug if v.status in ("FAIL", "WARNING")]
+            failed = [
+                v for v in report.validation_debug if v.status in ("FAIL", "WARNING")
+            ]
             if failed:
                 lines += [
                     "### Failed / Warning Rules",

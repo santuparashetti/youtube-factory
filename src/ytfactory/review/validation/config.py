@@ -17,7 +17,7 @@ class RuleConfig:
     """Per-rule override settings."""
 
     enabled: bool = True
-    severity: str | None = None    # None = use rule default
+    severity: str | None = None  # None = use rule default
     threshold: float | None = None  # None = use rule default
 
     def severity_or(self, default: str) -> str:
@@ -54,7 +54,7 @@ class ValidationRulesConfig:
     narration_max_single_block_words: int = 100
 
     # ── Subtitle ─────────────────────────────────────────────────────────
-    subtitle_max_cps: float = 18.0          # characters per second
+    subtitle_max_cps: float = 18.0  # characters per second
     subtitle_max_chars_per_line: int = 42
     subtitle_narration_overlap_threshold: float = 0.3  # Jaccard minimum
 
@@ -84,7 +84,7 @@ class ValidationRulesConfig:
 
     # ── Audio ─────────────────────────────────────────────────────────────
     audio_min_size_bytes: int = 1_000
-    audio_short_clip_bytes: int = 5_000   # size proxy for clips likely < 1s
+    audio_short_clip_bytes: int = 5_000  # size proxy for clips likely < 1s
 
     # ── Rendering ─────────────────────────────────────────────────────────
     rendering_min_clip_size_bytes: int = 10_000

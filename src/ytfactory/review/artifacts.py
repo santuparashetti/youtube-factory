@@ -54,3 +54,10 @@ def debug_directory(project_id: str) -> Path:
     directory = review_directory(project_id) / "debug"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def remediation_directory(project_id: str) -> Path:
+    """Return (and create) workspace/jobs/<project_id>/remediation/."""
+    directory = Path(WORKSPACE_DIR) / project_id / "remediation"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory

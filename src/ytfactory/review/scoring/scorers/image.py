@@ -23,7 +23,7 @@ _POINTS = {
     "IMG_002": 20.0,
     "IMG_003": 20.0,
     "IMG_004": 10.0,
-    "IMG_005":  5.0,
+    "IMG_005": 5.0,
     "IMG_006": 10.0,
 }
 
@@ -42,6 +42,5 @@ class ImageScorer(BaseCategoryScorer):
     ) -> list[RuleContribution]:
         results = self._results_for(validation_report)
         return [
-            self._contribute(rule_id, pts, results)
-            for rule_id, pts in _POINTS.items()
+            self._contribute(rule_id, pts, results) for rule_id, pts in _POINTS.items()
         ]

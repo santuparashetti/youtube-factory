@@ -22,7 +22,7 @@ _POINTS = {
     "SCRIPT_002": 25.0,
     "SCRIPT_003": 15.0,
     "SCRIPT_004": 12.0,
-    "SCRIPT_005":  8.0,
+    "SCRIPT_005": 8.0,
 }
 
 
@@ -40,6 +40,5 @@ class ScriptScorer(BaseCategoryScorer):
     ) -> list[RuleContribution]:
         results = self._results_for(validation_report)
         return [
-            self._contribute(rule_id, pts, results)
-            for rule_id, pts in _POINTS.items()
+            self._contribute(rule_id, pts, results) for rule_id, pts in _POINTS.items()
         ]
