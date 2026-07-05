@@ -9,12 +9,12 @@ from enum import Enum
 
 
 class SubtitleFormat(str, Enum):
-    """Output format selector — extend here for WebVTT, ASS, etc."""
+    """Output format selector."""
 
     SRT = "srt"
+    ASS = "ass"
     # Reserved for future formats:
     # WEBVTT = "webvtt"
-    # ASS = "ass"
 
 
 @dataclass

@@ -2,8 +2,13 @@
 CaptionPipeline — standalone subtitle generation stage.
 
 Delegates all subtitle logic to SubtitleEngine.
-The former duplicate _boundaries_to_srt / _fallback_srt functions
-are no longer needed — they live in the engine's segmenter.
+
+When subtitle_format="ass" (default):
+  - Writes scene-NNN.ass as the primary file (used for rendering)
+  - Writes scene-NNN.srt alongside for compatibility and debug
+
+When subtitle_format="srt":
+  - Writes scene-NNN.srt only (original behavior, fully backward-compatible)
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from pathlib import Path
 from ytfactory.config.settings import Settings
 from ytfactory.subtitles import SubtitleEngine
 from ytfactory.subtitles.debug import SubtitleDebugWriter
-from ytfactory.subtitles.models import SubtitleReport
+from ytfactory.subtitles.models import SubtitleFormat, SubtitleReport
 
 from .artifacts import subtitles_directory
 from .models import CaptionArtifact
@@ -31,6 +36,7 @@ class CaptionPipeline:
     ) -> None:
         settings = Settings()
         engine = SubtitleEngine.from_settings(settings)
+        use_ass = engine.format == SubtitleFormat.ASS
 
         project_dir = Path("workspace") / "jobs" / project
         scene_file = project_dir / "scenes" / "scene-plan.json"
@@ -40,9 +46,12 @@ class CaptionPipeline:
 
         for scene in scenes:
             index = scene["index"]
-            output = subtitles_directory(project) / f"scene-{index:03d}.srt"
+            srt_path = subtitles_directory(project) / f"scene-{index:03d}.srt"
+            ass_path = subtitles_directory(project) / f"scene-{index:03d}.ass"
 
-            if output.exists():
+            # Skip if primary output already exists
+            primary = ass_path if use_ass else srt_path
+            if primary.exists():
                 continue
 
             timing_file = project_dir / "audio" / f"scene-{index:03d}.timing.json"
@@ -51,23 +60,39 @@ class CaptionPipeline:
                 data = timing_file.read_text(encoding="utf-8")
                 boundaries = json.loads(data) if data.strip() else []
 
-            srt, report = engine.build_report(
-                boundaries=boundaries,
-                narration=scene["narration"],
-                scene_index=index,
-                project_id=project,
-                total_duration=float(scene.get("duration_seconds", 10.0)),
-            )
-            reports.append(report)
+            total_duration = float(scene.get("duration_seconds", 10.0))
 
-            output.write_text(srt, encoding="utf-8")
-
-            self.repository.save(
-                CaptionArtifact(
-                    scene_id=index,
-                    srt_path=output,
+            if use_ass:
+                ass, srt, report = engine.build_both(
+                    boundaries=boundaries,
+                    narration=scene["narration"],
+                    scene_index=index,
+                    project_id=project,
+                    total_duration=total_duration,
                 )
-            )
+                ass_path.write_text(ass, encoding="utf-8")
+                srt_path.write_text(srt, encoding="utf-8")
+                artifact = CaptionArtifact(
+                    scene_id=index,
+                    srt_path=srt_path,
+                    ass_path=ass_path,
+                )
+            else:
+                srt, report = engine.build_report(
+                    boundaries=boundaries,
+                    narration=scene["narration"],
+                    scene_index=index,
+                    project_id=project,
+                    total_duration=total_duration,
+                )
+                srt_path.write_text(srt, encoding="utf-8")
+                artifact = CaptionArtifact(
+                    scene_id=index,
+                    srt_path=srt_path,
+                )
+
+            reports.append(report)
+            self.repository.save(artifact)
 
         SubtitleDebugWriter.write_project_summary(
             project_id=project,

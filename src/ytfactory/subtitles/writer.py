@@ -74,11 +74,17 @@ def get_writer(fmt: SubtitleFormat | str = SubtitleFormat.SRT) -> SRTWriter:
     """
     Factory: return the appropriate writer for the given format.
 
+    For ASS format use the ASSWriter from subtitles.ass directly.
     Raises ValueError for unsupported formats — do not silently fall back.
     """
     fmt = SubtitleFormat(fmt) if isinstance(fmt, str) else fmt
     if fmt == SubtitleFormat.SRT:
         return SRTWriter()
+    if fmt == SubtitleFormat.ASS:
+        # Import here to avoid circular imports
+        from .ass import ASSWriter
+
+        return ASSWriter()  # type: ignore[return-value]
     raise ValueError(
         f"Unsupported subtitle format: {fmt!r}. "
         f"Valid formats: {[f.value for f in SubtitleFormat]}"

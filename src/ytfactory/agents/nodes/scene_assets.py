@@ -16,6 +16,7 @@ from ytfactory.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.validator import AudioValidator
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.subtitles import SubtitleEngine
+from ytfactory.subtitles.models import SubtitleFormat
 
 _optimizer = SpeechOptimizer()
 _validator = AudioValidator()
@@ -68,6 +69,7 @@ def generate_scene_assets(state: VideoState) -> dict:
     image_path = images_dir / f"scene-{index:03d}.png"
     audio_path = audio_dir / f"scene-{index:03d}.mp3"
     srt_path = subtitles_dir / f"scene-{index:03d}.srt"
+    ass_path = subtitles_dir / f"scene-{index:03d}.ass"
 
     errors: list[str] = []
 
@@ -210,29 +212,46 @@ def generate_scene_assets(state: VideoState) -> dict:
         if measured > 0.5:
             real_duration = measured
 
-    # ── 4. Build SRT via SubtitleEngine ──────────────────────────────────
+    # ── 4. Build subtitles via SubtitleEngine ──────────────────────────────
     engine = SubtitleEngine.from_settings(settings)
-    srt_content = engine.build(
-        boundaries=boundaries,
-        narration=narration,
-        scene_index=index,
-        project_id=project_id,
-        total_duration=real_duration,
-    )
-    srt_path.write_text(srt_content, encoding="utf-8")
+    use_ass = engine.format == SubtitleFormat.ASS
 
+    if use_ass:
+        ass_content, srt_content, _ = engine.build_both(
+            boundaries=boundaries,
+            narration=narration,
+            scene_index=index,
+            project_id=project_id,
+            total_duration=real_duration,
+        )
+        ass_path.write_text(ass_content, encoding="utf-8")
+        srt_path.write_text(srt_content, encoding="utf-8")
+        subtitle_for_state = str(ass_path)
+    else:
+        srt_content = engine.build(
+            boundaries=boundaries,
+            narration=narration,
+            scene_index=index,
+            project_id=project_id,
+            total_duration=real_duration,
+        )
+        srt_path.write_text(srt_content, encoding="utf-8")
+        subtitle_for_state = str(srt_path)
+
+    cue_count = srt_content.count("\n\n") + 1 if srt_content.strip() else 0
     logger.info(
-        "Scene {} — image:{} audio:{:.1f}s srt:{} cues",
+        "Scene {} — image:{} audio:{:.1f}s subtitles:{} cues [{}]",
         index,
         "✓" if image_path.exists() else "✗",
         real_duration,
-        srt_content.count("\n\n") + 1 if srt_content.strip() else 0,
+        cue_count,
+        "ass+srt" if use_ass else "srt",
     )
 
     return {
         "image_paths": {index: str(image_path)} if image_path.exists() else {},
         "audio_paths": {index: str(audio_path)} if audio_path.exists() else {},
         "audio_durations": {index: real_duration},
-        "srt_paths": {index: str(srt_path)},
+        "srt_paths": {index: subtitle_for_state},
         "stage_errors": errors,
     }

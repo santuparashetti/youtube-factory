@@ -64,7 +64,6 @@ class TestSRTFormatting:
     def test_empty_lines_skipped(self, writer):
         cue = _cue(1, 0.0, 2.0, "Valid", "", "   ")
         srt = writer.write([cue])
-        lines = srt.strip().split("\n")
         # Only the valid line should appear after the timestamp line
         assert "Valid" in srt
         assert "   " not in srt

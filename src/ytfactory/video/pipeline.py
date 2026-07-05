@@ -22,31 +22,21 @@ class VideoPipeline:
         self.renderer = FFmpegRenderer()
         settings = Settings()
         self._profile = settings.render_profile
-        self._motion_planner     = MotionPlanner()
+        self._motion_planner = MotionPlanner()
         self._transition_planner = TransitionPlanner()
-        self._effects_planner    = EffectsPlanner()
+        self._effects_planner = EffectsPlanner()
 
     def run(
         self,
         project: str,
     ) -> None:
 
-        project_dir = (
-            Path("workspace")
-            / "jobs"
-            / project
-        )
+        project_dir = Path("workspace") / "jobs" / project
 
-        scene_plan = (
-            project_dir
-            / "scenes"
-            / "scene-plan.json"
-        )
+        scene_plan = project_dir / "scenes" / "scene-plan.json"
 
         if not scene_plan.exists():
-            raise FileNotFoundError(
-                f"Missing scene plan: {scene_plan}"
-            )
+            raise FileNotFoundError(f"Missing scene plan: {scene_plan}")
 
         with open(
             scene_plan,
@@ -61,10 +51,7 @@ class VideoPipeline:
 
         output_dir = video_directory(project)
 
-        print(
-            f"\nRendering {len(scenes)} video scenes "
-            f"[profile: {self._profile}]...\n"
-        )
+        print(f"\nRendering {len(scenes)} video scenes [profile: {self._profile}]...\n")
 
         scene_clips: list[Path] = []
 
@@ -72,13 +59,12 @@ class VideoPipeline:
             scenes,
             description="Rendering",
         ):
-
-            index         = scene["index"]
+            index = scene["index"]
             duration_hint = float(scene.get("duration_seconds", 10))
-            motion_spec   = scene.get("motion")
-            t_in          = scene.get("transition_in")
-            t_out         = scene.get("transition_out")
-            effect_spec   = scene.get("effects")
+            motion_spec = scene.get("motion")
+            t_in = scene.get("transition_in")
+            t_out = scene.get("transition_out")
+            effect_spec = scene.get("effects")
 
             # Asset scenes reference their asset_path directly instead of
             # an AI-generated image in the images/ directory.
@@ -88,28 +74,16 @@ class VideoPipeline:
                     asset_path = Path.cwd() / asset_path
                 image = asset_path
             else:
-                image = (
-                    project_dir
-                    / "images"
-                    / f"scene-{index:03d}.png"
-                )
+                image = project_dir / "images" / f"scene-{index:03d}.png"
 
-            audio = (
-                project_dir
-                / "audio"
-                / f"scene-{index:03d}.mp3"
-            )
+            audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
 
-            subtitle = (
-                project_dir
-                / "subtitles"
-                / f"scene-{index:03d}.srt"
-            )
+            # Prefer ASS (styled) over SRT — both may exist after the caption stage
+            ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
+            srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
+            subtitle = ass_sub if ass_sub.exists() else srt_sub
 
-            output = (
-                output_dir
-                / f"scene-{index:03d}.mp4"
-            )
+            output = output_dir / f"scene-{index:03d}.mp4"
 
             if not image.exists():
                 raise FileNotFoundError(image)
@@ -118,7 +92,10 @@ class VideoPipeline:
                 raise FileNotFoundError(audio)
 
             if not subtitle.exists():
-                raise FileNotFoundError(subtitle)
+                raise FileNotFoundError(
+                    f"No subtitle file found for scene {index}. "
+                    f"Expected {ass_sub} or {srt_sub}."
+                )
 
             if not output.exists():
                 self.renderer.render(
@@ -147,11 +124,16 @@ class VideoPipeline:
 
         subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_list),
-                "-c", "copy",
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-c",
+                "copy",
                 str(final_video),
             ],
             check=True,

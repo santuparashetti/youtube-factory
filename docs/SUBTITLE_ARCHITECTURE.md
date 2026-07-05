@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Subtitle Intelligence Engine replaces the original fixed-word-count SRT builder with a semantic, linguistically-aware subtitle generation pipeline. It is the single source of truth for subtitle creation — both `captions/pipeline.py` and `agents/nodes/scene_assets.py` delegate to it.
+The Subtitle Intelligence Engine replaces the original fixed-word-count SRT builder with a semantic, linguistically-aware subtitle generation pipeline. ASS (Advanced SubStation Alpha) is the primary output format, with SRT generated alongside for compatibility and debug. Both `captions/pipeline.py` and `agents/nodes/scene_assets.py` delegate to a single orchestrator.
 
 ```
 word boundaries (TTS)
@@ -16,20 +16,84 @@ word boundaries (TTS)
         ▼
  SubtitleValidator        ← 6 checks; EMPTY_CUE → removed; rest are warnings
         │
-        ▼
-   SRTWriter              ← serialization; get_writer() for future formats
+        ├──── ASSWriter  ← primary output: styled .ass file
+        │         ▲
+        │    ThemeManager + ASSTheme + ASSStyleBuilder
+        │
+        ├──── SRTWriter  ← compatibility .srt file (always generated)
         │
         ▼
 SubtitleDebugWriter       ← per-scene audit files (no-op when disabled)
 ```
 
-Entry point: `SubtitleEngine.build()` or `SubtitleEngine.build_report()`.
+Entry points:
+- `SubtitleEngine.build()` → SRT string (backward-compatible)
+- `SubtitleEngine.build_both()` → `(ass, srt, report)` — primary path when `subtitle_format=ass`
+- `SubtitleEngine.build_report()` → `(srt, report)`
+
+---
+
+## ASS Subtitle Engine
+
+### What is ASS?
+
+Advanced SubStation Alpha (`.ass`) is a professional subtitle format that supports rich styling: fonts, colors, outlines, shadows, margins, per-style positioning, and future extensions (karaoke, animations). FFmpeg's `subtitles` filter renders ASS styling when burning in subtitles — giving documentary-quality text on YouTube.
+
+### ASS File Structure
+
+```
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, ...
+Style: Default,Arial,52,&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,-1,0,...
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,In the ancient forest\NLight barely reached below.
+```
+
+Key ASS specifics:
+- **Colors**: `&HAABBGGRR` (reversed from RGB; AA=00 is opaque, FF is transparent)
+- **Multi-line**: `\N` hard line break
+- **Timestamps**: `H:MM:SS.cc` (centiseconds, not milliseconds)
+- **Bold flag**: `-1` = bold, `0` = not bold
+
+### Module: `subtitles/ass/`
+
+| File | Class | Role |
+|---|---|---|
+| `theme.py` | `ASSTheme` | Frozen dataclass holding all style parameters |
+| `theme_manager.py` | `ThemeManager` | Built-in themes + settings-driven customization |
+| `style_builder.py` | `ASSStyleBuilder` | Generates [V4+ Styles] section |
+| `writer.py` | `ASSWriter` | Produces complete .ass file from cues + theme |
+
+### Built-in Themes
+
+| Theme | Description |
+|---|---|
+| `default` | White text, black outline, 52px Arial Bold, 50% shadow. Documentary standard. |
+| `minimal` | Thinner outline, no shadow. Cleaner on light backgrounds. |
+| `high_contrast` | 58px, thick outline, opaque box. Accessibility / small screen. |
+| `cinematic` | Georgia italic, softer shadow, higher margin. Film aesthetic. |
+
+### Future-ready Extension Points
+
+- **Multiple styles**: `ASSStyleBuilder.build_section(base, extra_themes=[speaker_theme])` — pass named styles for per-speaker subtitles
+- **Karaoke**: Add ASS `\k` timing tags per word inside `_dialogue_line()`
+- **Animations**: Add `\fad(ms_in,ms_out)` or `\move(x1,y1,x2,y2)` override tags
+- **Word highlighting**: Inject `\1c&Hcolor&` per-word tags in future `build_karaoke()`
 
 ---
 
 ## Configuration
 
 All settings live in `config/settings.py` and map 1-to-1 to environment variables.
+
+### Core settings
 
 | Setting | Env var | Default | Description |
 |---|---|---|---|
@@ -38,7 +102,29 @@ All settings live in `config/settings.py` and map 1-to-1 to environment variable
 | `subtitle_max_cps` | `SUBTITLE_MAX_CPS` | `18.0` | Max characters per second |
 | `subtitle_max_chars_per_line` | `SUBTITLE_MAX_CHARS_PER_LINE` | `42` | Max chars per display line |
 | `subtitle_max_lines` | `SUBTITLE_MAX_LINES` | `2` | Max lines per cue |
-| `subtitle_format` | `SUBTITLE_FORMAT` | `srt` | Output format (only SRT today) |
+| `subtitle_format` | `SUBTITLE_FORMAT` | `ass` | Primary output format (`ass` or `srt`) |
+
+### ASS styling settings
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `subtitle_ass_theme` | `SUBTITLE_ASS_THEME` | `default` | Theme preset name |
+| `subtitle_ass_font` | `SUBTITLE_ASS_FONT` | `Arial` | Font family |
+| `subtitle_ass_font_size` | `SUBTITLE_ASS_FONT_SIZE` | `52` | Font size in pixels (1920×1080) |
+| `subtitle_ass_bold` | `SUBTITLE_ASS_BOLD` | `true` | Bold text |
+| `subtitle_ass_italic` | `SUBTITLE_ASS_ITALIC` | `false` | Italic text |
+| `subtitle_ass_primary_color` | `SUBTITLE_ASS_PRIMARY_COLOR` | `&H00FFFFFF` | Text color (white) |
+| `subtitle_ass_outline_color` | `SUBTITLE_ASS_OUTLINE_COLOR` | `&H00000000` | Outline color (black) |
+| `subtitle_ass_back_color` | `SUBTITLE_ASS_BACK_COLOR` | `&H80000000` | Shadow/box color (50% transparent black) |
+| `subtitle_ass_outline` | `SUBTITLE_ASS_OUTLINE` | `2.0` | Outline thickness |
+| `subtitle_ass_shadow` | `SUBTITLE_ASS_SHADOW` | `1.0` | Shadow depth |
+| `subtitle_ass_margin_l` | `SUBTITLE_ASS_MARGIN_L` | `80` | Left safe margin (px) |
+| `subtitle_ass_margin_r` | `SUBTITLE_ASS_MARGIN_R` | `80` | Right safe margin (px) |
+| `subtitle_ass_margin_v` | `SUBTITLE_ASS_MARGIN_V` | `60` | Vertical margin from bottom (px) |
+| `subtitle_ass_alignment` | `SUBTITLE_ASS_ALIGNMENT` | `2` | Numpad alignment (2=bottom-center) |
+| `subtitle_ass_border_style` | `SUBTITLE_ASS_BORDER_STYLE` | `1` | 1=outline+shadow, 3=opaque box |
+| `subtitle_ass_play_res_x` | `SUBTITLE_ASS_PLAY_RES_X` | `1920` | Script resolution width |
+| `subtitle_ass_play_res_y` | `SUBTITLE_ASS_PLAY_RES_Y` | `1080` | Script resolution height |
 
 Use `SubtitleEngine.from_settings(settings)` to instantiate from a `Settings` object. It uses `getattr(settings, key, default)` for every attribute so it works with partial or minimal settings objects (including test stubs).
 
@@ -209,16 +295,41 @@ class SubtitleReport:
 
 ### `captions/pipeline.py`
 
-Replaces `_boundaries_to_srt()`, `_fallback_srt()`, `_ts()`, `_WORDS_PER_LINE` (all deleted).
-
+When `subtitle_format="ass"` (default):
 ```python
 engine = SubtitleEngine.from_settings(settings)
+ass, srt, report = engine.build_both(boundaries, narration, scene_index, project_id, audio_duration)
+ass_path.write_text(ass)   # scene-001.ass — primary for rendering
+srt_path.write_text(srt)   # scene-001.srt — compat/debug
+```
+
+When `subtitle_format="srt"` (backward compat):
+```python
 srt, report = engine.build_report(boundaries, narration, scene_index, project_id, audio_duration)
+srt_path.write_text(srt)
 ```
 
 ### `agents/nodes/scene_assets.py`
 
-Same delegation pattern. `_get_audio_duration()` delegates to `AudioValidator._measure_duration`.
+Same dual-format delegation. `_get_audio_duration()` delegates to `AudioValidator._measure_duration`.
+
+### `video/pipeline.py`
+
+Prefers `.ass` for rendering when it exists, falls back to `.srt`:
+```python
+ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
+srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
+subtitle = ass_sub if ass_sub.exists() else srt_sub
+```
+
+FFmpeg's `subtitles` filter automatically handles both formats.
+
+### `captions/models.py` — `CaptionArtifact`
+
+```python
+artifact = CaptionArtifact(scene_id=1, srt_path=srt_path, ass_path=ass_path)
+artifact.primary_path  # → ass_path if exists, else srt_path
+```
 
 ---
 
@@ -231,10 +342,13 @@ uv run pytest tests/subtitles/ -v
 | Test file | Coverage |
 |---|---|
 | `test_typography.py` | 22 tests — all 6 normalization steps |
-| `test_segmenter.py` | 17 tests — breaks, protected spans, fallback, typography integration |
+| `test_segmenter.py` | 16 tests — breaks, protected spans, fallback, typography integration |
 | `test_timing.py` | 12 tests — each repair pass, edge cases |
 | `test_writer.py` | 11 tests — SRT format, timestamp overflow, empty input |
 | `test_engine.py` | 14 tests — full pipeline, `from_settings`, documentary smoke test |
+| `test_ass_theme.py` | 26 tests — ASSTheme fields, flags, ThemeManager, settings overrides |
+| `test_ass_writer.py` | 32 tests — timestamps, sections, dialogue, multi-line, custom themes |
+| `test_ass_integration.py` | 36 tests — SubtitleFormat enum, get_writer factory, build_both, from_settings, smoke test |
 
 ---
 

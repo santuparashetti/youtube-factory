@@ -89,9 +89,6 @@ class TestLineSplitting:
         words = long_text.split()
         boundaries = _make_boundaries(words, pace=0.7)
         cues = segmenter.segment(boundaries)
-        # At least one cue should have 2 lines
-        two_line = [c for c in cues if len(c.lines) == 2]
-        # This depends on whether the text is long enough to produce a 2-line cue
         # Just verify no line exceeds MAX_CHARS_PER_LINE when 2-line split applied
         for cue in cues:
             if len(cue.lines) == 2:

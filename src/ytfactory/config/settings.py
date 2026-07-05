@@ -86,14 +86,59 @@ class Settings(BaseSettings):
     # Maximum characters per second (Netflix: 17, BBC: 17, default: 18)
     subtitle_max_cps: float = 18.0
 
-    # Maximum characters per subtitle line (SRT convention: 42)
+    # Maximum characters per subtitle line
     subtitle_max_chars_per_line: int = 42
 
     # Maximum number of display lines per subtitle cue
     subtitle_max_lines: int = 2
 
-    # Output format: "srt" (default); "webvtt" and "ass" reserved for future
-    subtitle_format: str = "srt"
+    # Primary output format: "ass" (default) or "srt"
+    # ASS produces professional styled subtitles; SRT is always written alongside for compat.
+    subtitle_format: str = "ass"
+
+    # ------------------------------------------------------------------
+    # ASS Subtitle Engine — Style Configuration
+    # ------------------------------------------------------------------
+
+    # Theme preset: "default" | "minimal" | "high_contrast" | "cinematic"
+    subtitle_ass_theme: str = "default"
+
+    # Font family (must be installed on the render machine)
+    subtitle_ass_font: str = "Arial"
+
+    # Font size in pixels at PlayResX × PlayResY (1920 × 1080)
+    subtitle_ass_font_size: int = 52
+
+    # Bold text (-1 = bold, 0 = not bold in ASS convention)
+    subtitle_ass_bold: bool = True
+
+    # Italic text
+    subtitle_ass_italic: bool = False
+
+    # ASS color format: &HAABBGGRR (alpha, blue, green, red)
+    # AA: 00 = opaque, FF = transparent
+    subtitle_ass_primary_color: str = "&H00FFFFFF"    # white text
+    subtitle_ass_outline_color: str = "&H00000000"    # black outline
+    subtitle_ass_back_color: str = "&H80000000"       # 50% transparent black shadow
+
+    # Outline and shadow thickness in pixels
+    subtitle_ass_outline: float = 2.0
+    subtitle_ass_shadow: float = 1.0
+
+    # Safe margins from the video edges in pixels (1920 × 1080 reference)
+    subtitle_ass_margin_l: int = 80
+    subtitle_ass_margin_r: int = 80
+    subtitle_ass_margin_v: int = 60
+
+    # Subtitle alignment (numpad layout: 2 = bottom-center)
+    subtitle_ass_alignment: int = 2
+
+    # Border style: 1 = outline + shadow, 3 = opaque box
+    subtitle_ass_border_style: int = 1
+
+    # Script resolution — must match video dimensions
+    subtitle_ass_play_res_x: int = 1920
+    subtitle_ass_play_res_y: int = 1080
 
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control

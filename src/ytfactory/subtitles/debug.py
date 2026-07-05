@@ -62,6 +62,9 @@ class SubtitleDebugWriter:
     def write_final_srt(self, srt_content: str) -> None:
         self._write_text("subtitle-final.srt", srt_content)
 
+    def write_final_ass(self, ass_content: str) -> None:
+        self._write_text("subtitle-final.ass", ass_content)
+
     def write_analysis(self, cues: list[SubtitleCue]) -> None:
         """Write per-cue metrics for every generated cue."""
         data = [
