@@ -795,7 +795,7 @@ class TestReviewReporter:
 
         review_dir = tmp_path / project_id / "review"
         assert (review_dir / "quality-score.json").exists()
-        assert (review_dir / "root-cause-report.json").exists()
+        # root-cause files are now written by RCAReporter (not a stub)
         assert (review_dir / "engine-feedback.json").exists()
 
     def test_stubs_have_not_implemented_status(self, tmp_path, monkeypatch):

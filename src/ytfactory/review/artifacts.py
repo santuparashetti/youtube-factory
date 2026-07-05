@@ -35,8 +35,8 @@ def quality_score_path(project_id: str) -> Path:
 
 
 def root_cause_report_path(project_id: str) -> Path:
-    """Reserved for future Root Cause Analysis Engine V1."""
-    return review_directory(project_id) / "root-cause-report.json"
+    """Backward-compat alias — RCAReporter writes root-cause.json (full) and root-cause-report.md."""
+    return review_directory(project_id) / "root-cause.json"
 
 
 def engine_feedback_path(project_id: str) -> Path:

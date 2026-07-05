@@ -7,8 +7,11 @@ Produces:
 
 Stubs (written by future modules):
   - quality-score.json
-  - root-cause-report.json
   - engine-feedback.json
+
+Implemented (written by dedicated reporters, not stubs):
+  - root-cause-report.md / root-cause.json / engine-owner-summary.json /
+    recurring-issues.json — written by RCAReporter
 """
 
 from __future__ import annotations
@@ -22,7 +25,6 @@ from ytfactory.review.artifacts import (
     review_debug_path,
     review_directory,
     review_report_path,
-    root_cause_report_path,
     scene_review_path,
 )
 from ytfactory.review.models import ReviewReport
@@ -149,7 +151,7 @@ class ReviewReporter:
             "| Module | Status | Output file |",
             "|--------|--------|-------------|",
             "| Quality Scoring Engine V1 | _not implemented_ | `quality-score.json` |",
-            "| Root Cause Analysis Engine V1 | _not implemented_ | `root-cause-report.json` |",
+            "| Root Cause Analysis Engine V1 | ✅ implemented | `root-cause-report.md`, `root-cause.json`, `engine-owner-summary.json`, `recurring-issues.json` |",
             "| Engine Feedback Loop V1 | _not implemented_ | `engine-feedback.json` |",
             "| Auto Remediation Engine V1 | _not implemented_ | — |",
             "",
@@ -224,12 +226,7 @@ class ReviewReporter:
             json.dumps({**stub_meta, "engine": "Quality Scoring Engine V1"}, indent=2),
             encoding="utf-8",
         )
-        root_cause_report_path(report.project_id).write_text(
-            json.dumps(
-                {**stub_meta, "engine": "Root Cause Analysis Engine V1"}, indent=2
-            ),
-            encoding="utf-8",
-        )
+        # root-cause-report.json is now written by RCAReporter (not a stub)
         engine_feedback_path(report.project_id).write_text(
             json.dumps({**stub_meta, "engine": "Engine Feedback Loop V1"}, indent=2),
             encoding="utf-8",

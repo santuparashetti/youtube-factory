@@ -3,9 +3,9 @@
 Runs the four validation stages in order, aggregates results into a
 ReviewReport, determines PASS / FAIL, and returns the report.
 
-Extension points (populated by future modules — not implemented here):
+Extension points:
   - Quality Scoring Engine V1: sets ReviewReport.quality_score
-  - Root Cause Analysis Engine V1: sets ReviewReport.root_cause_hint
+  - Root Cause Analysis Engine V1: implemented — populates review/root-cause*.json
   - Engine Feedback Loop V1: sets ReviewReport.feedback_payload
   - Auto Remediation Engine V1: consumes ReviewReport to trigger re-runs
 """
@@ -19,6 +19,9 @@ from pathlib import Path
 
 from ytfactory.review.config import ReviewConfig
 from ytfactory.review.models import ReviewReport, SceneReview
+from ytfactory.review.rca.config import RCAConfig
+from ytfactory.review.rca.engine import RootCauseAnalysisEngine
+from ytfactory.review.rca.reporter import RCAReporter
 from ytfactory.review.stages.asset_integrity import AssetIntegrityStage
 from ytfactory.review.stages.content import ContentReviewStage
 from ytfactory.review.stages.production import ProductionQualityStage
@@ -45,9 +48,11 @@ class VideoQualityReviewEngine:
         self,
         config: ReviewConfig | None = None,
         validation_config: ValidationRulesConfig | None = None,
+        rca_config: RCAConfig | None = None,
     ) -> None:
         self._config = config or ReviewConfig()
         self._val_config = validation_config or ValidationRulesConfig()
+        self._rca_config = rca_config or RCAConfig()
         self._stages = [
             AssetIntegrityStage(self._config),
             TimelineReviewStage(self._config),
@@ -104,6 +109,11 @@ class VideoQualityReviewEngine:
         for failure in val_report.critical_failures:
             all_errors.append(f"[validation:{failure.rule_id}] {failure.description}")
 
+        # ── Root Cause Analysis Engine V1 ────────────────────────────────
+        rca_engine = RootCauseAnalysisEngine(self._rca_config)
+        rca_report = rca_engine.analyze(project_dir, scenes, val_report, context)
+        RCAReporter().write(rca_report)
+
         # ── PASS / FAIL ───────────────────────────────────────────────────
         has_critical = bool(all_errors)
         if self._config.fail_on_warnings:
@@ -137,6 +147,7 @@ class VideoQualityReviewEngine:
             ),
             processing_time_seconds=round(elapsed, 3),
             validation_report=val_report.to_dict(),
+            rca_report=rca_report.to_dict(),
         )
 
         return report

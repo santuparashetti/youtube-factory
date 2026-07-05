@@ -110,6 +110,9 @@ class ReviewReport:
     # Video Validation Rules V1 — populated by ValidationRunner
     validation_report: dict | None = None
 
+    # Root Cause Analysis Engine V1 — populated by RootCauseAnalysisEngine
+    rca_report: dict | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["stage_results"] = [s.to_dict() for s in self.stage_results]
