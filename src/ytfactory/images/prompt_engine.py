@@ -25,6 +25,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ytfactory.images.clothing_policy import (
+    apply_clothing_policy,
+    detect_violation,
+    get_negative_clothing_terms,
+    is_authentic_exception,
+)
 from ytfactory.images.diagnostics import (
     _AI_CLICHES,
     _UNSAFE_COMPOSITIONS,
@@ -59,10 +65,12 @@ _ANATOMY_REINFORCEMENT = (
 )
 
 # Default negative prompt for providers that support it.
+# Clothing terms appended from clothing_policy at runtime to keep them in sync.
 _DEFAULT_NEGATIVE_PROMPT = (
     "deformed hands, extra fingers, distorted anatomy, floating hands, giant hands, "
     "isolated hands, disembodied hands, AI artifacts, surreal distortions, "
-    "multiple heads, merged limbs, text, watermark, logo, extreme close-up of body parts"
+    "multiple heads, merged limbs, text, watermark, logo, extreme close-up of body parts, "
+    + get_negative_clothing_terms()
 )
 
 
@@ -140,6 +148,15 @@ class ImagePromptEngineV4:
                     prompt = add_human_quality_reinforcement(prompt)
                     prompt = apply_subject_dominance_rule(prompt, shot_type)
                     s["visual_prompt"] = prompt
+
+                # Clothing & cultural authenticity policy
+                if prompt:
+                    clothing_result = apply_clothing_policy(prompt, s)
+                    s["visual_prompt"] = clothing_result.final_prompt
+                    prompt = clothing_result.final_prompt
+                    if clothing_result.action != "none":
+                        s["clothing_policy_action"] = clothing_result.action
+                        s["clothing_policy_terms"] = clothing_result.violation_terms
 
                 # Provider-specific anatomy reinforcement or negative prompt
                 if uses_negative:
@@ -224,6 +241,16 @@ class ImagePromptEngineV4:
                 f"Scene {scene_index}: human detected but missing quality markers — "
                 "add: highly detailed face, natural facial expression, realistic eyes, "
                 "authentic skin texture, natural posture, documentary-quality realism"
+            )
+
+        # Clothing & cultural authenticity policy
+        violations = detect_violation(prompt)
+        if violations and not is_authentic_exception(prompt):
+            issues.append(
+                f"Scene {scene_index}: clothing policy violation — "
+                f"terms detected: {violations}. "
+                "Ensure subjects wear contextually appropriate clothing. "
+                "Authentic cultural exceptions (sadhu, jain monk, ancient ascetic) are allowed."
             )
 
         # Word count
@@ -327,6 +354,14 @@ class ImagePromptEngineV4:
                 failures.append(
                     f"[unsafe_composition] '{comp}' found in scenes: {scene_list}"
                 )
+
+        # Clothing policy violations remaining after enforcement pass
+        if report.clothing_violations:
+            failures.append(
+                f"[clothing_policy] Violation terms corrected in scenes: "
+                f"{report.clothing_violations} — "
+                "review prompts to ensure the LLM no longer generates these"
+            )
 
         return failures
 

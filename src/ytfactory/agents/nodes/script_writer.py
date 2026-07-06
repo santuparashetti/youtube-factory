@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
-from ytfactory.agents.prompts.branding import get_closing, get_transition, get_welcome
+from ytfactory.agents.prompts.branding import get_closing, get_closing_brand, get_transition, get_welcome
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
     NARRATION_WPM,
@@ -79,6 +79,7 @@ def script_writer_node(state: VideoState) -> dict:
     # ── Step 1: Write first-draft script ─────────────────────────────────
     welcome = get_welcome()
     closing = get_closing()
+    closing_brand = get_closing_brand()
     topic_transition = get_transition()
 
     script_response = llm.generate(
@@ -90,6 +91,7 @@ def script_writer_node(state: VideoState) -> dict:
             closing=closing,
             topic_transition=topic_transition,
             target_minutes=target_minutes,
+            closing_brand=closing_brand,
         ),
         temperature=0.6,
     )

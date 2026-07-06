@@ -1,0 +1,36 @@
+channel_name: "Atma Theory"
+
+opening:
+  enabled: true
+  template: |
+    Welcome to Atma Theory...
+    where ancient wisdom meets modern life.
+
+closing:
+  enabled: true
+  template: |
+    This is Atma Theory.
+
+cta:
+  enabled: true
+  template: |
+    If this reflection stayed with you,
+    consider joining us on this journey.
+
+signature:
+  enabled: true
+  template: |
+    Think deeper...
+    Live clearer.
+
+voice:
+  pace: calm
+  pause_after_opening_ms: 800
+  pause_after_closing_ms: 1000
+
+branding:
+  opening_position: after_hook
+  closing_position: before_final_quote
+  max_opening_seconds: 10
+  asset_path: "assets/branding/atma-theory-brand.png"
+  asset_animation: "slow_zoom"

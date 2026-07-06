@@ -27,6 +27,10 @@ def run_pipeline(
     style: str | None = None,
     no_images: bool = False,
     target_minutes: int = 7,
+    incremental: bool = False,
+    force_stages: set[str] | None = None,
+    scene_filter: int | None = None,
+    force_scene: int | None = None,
 ) -> str:
     """
     Run the full agentic video production pipeline.
@@ -45,6 +49,19 @@ def run_pipeline(
     Returns:
         The project_id of the produced video.
     """
+    # ── Incremental / resume mode ─────────────────────────────────────────
+    # When --resume (or force-* flags) are requested with an existing project,
+    # route to BuildPipeline's incremental engine instead of re-running the
+    # full agentic graph.  A fresh `ytfactory run <topic>` always uses the
+    # agentic graph regardless of flags.
+    if (incremental or force_stages) and project_id is not None:
+        return _run_incremental(
+            project_id=project_id,
+            force_stages=force_stages or set(),
+            scene_filter=scene_filter,
+            force_scene=force_scene,
+        )
+
     start_time = time.perf_counter()
 
     console.print(Rule("[bold cyan]YouTube Factory — Agentic Pipeline[/bold cyan]"))
@@ -161,4 +178,31 @@ def run_pipeline(
         )
     )
 
+    return project_id
+
+
+def _run_incremental(
+    project_id: str,
+    force_stages: set[str],
+    scene_filter: int | None,
+    force_scene: int | None,
+) -> str:
+    """Route incremental / force-rebuild requests through BuildPipeline."""
+    from ytfactory.build.pipeline import BuildPipeline
+
+    console.print(Rule("[bold cyan]YouTube Factory — Incremental Build[/bold cyan]"))
+    console.print(f"[cyan]Project:[/cyan] [bold]{project_id}[/bold]")
+
+    all_force = set(force_stages)
+    if force_scene is not None:
+        # force-scene bypasses locked state for one specific scene
+        all_force |= {"images", "voice", "captions", "video"}
+
+    BuildPipeline().run_incremental(
+        project_id,
+        force_stages=all_force,
+        scene_filter=scene_filter or force_scene,
+        force_scene=force_scene,
+    )
+    console.print("[bold green]✓ Incremental build complete[/bold green]")
     return project_id

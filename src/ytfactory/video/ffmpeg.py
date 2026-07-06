@@ -337,6 +337,13 @@ class FFmpegRenderer:
             vf_parts += self._effects_filters(effect_spec)
             vf_parts += self._fade_filters(t_in, t_out, fps, dur)
 
+            # Cap to exact scene duration before subtitle rendering.
+            # zoompan outputs d frames PER input frame when fed a video stream
+            # (as -loop 1 creates), so without this trim the timeline grows as
+            # dur² × fps seconds. Filter-graph backpressure means only
+            # total_frames frames are actually computed — no extra work.
+            vf_parts.append(f"trim=duration={dur:.4f},setpts=PTS-STARTPTS")
+
             if subtitle is not None:
                 # Escape backslash and single-quote so the path survives the
                 # filter_complex parser on Linux (colons are safe in Linux paths).

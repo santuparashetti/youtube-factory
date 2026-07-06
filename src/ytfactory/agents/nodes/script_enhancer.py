@@ -9,7 +9,7 @@ from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 
-from ytfactory.agents.prompts.branding import get_closing, get_transition, get_welcome
+from ytfactory.agents.prompts.branding import get_closing, get_closing_brand, get_cta, get_transition, get_welcome
 from ytfactory.agents.prompts.script_enhancer import build_enhance_script_prompt
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
@@ -79,6 +79,8 @@ def script_enhancer_node(state: VideoState) -> dict:
         welcome=get_welcome(),
         closing=get_closing(),
         topic_transition=get_transition(),
+        cta=get_cta(),
+        closing_brand=get_closing_brand(),
     )
     response = llm.generate(prompt, temperature=0.6)
     enhanced_script = response.text.strip()

@@ -1,21 +1,25 @@
-"""
-Atma Theory channel branding — variation libraries for welcome and closing.
+"""Channel branding — welcome, closing, CTA, and topic transitions.
 
-Called once per script generation to select fresh variants.
-No state is persisted — rotation happens naturally through random selection.
+All branding content is read from config/brand_config.yaml via the Brand
+Template System.  The WELCOME_VARIATIONS, CLOSING_VARIATIONS, and SOFT_CTA
+constants below are computed at module load time from the brand config so that
+importers (e.g. scene_planner_node) can reference them as module-level values.
+
+To change channel branding update config/brand_config.yaml.  No code changes
+are required.
 """
 
 from __future__ import annotations
 
 import random
 
-WELCOME_VARIATIONS: list[str] = [
-    "Welcome to Atma Theory... where ancient wisdom meets modern life.",
-    "Welcome to Atma Theory... ancient answers to modern questions.",
-    "Welcome to Atma Theory... where timeless wisdom helps us navigate today's world.",
-    "Welcome to Atma Theory... together we explore ideas that help us live with greater clarity.",
-    "Welcome to Atma Theory... where we ask the questions that matter most.",
-]
+from ytfactory.branding.config import get_brand_config
+
+# -- Computed from brand config at import time ---------------------------------
+
+_cfg = get_brand_config()
+
+WELCOME_VARIATIONS: list[str] = [_cfg.opening.text()]
 
 TOPIC_TRANSITIONS: list[str] = [
     "Today's question is",
@@ -25,27 +29,35 @@ TOPIC_TRANSITIONS: list[str] = [
     "Let's understand why",
 ]
 
-CLOSING_VARIATIONS: list[str] = [
-    "Think deeper... live clearer.",
-    "Until next time... keep questioning, keep growing.",
-    "The answers you seek may already be within you.",
-    "Stay curious... stay aware.",
-    "See you in the next journey through Atma Theory.",
-]
+# Both closing and signature phrases are valid triggers for the brand card.
+CLOSING_VARIATIONS: list[str] = [_cfg.closing.text(), _cfg.signature.text()]
 
-SOFT_CTA = (
-    "If this perspective helped you see life a little differently, "
-    "consider joining us for the next journey."
-)
+SOFT_CTA: str = _cfg.cta.text()
+
+
+# -- Public API ---------------------------------------------------------------
 
 
 def get_welcome() -> str:
-    return random.choice(WELCOME_VARIATIONS)
+    """Return the channel's opening welcome text."""
+    return get_brand_config().opening.text()
 
 
 def get_closing() -> str:
-    return random.choice(CLOSING_VARIATIONS)
+    """Return the channel's closing signature (tagline that ends the video)."""
+    return get_brand_config().signature.text()
+
+
+def get_closing_brand() -> str:
+    """Return the channel's brand assertion placed before the CTA ('This is Atma Theory.')."""
+    return get_brand_config().closing.text()
+
+
+def get_cta() -> str:
+    """Return the channel's call to action."""
+    return get_brand_config().cta.text()
 
 
 def get_transition() -> str:
+    """Return a random topic-transition opener."""
     return random.choice(TOPIC_TRANSITIONS)

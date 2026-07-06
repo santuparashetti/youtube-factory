@@ -121,6 +121,11 @@ class DiagnosticsReport:
     human_quality_enforced: int = 0
     human_quality_missing: list[int] = field(default_factory=list)
 
+    # ── Clothing & cultural authenticity ─────────────────────────────────
+    clothing_violations: list[int] = field(default_factory=list)       # scene indices with violations enforced
+    clothing_exceptions: list[int] = field(default_factory=list)       # authentic cultural/historical exceptions
+    clothing_inferences: list[int] = field(default_factory=list)       # scenes where clothing was inferred/added
+
     # ── Issues ────────────────────────────────────────────────────────────
     issues: list[str] = field(default_factory=list)
 
@@ -203,6 +208,7 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
         detect_human_presence,
         has_human_quality_reinforcement,
     )
+    from ytfactory.images.clothing_policy import detect_violation, is_authentic_exception
 
     for i, scene in enumerate(generated):
         prompt = scene.get("visual_prompt", "")
@@ -212,6 +218,16 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
                 report.human_quality_enforced += 1
             else:
                 report.human_quality_missing.append(indices[i])
+
+    # ── Clothing & cultural authenticity tracking ─────────────────────────
+    for i, scene in enumerate(generated):
+        prompt = scene.get("visual_prompt", "")
+        violations = detect_violation(prompt)
+        if violations:
+            if is_authentic_exception(prompt):
+                report.clothing_exceptions.append(indices[i])
+            else:
+                report.clothing_violations.append(indices[i])
 
     # ── Diversity score ───────────────────────────────────────────────────
     report.diversity_score = _compute_diversity_score(report)
@@ -251,6 +267,16 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
     if report.human_quality_missing:
         report.issues.append(
             f"Human scenes missing quality reinforcement: {report.human_quality_missing}"
+        )
+    if report.clothing_violations:
+        report.issues.append(
+            f"Clothing policy enforced on scenes (violation corrected): "
+            f"{report.clothing_violations}"
+        )
+    if report.clothing_exceptions:
+        report.issues.append(
+            f"Clothing policy: authentic cultural exceptions detected at scenes: "
+            f"{report.clothing_exceptions} (allowed, respectful framing applied)"
         )
 
     return report

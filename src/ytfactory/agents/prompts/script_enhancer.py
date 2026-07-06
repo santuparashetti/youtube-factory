@@ -66,11 +66,14 @@ they do not replace or restructure it.
   from the opening into the main idea — otherwise skip it):
     "{topic_transition}..."
 
-  CALL TO ACTION (near the end, one sentence, soft and conversational):
-    "If this perspective helped you see life a little differently, \
-consider joining us for the next journey."
+  BRAND SIGNATURE (insert once, after the practical reflection, before the CTA):
+    "{closing_brand}"
+  This re-affirms the channel identity — one line only, quietly confident.
 
-  CLOSING (append as the final line):
+  CALL TO ACTION (near the end, after the brand signature, one sentence):
+    "{cta}"
+
+  CLOSING (append as the final line after the CTA):
     "{closing}"
 
 If the author's script already opens with a strong hook that flows naturally into
@@ -187,9 +190,13 @@ def build_enhance_script_prompt(
     welcome: str | None = None,
     closing: str | None = None,
     topic_transition: str | None = None,
+    cta: str | None = None,
+    closing_brand: str | None = None,
 ) -> str:
     from ytfactory.agents.prompts.branding import (
         get_closing,
+        get_closing_brand,
+        get_cta,
         get_transition,
         get_welcome,
     )
@@ -215,5 +222,7 @@ def build_enhance_script_prompt(
         welcome=welcome or get_welcome(),
         closing=closing or get_closing(),
         topic_transition=topic_transition or get_transition(),
+        cta=cta or get_cta(),
+        closing_brand=closing_brand or get_closing_brand(),
         script=script,
     )

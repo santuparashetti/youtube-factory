@@ -8,10 +8,17 @@ Complete reference for all `ytfactory` commands and options.
 
 | Situation | Command |
 |---|---|
-| Full video from scratch (research + script + video) | `ytfactory run "Topic" --auto` |
-| You have a pre-written script | `ytfactory run "Topic" --script path.md --auto` |
-| You want to control each stage manually | `create` → `import-script` → `plan-scenes` → `generate-images` → ... |
+| Full video from scratch | `ytfactory run "Topic" --auto` |
+| Pre-written script | `ytfactory run "Topic" --script path.md --auto` |
+| Manual stage-by-stage control | `create` → `import-script` → `plan-scenes` → `generate-images` → … |
 | Resume a failed run | `ytfactory run "Topic" --project PROJECT_ID --auto` |
+| Re-run only changed stages | `ytfactory build PROJECT_ID --resume` |
+| Replace one image and rebuild downstream | drop file → `ytfactory build PROJECT_ID --resume` |
+| Force-regenerate specific stages | `ytfactory build PROJECT_ID --force-images` |
+| Force-regenerate one scene | `ytfactory build PROJECT_ID --force-scene 8` |
+| Review scene states | `ytfactory scene list PROJECT_ID` |
+| Approve / reject / lock a scene | `ytfactory scene approve/reject/lock PROJECT_ID SCENE` |
+| Write scene-review.md | `ytfactory scene review PROJECT_ID` |
 | Check API keys and dependencies | `ytfactory doctor` |
 
 ---
@@ -24,11 +31,13 @@ The recommended command. Runs the complete pipeline end-to-end:
 Research → Script → Scenes → Images + Voice (parallel) → Video → final.mp4
 ```
 
-When `--script` is provided, the research and script-writer stages are skipped:
+When `--script` is provided, research and script-writer stages are skipped:
 
 ```
 Script Enhancer → Scenes → Images + Voice (parallel) → Video → final.mp4
 ```
+
+When `--resume` is provided with `--project`, only changed/forced stages re-run (incremental mode).
 
 ```bash
 ytfactory run TOPIC [OPTIONS]
@@ -40,78 +49,279 @@ ytfactory run TOPIC [OPTIONS]
 |---|---|---|
 | `TOPIC` | yes | Video topic or title (used as project name and LLM context) |
 
-### Options
+### Core Options
 
 | Option | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--script` | `-s` | path | — | Path to a pre-written script file (`.md` or `.txt`). Skips research and script-writer; goes straight to the script enhancer. |
-| `--style` | | text | — | Visual and narrative style applied by the script enhancer and image prompts. Values: `spiritual` \| `documentary` \| `educational` \| `history` |
-| `--target-minutes` | `-t` | int | `7` | Target narration duration in minutes (range: 5–10). The script enhancer expands your raw script to approximately `target_minutes × 130` words. |
+| `--style` | | text | — | Visual and narrative style. Values: `spiritual` \| `documentary` \| `educational` \| `history` |
+| `--target-minutes` | `-t` | int | `7` | Target narration duration in minutes (range: 5–10). |
 | `--language` | `-l` | text | `en` | BCP-47 language code for TTS voice selection. Examples: `en`, `hi`, `mr`, `es`, `fr` |
-| `--auto` | | flag | off | Skip all human-review gates. Runs fully autonomously without pausing for approval. |
-| `--no-images` | | flag | off | Skip image generation. Saves `workspace/jobs/PROJECT_ID/images/IMAGE_PROMPTS.md` — generate or place images manually, then re-run the same command (images already on disk are not regenerated). |
-| `--project` | `-p` | text | — | Resume an existing project by its ID. Skips project creation. Useful for retrying failed runs or re-rendering with different settings. |
+| `--auto` | | flag | off | Skip all human-review gates. Fully autonomous. |
+| `--no-images` | | flag | off | Skip image generation. Saves `IMAGE_PROMPTS.md` — place images manually and re-run. |
+| `--project` | `-p` | text | — | Resume an existing project by ID. Required for all incremental flags. |
+
+### Incremental / Resume Options
+
+These flags are only meaningful when `--project` is also provided (existing project).
+
+| Option | Description |
+|---|---|
+| `--resume` | Skip stages whose outputs are unchanged. Detects changed files via SHA-256 checksums. |
+| `--reuse-assets` | Alias for `--resume`. |
+| `--force-images` | Force image regeneration (and all downstream: video → review → publish). |
+| `--force-narration` | Force voice/TTS regeneration (and downstream: captions → video → review → publish). |
+| `--force-subtitles` | Force caption regeneration (and downstream: video → review → publish). |
+| `--force-motion` | Force motion re-planning and video render. |
+| `--force-video` | Force full video re-render (and downstream: review → publish). |
+| `--force-bgm` | Force BGM re-mix (implies `--force-video`). |
+| `--force-publish` | Force publish package regeneration only. |
+| `--scene N` | Scope change detection to scene N only. Combine with `--force-*` to target one scene. |
+| `--force-scene N` | Force-regenerate scene N entirely (image + voice + captions + video). Overrides locked state. |
 
 ### Examples
 
 ```bash
-# Full pipeline from scratch — research + write + produce
+# Full pipeline from scratch
 ytfactory run "History of Shivaji" --auto
 
 # Pre-written spiritual script, 8-minute target
 ytfactory run "The Silent Force Controlling Your Life" \
-  --script /tmp/atma_theory_the_silent_force.md \
-  --style spiritual \
-  --target-minutes 8 \
-  --auto
+  --script /tmp/script.md --style spiritual --target-minutes 8 --auto
 
-# Pre-written script — skip images, review prompts, place manually
-ytfactory run "The Silent Force Controlling Your Life" \
-  --script /tmp/script.md \
-  --style spiritual \
-  --no-images --auto
+# Skip images — review IMAGE_PROMPTS.md, place manually, then re-run
+ytfactory run "Topic" --script /tmp/script.md --no-images --auto
 
-# Resume a run that failed mid-way
-ytfactory run "The Silent Force Controlling Your Life" \
-  --project the-silent-force-abc123 \
-  --auto
+# Resume a run that failed mid-way (same project, re-runs from where it stopped)
+ytfactory run "Topic" --project the-silent-force-abc123 --auto
 
-# Hindi narration from research
+# Incremental: re-run only changed stages (detect via checksums)
+ytfactory run "Topic" --project abc123 --resume
+
+# Force images only (downstream stages auto-follow)
+ytfactory run "Topic" --project abc123 --force-images
+
+# Force narration + captions (e.g. after editing a script)
+ytfactory run "Topic" --project abc123 --force-narration
+
+# Replace image for scene 8 manually, then rebuild only that scene
+cp my-new-image.png workspace/jobs/abc123/images/scene-008.png
+ytfactory run "Topic" --project abc123 --resume
+
+# Force-regenerate scene 8 entirely
+ytfactory run "Topic" --project abc123 --force-scene 8
+
+# Regenerate only the video for scene 3
+ytfactory run "Topic" --project abc123 --scene 3 --force-video
+
+# Hindi narration
 ytfactory run "Shivaji Maharaj ka Itihas" --language hi --auto
-
-# Full options combined
-ytfactory run "The Ego and the Self" \
-  --script /tmp/ego_script.md \
-  --style spiritual \
-  --target-minutes 8 \
-  --language en \
-  --auto
 ```
 
 ---
 
-## `ytfactory build` — Legacy Sequential Pipeline
+## `ytfactory build` — Sequential Pipeline (with Incremental Support)
 
-Runs the older sequential pipeline without agentic enhancement. Requires a project ID created by `ytfactory create`. Useful when you want direct control without the LangGraph agent layer.
+Runs the sequential pipeline without the agentic LangGraph layer. Requires a project ID from `ytfactory create`. Supports the same incremental flags as `ytfactory run`.
 
 ```bash
 ytfactory build PROJECT_ID [OPTIONS]
 ```
 
-### Options
+### Core Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--skip-scenes` | off | Skip scene planning — use the existing `scenes/scene-plan.json` |
+| `--skip-scenes` | off | Skip scene planning — use existing `scenes/scene-plan.json` |
 | `--skip-images` | off | Skip image generation — use images already on disk |
+| `--no-remediate` | off | Skip auto-remediation even if review fails |
+| `--remediation-threshold` | `70.0` | Quality score threshold for auto-remediation (0–100) |
+| `--remediation-retries` | `3` | Max auto-remediation retry cycles |
 
-### Example
+### Incremental / Resume Options
+
+| Option | Description |
+|---|---|
+| `--resume` | Skip stages whose outputs are unchanged (SHA-256 checksum detection). |
+| `--reuse-assets` | Alias for `--resume`. |
+| `--force-images` | Force image regeneration. |
+| `--force-narration` | Force voice/TTS regeneration. |
+| `--force-subtitles` | Force caption regeneration. |
+| `--force-video` | Force video re-render. |
+| `--force-bgm` | Force BGM re-mix (implies `--force-video`). |
+| `--force-publish` | Force publish package regeneration only. |
+| `--scene N` | Scope change detection to scene N. |
+| `--force-scene N` | Force-regenerate scene N entirely. |
+| `--debug-incremental` | Print per-stage ✓ reused / ⚠ rebuilt table. |
+
+### Examples
 
 ```bash
-ytfactory create "The Power of Silence"
-# manually write workspace/jobs/PROJECT_ID/script/script.md
-ytfactory build the-power-of-silence-abc123
-ytfactory build the-power-of-silence-abc123 --skip-scenes --skip-images  # re-render only
+# Full build from scratch
+ytfactory build abc123
+
+# Incremental — only re-run what changed
+ytfactory build abc123 --resume
+
+# Force images then let downstream follow
+ytfactory build abc123 --force-images
+
+# Force scene 5 entirely
+ytfactory build abc123 --force-scene 5
+
+# Debug: see exactly which stages ran
+ytfactory build abc123 --resume --debug-incremental
+
+# Re-render only (scenes + images already exist)
+ytfactory build abc123 --skip-scenes --skip-images
+```
+
+---
+
+## `ytfactory scene` — Scene Approval Workflow
+
+Manage per-scene states for the creator review process. States: Draft → Needs Review → Approved → Locked.
+
+```bash
+ytfactory scene COMMAND PROJECT_ID [OPTIONS]
+```
+
+### Commands
+
+#### `scene list` — Show all scene states
+
+```bash
+ytfactory scene list PROJECT_ID
+```
+
+Prints a table of all scenes with their current state and notes.
+
+#### `scene approve` — Approve a scene
+
+```bash
+ytfactory scene approve PROJECT_ID SCENE_INDEX
+```
+
+Marks the scene as Approved. Approved scenes are safe to include in the final video.
+
+```bash
+ytfactory scene approve abc123 3
+```
+
+#### `scene reject` — Mark Needs Revision
+
+```bash
+ytfactory scene reject PROJECT_ID SCENE_INDEX [--notes "reason"]
+```
+
+Marks the scene as Needs Revision. Optionally attach a reason.
+
+```bash
+ytfactory scene reject abc123 3 --notes "background looks wrong"
+ytfactory scene reject abc123 8 --notes "narration too fast"
+```
+
+#### `scene lock` — Lock a scene
+
+```bash
+ytfactory scene lock PROJECT_ID SCENE_INDEX
+```
+
+Locks the scene. A locked scene is **never auto-regenerated** by any `--resume` or `--force-*` run. Only `scene unlock` or explicit `--force-scene N` overrides it.
+
+```bash
+ytfactory scene lock abc123 3
+```
+
+#### `scene unlock` — Unlock a scene
+
+```bash
+ytfactory scene unlock PROJECT_ID SCENE_INDEX
+```
+
+Returns a locked scene to Approved state.
+
+```bash
+ytfactory scene unlock abc123 3
+```
+
+#### `scene review` — Write scene-review.md
+
+```bash
+ytfactory scene review PROJECT_ID
+```
+
+Generates `workspace/jobs/PROJECT_ID/review/scene-review.md` — a full per-scene report with state, assets present/missing, narration, and motion type. Also prints a state summary to the console.
+
+### State Lifecycle
+
+```
+Draft ──────────────────────────────→ Needs Review → Approved → Locked
+  ↑                                         ↓             ↓
+  └──────── Needs Revision ←────────────────┘             │
+              (quality fail or scene reject)               │
+                                                      scene unlock
+```
+
+| State | Meaning | Auto-regenerated? |
+|---|---|---|
+| Draft | Initial state after generation | Yes |
+| Needs Review | Ready for creator inspection | Yes |
+| Needs Revision | Failed quality review or rejected | Yes |
+| Approved | Creator-approved | Yes |
+| Locked | Manually locked by creator | **Never** |
+
+### Manual Image Replacement Workflow
+
+```bash
+# 1. Drop your replacement image in place (same filename)
+cp /path/to/better-image.png workspace/jobs/abc123/images/scene-008.png
+
+# 2. Resume — auto-detects the changed file via SHA-256
+ytfactory build abc123 --resume
+# → scene-008 image: reused (your file)
+# → motion: regenerated
+# → scene-008 video: regenerated
+# → final.mp4: rebuilt
+# → review: rerun
+# → publish: rerun
+
+# 3. Lock the scene so future runs never touch it
+ytfactory scene lock abc123 8
+```
+
+### Scene Examples — All Combinations
+
+```bash
+# List all scenes and their states
+ytfactory scene list abc123
+
+# Approve scene 3
+ytfactory scene approve abc123 3
+
+# Reject scene 8 with a note
+ytfactory scene reject abc123 8 --notes "narrator too fast"
+
+# Lock scene 5 (won't regenerate ever)
+ytfactory scene lock abc123 5
+
+# Unlock scene 5
+ytfactory scene unlock abc123 5
+
+# Write scene-review.md
+ytfactory scene review abc123
+
+# Force-regenerate only scene 8 (image + voice + captions + video)
+ytfactory build abc123 --force-scene 8
+
+# Force just the video for scene 3
+ytfactory build abc123 --scene 3 --force-video
+
+# Force just the image for scene 3
+ytfactory build abc123 --scene 3 --force-images
+
+# Force narration for scene 6
+ytfactory build abc123 --scene 6 --force-narration
 ```
 
 ---
@@ -294,23 +504,29 @@ All project files are written to `workspace/jobs/PROJECT_ID/`:
 
 ```
 workspace/jobs/PROJECT_ID/
-├── project.json            # Project metadata and stage statuses
+├── project.json              # Project metadata and stage statuses
+├── .pipeline-manifest.json   # SHA-256 checksums for incremental builds
 ├── research/
-│   └── research.md         # Web research summary
+│   └── research.md           # Web research summary
 ├── script/
-│   ├── script.md           # Final script (used by scene planner)
-│   └── script_original.md  # Your original script before enhancement
+│   ├── script.md             # Final script (used by scene planner)
+│   └── script_original.md    # Your original script before enhancement
 ├── scenes/
-│   └── scene-plan.json     # Scene plan (narration, visual prompts, durations)
+│   ├── scene-plan.json       # Scene plan (narration, visual prompts, durations)
+│   └── scene-status.json     # Per-scene approval states (Draft/Approved/Locked…)
 ├── images/
-│   ├── scene-001.png       # Generated or asset images
-│   ├── IMAGE_PROMPTS.md    # Visual prompts (--no-images mode)
+│   ├── scene-001.png         # Generated or manually placed images
+│   ├── IMAGE_PROMPTS.md      # Visual prompts (--no-images mode)
 │   └── manifest.json
 ├── audio/
-│   └── scene-001.mp3       # TTS narration audio
+│   └── scene-001.mp3         # TTS narration audio
 ├── subtitles/
-│   └── scene-001.srt       # Frame-accurate subtitles
-└── video/
-    ├── scene-001.mp4       # Per-scene rendered clips
-    └── final.mp4           # Final concatenated video
+│   └── scene-001.srt         # Frame-accurate subtitles
+├── video/
+│   ├── scene-001.mp4         # Per-scene rendered clips
+│   └── final.mp4             # Final concatenated video
+└── review/
+    ├── review-report.md      # Quality gate summary
+    ├── scene-review.md       # Per-scene status report (ytfactory scene review)
+    └── …                     # Validation, RCA, scoring, EFL reports
 ```

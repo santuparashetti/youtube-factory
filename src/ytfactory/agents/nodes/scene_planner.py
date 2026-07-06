@@ -14,6 +14,7 @@ from rich.table import Table
 from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA
 from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 from ytfactory.agents.state import VideoState
+from ytfactory.branding.config import get_brand_config
 from ytfactory.config.settings import Settings
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
 from ytfactory.providers.llm.factory import get_llm_provider
@@ -21,12 +22,8 @@ from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
 
-# Asset configuration for Atma Theory brand card
-_BRAND_ASSET_PATH = "assets/branding/atma-theory-brand.png"
-_BRAND_ANIMATION = "slow_zoom"
-
 # Closing phrases that should trigger an asset scene instead of AI image generation.
-# Derived from branding.py so detection automatically tracks new closing variants.
+# Derived from branding module so detection tracks new variants from brand config.
 _CLOSING_TRIGGERS: frozenset[str] = frozenset(
     phrase.lower().strip().rstrip(".") for phrase in CLOSING_VARIATIONS + [SOFT_CTA]
 )
@@ -118,34 +115,52 @@ def _split_script_to_scenes(
 
 def _is_closing_scene(narration: str) -> bool:
     """
-    Return True if this narration belongs to the Atma Theory closing section.
+    Return True if this narration belongs to the channel's closing section.
 
     Matches any scene whose text is a substring of (or contains) a known
-    closing phrase, or whose text is very short (≤ 8 words) and appears
-    only at the tail of the script — handled by the caller's tail-scan logic.
+    closing phrase.  Checks both:
+      - _CLOSING_TRIGGERS — built at module load from the default brand config
+      - The current brand config — catches runtime config reloads and
+        multi-channel scenarios where config/brand_config.yaml was swapped
     """
     low = narration.lower().strip().rstrip(".")
+
     for trigger in _CLOSING_TRIGGERS:
         if trigger in low or low in trigger:
             return True
+
+    cfg = get_brand_config()
+    for text in (cfg.closing.text(), cfg.signature.text(), cfg.cta.text()):
+        if text:
+            trigger = text.lower().strip().rstrip(".")
+            if trigger and (trigger in low or low in trigger):
+                return True
+
     return False
 
 
 def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
     """
-    Post-process the scene list to detect Atma Theory closing scenes and
-    mark them as asset scenes.
+    Post-process the scene list to detect channel closing scenes and mark them
+    as asset scenes so the brand card is used instead of AI image generation.
+
+    Asset path and animation are read from config/brand_config.yaml so no code
+    change is needed when switching channels.
 
     Scans backwards from the end (up to 3 scenes) so that the brand card
     appears for the CTA and closing phrase without touching main content.
     Returns the same list, mutated in-place.
     """
+    brand_cfg = get_brand_config()
+    asset_path = brand_cfg.branding.asset_path
+    animation = brand_cfg.branding.asset_animation
+
     tail = min(3, len(scenes))
     for scene in scenes[-tail:]:
         if _is_closing_scene(scene.get("narration", "")):
             scene["scene_type"] = "asset"
-            scene["asset_path"] = _BRAND_ASSET_PATH
-            scene["animation"] = _BRAND_ANIMATION
+            scene["asset_path"] = asset_path
+            scene["animation"] = animation
             scene["visual_prompt"] = ""
     return scenes
 
@@ -375,14 +390,15 @@ def scene_planner_node(state: VideoState) -> dict:
     console.print("  [cyan]→[/cyan] Phase 1: splitting script into scenes...")
     scenes: list[dict] = _split_script_to_scenes(script_md)
 
-    # Detect Atma Theory closing scenes and mark them as asset scenes so that
+    # Detect channel closing scenes and mark them as asset scenes so that
     # image generation is skipped and the brand card is used instead.
     _mark_asset_scenes(scenes)
     asset_count = sum(1 for s in scenes if s.get("scene_type") == "asset")
     if asset_count:
+        brand_asset = get_brand_config().branding.asset_path
         console.print(
             f"  [green]✓[/green] {asset_count} closing scene(s) marked as asset scenes "
-            f"[dim]({_BRAND_ASSET_PATH})[/dim]"
+            f"[dim]({brand_asset})[/dim]"
         )
 
     total = sum(s.get("duration_seconds", 0) for s in scenes)

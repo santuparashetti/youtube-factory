@@ -16,6 +16,14 @@ TARGET_IDEAL_WORDS = TARGET_IDEAL_MINUTES * NARRATION_WPM  # 910
 TARGET_MAX_WORDS = TARGET_MAX_MINUTES * NARRATION_WPM  # 1300
 
 
+def _load_brand() -> tuple[str, str, str]:
+    """Return (channel_name, cta_text, closing_brand_text) from the brand config."""
+    from ytfactory.branding.config import get_brand_config
+
+    cfg = get_brand_config()
+    return cfg.channel_name, cfg.cta.text(), cfg.closing.text()
+
+
 # ── Prompt builders ────────────────────────────────────────────────────────────
 
 
@@ -27,7 +35,16 @@ def build_write_script_prompt(
     closing: str,
     topic_transition: str,
     target_minutes: int = TARGET_IDEAL_MINUTES,
+    channel_name: str | None = None,
+    cta: str | None = None,
+    closing_brand: str | None = None,
 ) -> str:
+    if channel_name is None or cta is None or closing_brand is None:
+        _cn, _cta, _cb = _load_brand()
+        channel_name = channel_name or _cn
+        cta = cta or _cta
+        closing_brand = closing_brand or _cb
+
     min_m = target_minutes - DURATION_TOLERANCE_MINUTES
     max_m = target_minutes + DURATION_TOLERANCE_MINUTES
     ideal_words = target_minutes * NARRATION_WPM
@@ -35,7 +52,7 @@ def build_write_script_prompt(
     max_words = max_m * NARRATION_WPM
 
     return f"""\
-You are a professional documentary scriptwriter for the Atma Theory channel on YouTube.
+You are a professional documentary scriptwriter for the {channel_name} channel on YouTube.
 
 Write a complete narration script for a YouTube video about: {topic}
 
@@ -57,7 +74,7 @@ SCRIPT STRUCTURE (follow this order)
    Open with ONE compelling entry: a shocking statistic, a provocative question,
    a vivid scene, or a counter-intuitive claim. Make the viewer unable to stop.
 
-2. ATMA THEORY WELCOME (immediately after the hook):
+2. CHANNEL WELCOME (immediately after the hook):
    Flow naturally from the hook into this exact welcome line:
      "{welcome}"
    Write 1–2 sentences that bridge seamlessly. The welcome is a continuation,
@@ -82,12 +99,16 @@ SCRIPT STRUCTURE (follow this order)
 7. PRACTICAL REFLECTION (30 seconds):
    Draw the insight back to the listener's own life. Specific and actionable.
 
-8. CALL TO ACTION (10 seconds — place naturally near the end):
-   Use this exact soft CTA:
-     "If this perspective helped you see life a little differently, \
-consider joining us for the next journey."
+8. BRAND SIGNATURE (one line, immediately after reflection):
+   Re-affirm the channel identity with quiet confidence:
+     "{closing_brand}"
+   This is the moment of re-grounding — not a promotional statement. One line only.
 
-9. ATMA THEORY CLOSING (final line):
+9. CALL TO ACTION (10 seconds — place naturally after the brand signature):
+   Use this exact soft CTA:
+     "{cta}"
+
+10. CLOSING QUOTE (final line):
    End with this exact phrase, delivered with quiet impact:
      "{closing}"
 
@@ -121,11 +142,12 @@ If your draft exceeds {max_words} words, shorten by removing in this order:
 
 NEVER remove:
   - Opening hook
-  - Atma Theory welcome
+  - Channel welcome
   - Core philosophical insight
   - Emotional climax
   - Practical takeaway
-  - Atma Theory closing
+  - Brand signature
+  - Channel closing
 
 ──────────────────────────────────────────────────────────────
 BRAND VOICE
@@ -163,12 +185,16 @@ def build_review_prompt(
     word_count: int,
     estimated_minutes: float,
     target_minutes: int = TARGET_IDEAL_MINUTES,
+    channel_name: str | None = None,
 ) -> str:
+    if channel_name is None:
+        channel_name, *_ = _load_brand()
+
     min_m = target_minutes - DURATION_TOLERANCE_MINUTES
     max_m = target_minutes + DURATION_TOLERANCE_MINUTES
 
     return f"""\
-You are reviewing a narration script for the Atma Theory YouTube channel.
+You are reviewing a narration script for the {channel_name} YouTube channel.
 Topic: "{topic}"
 Estimated narration duration: {estimated_minutes:.1f} minutes ({word_count} words at 130 wpm)
 Requested target: {target_minutes} minutes — acceptable range {min_m}–{max_m} minutes
@@ -195,13 +221,17 @@ QUALITY CHECKLIST — evaluate each item as PASS or FAIL
    If yes, remove the weaker instance entirely.
 
 5. STORY PROGRESSION — does the script build naturally through:
-   Hook → Welcome → Curiosity → Exploration → Deep Insight → Reflection → Closing?
+   Hook → Welcome → Curiosity → Exploration → Deep Insight → Reflection
+   → Brand Signature → CTA → Closing Quote?
 
-6. ATMA THEORY WELCOME — is the channel welcome naturally woven in after the hook?
+6. CHANNEL WELCOME — is the channel welcome naturally woven in after the hook?
 
-7. ATMA THEORY CLOSING — does the script end with the closing phrase?
+7. BRAND SIGNATURE — does the channel brand assertion appear once, after reflection
+   and before the CTA? It must not appear in the middle of the teaching.
 
-8. BRAND VOICE — is the tone calm, reflective, compassionate, cinematic?
+8. CHANNEL CLOSING — does the script end with the closing quote (after the CTA)?
+
+9. BRAND VOICE — is the tone calm, reflective, compassionate, cinematic?
    Flag and rewrite any section that sounds preachy, generic, or promotional.
 
 ──────────────────────────────────────────────────────────────
@@ -216,11 +246,12 @@ Remove content in this order:
 
 NEVER remove:
   - Opening hook
-  - Atma Theory welcome
+  - Channel welcome
   - Core philosophical insight
   - Emotional climax
   - Practical takeaway
-  - Atma Theory closing
+  - Brand signature
+  - Channel closing
 
 ──────────────────────────────────────────────────────────────
 INSTRUCTION
@@ -238,13 +269,17 @@ def build_compress_prompt(
     word_count: int,
     estimated_minutes: float,
     target_minutes: int = TARGET_IDEAL_MINUTES,
+    channel_name: str | None = None,
 ) -> str:
+    if channel_name is None:
+        channel_name, *_ = _load_brand()
+
     max_m = target_minutes + DURATION_TOLERANCE_MINUTES
     max_words = max_m * NARRATION_WPM
     ideal_words = target_minutes * NARRATION_WPM
 
     return f"""\
-This Atma Theory narration script is too long.
+This {channel_name} narration script is too long.
 
 Current: {word_count} words (~{estimated_minutes:.1f} minutes at 130 wpm)
 Target: maximum {max_words} words ({max_m} minutes)
@@ -267,11 +302,12 @@ Remove content in this order:
 
 NEVER remove:
   - Opening hook
-  - Atma Theory welcome
+  - Channel welcome
   - Core philosophical insight
   - Emotional climax
   - Practical takeaway
-  - Atma Theory closing
+  - Brand signature
+  - Channel closing
 
 Do NOT rewrite the script for quality — only shorten it.
 Preserve the existing wording wherever possible.
@@ -285,13 +321,17 @@ def build_expand_pacing_prompt(
     word_count: int,
     estimated_minutes: float,
     target_minutes: int = TARGET_IDEAL_MINUTES,
+    channel_name: str | None = None,
 ) -> str:
+    if channel_name is None:
+        channel_name, *_ = _load_brand()
+
     min_m = target_minutes - DURATION_TOLERANCE_MINUTES
     min_words = min_m * NARRATION_WPM
     shortfall_min = target_minutes - estimated_minutes
 
     return f"""\
-This Atma Theory narration script is shorter than the requested duration.
+This {channel_name} narration script is shorter than the requested duration.
 
 Current: {word_count} words (~{estimated_minutes:.1f} minutes at 130 wpm)
 Requested: {target_minutes} minutes — minimum acceptable: {min_m} minutes ({min_words} words)
