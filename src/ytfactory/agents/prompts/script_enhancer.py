@@ -43,9 +43,9 @@ LANGUAGE: Plain, direct, occasionally playful. Define jargon the moment you use 
 }
 
 _ENHANCER_TEMPLATE = """\
-You are a master scriptwriter for cinematic YouTube documentaries for the Atma Theory channel.
-Your task: take a raw seed script and grow it into a full, deeply moving narration
-while staying faithful to the source — preserving its structure, tone, and meaning.
+You are a careful editor, not a rewriter.
+Your task: take the author's raw script and expand it to reach the target duration
+while preserving their voice, rhythm, and message as completely as possible.
 
 TOPIC: {topic}
 TARGET DURATION: {target_minutes} minutes of spoken narration
@@ -54,60 +54,102 @@ ACCEPTABLE RANGE: {min_m}–{max_m} minutes ({min_words}–{max_words} words at 
 {voice_guide}
 
 ───────────────────────────────────────────────────────────────
-ATMA THEORY BRAND STRUCTURE (mandatory — weave in naturally)
+CHANNEL FRAME (additive only — do not rewrite the author's content around these)
 ───────────────────────────────────────────────────────────────
-The finished script must follow this arc:
+These elements are added to the script as-is. They frame the author's content;
+they do not replace or restructure it.
 
-1. HOOK — open with a compelling question, uncomfortable truth, or vivid scene.
+  WELCOME (insert once, after the author's opening sentence):
+    "{welcome}"
 
-2. WELCOME — immediately after the hook, flow naturally into this exact line:
-     "{welcome}"
-   Write 1-2 sentences that bridge from the hook to the welcome seamlessly.
-   The welcome must feel like a continuation of the opening thought.
+  TOPIC TRANSITION (insert only if the author's script has no natural transition
+  from the opening into the main idea — otherwise skip it):
+    "{topic_transition}..."
 
-3. TOPIC TRANSITION — one sentence moving into the subject, starting with:
-     "{topic_transition}..."
-
-4. MAIN CONTENT — the full exploration. Expand every idea deeply.
-
-5. REFLECTION — draw the insight back to the listener's own life.
-
-6. CALL TO ACTION (near the end, soft and conversational):
-     "If this perspective helped you see life a little differently, \
+  CALL TO ACTION (near the end, one sentence, soft and conversational):
+    "If this perspective helped you see life a little differently, \
 consider joining us for the next journey."
 
-7. CLOSING — end with this exact phrase, written so it lands with quiet impact:
-     "{closing}"
+  CLOSING (append as the final line):
+    "{closing}"
 
-Brand voice: calm, reflective, compassionate, wise, conversational, cinematic.
-Never: preachy, sales-driven, overly dramatic, or promotional.
+If the author's script already opens with a strong hook that flows naturally into
+the main idea, insert the welcome between the first and second paragraph — do not
+write bridging sentences around it. The welcome must stand on its own, not be
+woven into the author's sentences.
 
 ───────────────────────────────────────────────────────────────
-PRESERVATION FIRST — THEN ELEVATE
+EXPANSION STRATEGY — follow this priority order exactly
 ───────────────────────────────────────────────────────────────
-The raw script below is the SOURCE OF TRUTH.
+Work through these priorities in order. Do not reach for a lower priority
+until the higher ones are exhausted.
 
-DO NOT rewrite it unnecessarily.
-DO NOT add filler words to reach the target duration.
-Treat it as a seed: expand only where the idea is underdeveloped.
+PRIORITY 1 — PRESERVE THE ORIGINAL WORDING
+  The author's sentences are final. Do not rephrase them for clarity, style, or
+  rhythm — even if you think a sentence could be improved. Keep every word.
+  If a sentence is awkward, keep it. The author's imperfections are part of their voice.
 
-For each concept in the raw script:
-  - Preserve the original phrasing wherever it reads naturally
-  - Add a vivid, relatable example ONLY if the idea lacks one
-  - Deepen the explanation ONLY if it feels incomplete
-  - Add smooth transitions where ideas don't connect naturally
+PRIORITY 2 — EXTEND DURATION THROUGH PACING AND SILENCE
+  Before adding a single new word, reshape how the existing content breathes.
 
-PACING OVER PADDING:
-  If the script is shorter than target, prefer slower, more deliberate delivery:
-  - Break key insights into shorter paragraphs (they naturally slow narration)
-  - Give important lines room to breathe — one idea per paragraph
-  - Use short standalone lines at emotional peaks (pause effect)
-  Do NOT add new ideas simply to fill time.
+  Techniques (apply freely to the existing text):
+    — Break long paragraphs at thought boundaries. One complete idea per paragraph.
+    — Give any sentence that carries a key insight its own paragraph.
+    — Place a single standalone line at emotional peaks. Let it sit alone.
+    — Short sentences slow the reader. Separate a short sentence from what
+      surrounds it to make it land.
 
-EXPANSION TARGETS (apply only where needed):
-  - Each major idea should reach at least 40 words if underdeveloped
-  - Add 1-2 bridging sentences between disconnected sections
-  - If the opening is under 40 words, strengthen it — but do not pad it
+  This reshaping alone can add 20–40% to the spoken duration without adding words.
+  Try it fully before moving to priority 5.
+
+PRIORITY 3 — ADD MEANINGFUL PAUSES AT THOUGHT BOUNDARIES
+  After each major idea completes, create visual breathing space in the text.
+  A short one-sentence paragraph following a longer one tells the narrator:
+  slow down, let this land before continuing.
+
+  Signal pause locations by placing a short sentence on its own line,
+  separated by blank lines above and below.
+
+PRIORITY 4 — NATURALLY SLOW THE NARRATION
+  Dense text is read fast. Sparse text is read slow.
+  — Short sentences slow the reader more than long ones.
+  — A paragraph with only one sentence naturally creates a pause.
+  — Ellipsis (...) signals a long internal pause. Use sparingly — maximum 5 per script.
+  — Do not tell the narrator to slow down. Arrange the words so they naturally do.
+
+PRIORITY 5 — ADD NEW CONTENT ONLY WHEN NECESSARY
+  Only reach for new content if priorities 1–4 still leave the script under target.
+  When you do add content, it must meet the standard below.
+
+PRIORITY 6 — WHAT VALID NEW CONTENT LOOKS LIKE
+  New content must introduce something the author has not already said:
+    ✓  A specific real-world example that illustrates an idea the author left abstract
+    ✓  A fresh analogy that approaches the same idea from a different angle
+    ✓  A question the listener is likely asking right now, followed by its answer
+    ✓  A brief observation or contrast that deepens the author's point
+  New content must match the author's vocabulary, sentence length, and tone exactly.
+  A skilled reader should not be able to identify which sentences you added.
+
+PRIORITY 7 — NEVER ADD ANY OF THE FOLLOWING
+    ✗  Filler commentary: "This is a profound insight", "As we can see", "What this means is"
+    ✗  Repetitive explanations of something the author already made clear
+    ✗  Generic motivational language: "You have the strength", "Believe in yourself"
+    ✗  Unnecessary introductions: "In this journey, we will explore..."
+    ✗  Summaries of what was just said
+    ✗  Transitions that announce themselves: "Now let's turn to..."
+
+───────────────────────────────────────────────────────────────
+HOW TO THINK ABOUT DURATION
+───────────────────────────────────────────────────────────────
+A narrator speaking at a meditative pace does not rush between ideas.
+The audience thinks during the space between paragraphs.
+That thinking time is part of the duration.
+
+A three-sentence paragraph spoken without breathing = fast.
+The same three sentences each given their own paragraph = slow, contemplative.
+
+You are writing for thinking, not just listening.
+The objective is to make the audience think — not to increase the word count.
 
 ───────────────────────────────────────────────────────────────
 VOICEOVER TECHNICAL RULES
@@ -118,10 +160,9 @@ VOICEOVER TECHNICAL RULES
 - Expand abbreviations: "for example" not "e.g.", "that is" not "i.e."
 - Every word must be immediately pronounceable
 - Use commas rhythmically — they create breathing space in the voice
-- Use ellipsis (...) only for intentional dramatic pause moments (maximum 5-6 per script)
+- Use ellipsis (...) only for intentional dramatic pause moments (maximum 5 per script)
 - Contractions are natural: "it's", "you're", "we've", "don't"
 - Avoid parentheses, brackets, semicolons — use periods and commas instead
-- Each paragraph = one complete thought, 15-25 seconds to speak aloud
 
 ───────────────────────────────────────────────────────────────
 OUTPUT FORMAT
@@ -129,10 +170,10 @@ OUTPUT FORMAT
 Return ONLY the narration text. Nothing else.
 No title. No "Here is the script:". No explanations. No section labels.
 Separate major narrative sections with ONE blank line.
-The text will be read aloud word-for-word — every word must earn its place.
+The text will be read aloud word-for-word.
 
 ───────────────────────────────────────────────────────────────
-RAW SCRIPT (source of truth — preserve and elevate):
+AUTHOR'S SCRIPT (preserve — do not rewrite):
 ───────────────────────────────────────────────────────────────
 {script}\
 """

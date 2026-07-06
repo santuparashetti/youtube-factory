@@ -33,7 +33,6 @@ class VideoState(TypedDict, total=False):
     # ── Parallel stage outputs (reducers merge partial updates) ───────────
     image_paths: Annotated[dict[int, str], _merge_dicts]
     audio_paths: Annotated[dict[int, str], _merge_dicts]
-    audio_durations: Annotated[dict[int, float], _merge_dicts]
     srt_paths: Annotated[dict[int, str], _merge_dicts]
     scene_video_paths: Annotated[dict[int, str], _merge_dicts]
 

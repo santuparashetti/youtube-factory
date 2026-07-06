@@ -2,7 +2,8 @@
 
 Covers:
   - SentenceAnalyzer: scoring, pause categories, pre-concept supplement, profiles
-  - PauseInjector: single sentence, multi-sentence, boundary shifting, silence insertion
+  - ThoughtAnalyzer: block grouping, boundary triggers, scoring, silence assignment
+  - PauseInjector: single block, multi-block, boundary shifting, subtitle extension
   - VoicePipeline integration: pacing enabled/disabled, asset scene exemption
   - Settings: new fields, profile validation
 """
@@ -21,9 +22,23 @@ from ytfactory.providers.tts.pacing.analyzer import (
     _score_sentence,
     _split_sentences,
 )
-from ytfactory.providers.tts.pacing.config import PROFILE_PAUSES, PacingProfile
+from ytfactory.providers.tts.pacing.config import (
+    PROFILE_PAUSES,
+    THOUGHT_PROFILE_PAUSES,
+    PacingProfile,
+)
 from ytfactory.providers.tts.pacing.injector import PauseInjector
-from ytfactory.providers.tts.pacing.models import PauseCategory, SentenceAnalysis
+from ytfactory.providers.tts.pacing.models import (
+    PauseCategory,
+    SentenceAnalysis,
+    ThoughtPauseCategory,
+)
+from ytfactory.providers.tts.pacing.thought_analyzer import (
+    ThoughtAnalyzer,
+    _new_block_trigger,
+    _score_block,
+    _split_sentences as _thought_split_sentences,
+)
 
 
 # ── Deterministic RNG for tests ───────────────────────────────────────────────
@@ -317,14 +332,16 @@ class TestPauseInjector:
         # Single sentence → provider called exactly once
         assert provider.generate_with_boundaries.call_count == 1
 
-    def test_multi_sentence_calls_provider_per_sentence(self, tmp_path):
+    def test_two_thought_blocks_call_provider_twice(self, tmp_path):
+        """Two distinct thought blocks → provider called exactly twice."""
         injector = PauseInjector()
         provider = self._make_mock_provider(tmp_path)
         optimizer = self._make_mock_optimizer()
         output = tmp_path / "out.mp3"
 
+        # "But" starts a new thought block — guaranteed 2 blocks
         injector.generate(
-            narration="Peace cannot be found outside. Desire keeps growing forever.",
+            narration="Peace cannot be found outside. But desire keeps growing forever.",
             output_path=output,
             optimizer=optimizer,
             provider=provider,
@@ -369,14 +386,21 @@ class TestPauseInjector:
         assert output.exists()
         assert output.stat().st_size > 0
 
-    def test_optimizer_called_per_sentence(self, tmp_path):
+    def test_optimizer_called_per_thought_block(self, tmp_path):
+        """Optimizer is called once per thought block, not per sentence."""
         injector = PauseInjector()
         provider = self._make_mock_provider(tmp_path)
         optimizer = self._make_mock_optimizer()
         output = tmp_path / "out.mp3"
 
+        # Contrast openers force 3 distinct thought blocks
+        narration = (
+            "Peace is within every living being. "
+            "But desire pulls us away from it. "
+            "Yet stillness remains always."
+        )
         injector.generate(
-            narration="First sentence here. Second sentence here. Third one.",
+            narration=narration,
             output_path=output,
             optimizer=optimizer,
             provider=provider,
@@ -415,6 +439,290 @@ class TestPauseInjector:
             provider=provider,
         )
         assert provider.generate_with_boundaries.call_count == 1
+
+    def test_subtitle_end_extends_over_silence(self, tmp_path):
+        """Last word boundary's end covers the silence so subtitle stays visible."""
+        injector = PauseInjector()
+        # duration_per_call=1.0 → each block produces 1 second of audio
+        provider = self._make_mock_provider(tmp_path, duration_per_call=1.0)
+        optimizer = self._make_mock_optimizer()
+        output = tmp_path / "out.mp3"
+
+        # "But" forces 2 blocks; profile=normal gives predictable short silence
+        _, boundaries = injector.generate(
+            narration="Everything you seek is within. But nothing outside can give it.",
+            output_path=output,
+            optimizer=optimizer,
+            provider=provider,
+            profile="normal",  # small=400–700 ms
+        )
+
+        # Block 1 produces boundaries for its words; last boundary's end must
+        # be >= 1.0s (audio) + 0.4s (min silence) = 1.4s
+        if boundaries:
+            # Find the last boundary from block 1 (start < 1.0s since audio is 1s)
+            block1_last = max(
+                (b for b in boundaries if b["start"] < 1.0),
+                key=lambda b: b["end"],
+                default=None,
+            )
+            if block1_last:
+                assert block1_last["end"] >= 1.4, (
+                    f"Subtitle end not extended over silence: {block1_last['end']:.3f}s"
+                )
+
+
+# ── ThoughtAnalyzer ───────────────────────────────────────────────────────────
+
+class TestThoughtAnalyzer:
+    """Tests for semantic thought-block detection and silence assignment."""
+
+    def test_contrast_opener_starts_new_block(self):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Peace is within every being. But desire pulls us away.",
+            profile="spiritual",
+        )
+        assert len(blocks) == 2
+        assert blocks[0].text.startswith("Peace")
+        assert blocks[1].text.startswith("But")
+
+    def test_yet_opener_starts_new_block(self):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "The mind seeks stillness. Yet it keeps running from it.",
+            profile="spiritual",
+        )
+        assert len(blocks) == 2
+
+    def test_shift_opener_starts_new_block(self):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Many people search their entire lives for happiness. "
+            "Now consider where you have been looking.",
+            profile="spiritual",
+        )
+        assert len(blocks) == 2
+
+    def test_conclusive_short_concept_starts_new_block(self):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Everything you chase will eventually disappear. "
+            "But there is one thing that never leaves you. "
+            "It is your awareness.",
+            profile="spiritual",
+        )
+        # "But" → block 2, "It is your awareness." (conclusive + concept) → block 3
+        assert len(blocks) == 3
+        assert blocks[2].text == "It is your awareness."
+
+    def test_continuous_sentences_stay_in_one_block(self):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "The mind is often restless. It constantly seeks new experiences. "
+            "This is its natural state.",
+            profile="spiritual",
+        )
+        # No contrast/shift triggers → grouped together (or at most 2 if conclusive fires)
+        # At minimum, no 3-way split on plain continuation sentences
+        assert len(blocks) <= 2
+
+    def test_last_block_has_no_silence(self, rng):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Peace is within. But desire keeps us searching.",
+            profile="spiritual",
+            rng=rng,
+        )
+        assert blocks[-1].pause_ms == 0
+        assert blocks[-1].pause_category == ThoughtPauseCategory.NONE
+
+    def test_non_last_block_has_silence(self, rng):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Everything fades away. But awareness remains eternal.",
+            profile="spiritual",
+            rng=rng,
+        )
+        assert blocks[0].pause_ms > 0
+
+    def test_pause_within_profile_range(self, rng):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Nothing lasts forever. Yet love transcends time.",
+            profile="spiritual",
+            rng=rng,
+        )
+        block = blocks[0]
+        if block.pause_category != ThoughtPauseCategory.NONE:
+            ranges = THOUGHT_PROFILE_PAUSES["spiritual"]
+            pause_range = getattr(ranges, block.pause_category.value)
+            assert pause_range.min_ms <= block.pause_ms <= pause_range.max_ms
+
+    def test_insight_category_for_short_philosophical_block(self, rng):
+        analyzer = ThoughtAnalyzer()
+        # Short block with concept + universal → high score → INSIGHT
+        blocks = analyzer.analyze(
+            "Nothing is eternal. Yet love and peace always remain.",
+            profile="spiritual",
+            rng=rng,
+        )
+        first = blocks[0]
+        assert first.pause_category in (
+            ThoughtPauseCategory.INSIGHT,
+            ThoughtPauseCategory.REALIZATION,
+        )
+
+    def test_spiritual_pauses_longer_than_normal(self, rng):
+        analyzer = ThoughtAnalyzer()
+        narration = "Desire is suffering. But peace is always here."
+        rng_s = random.Random(42)
+        rng_n = random.Random(42)
+        s_blocks = analyzer.analyze(narration, profile="spiritual", rng=rng_s)
+        n_blocks = analyzer.analyze(narration, profile="normal", rng=rng_n)
+        for s, n in zip(s_blocks[:-1], n_blocks[:-1]):
+            assert s.pause_ms >= n.pause_ms
+
+    def test_meditation_pauses_longer_than_spiritual(self, rng):
+        analyzer = ThoughtAnalyzer()
+        narration = "The truth is within. Yet we keep searching outside."
+        rng_s = random.Random(42)
+        rng_m = random.Random(42)
+        s_blocks = analyzer.analyze(narration, profile="spiritual", rng=rng_s)
+        m_blocks = analyzer.analyze(narration, profile="meditation", rng=rng_m)
+        for s, m in zip(s_blocks[:-1], m_blocks[:-1]):
+            assert m.pause_ms >= s.pause_ms
+
+    def test_empty_narration_returns_empty(self):
+        analyzer = ThoughtAnalyzer()
+        assert analyzer.analyze("") == []
+
+    def test_single_sentence_is_last_block(self, rng):
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze("Peace is within.", profile="spiritual", rng=rng)
+        assert len(blocks) == 1
+        assert blocks[0].pause_ms == 0
+
+    def test_ellipsis_stays_within_block(self):
+        """Ellipsis is a prosodic pause; it should NOT split into separate blocks."""
+        analyzer = ThoughtAnalyzer()
+        blocks = analyzer.analyze(
+            "Everything you chase... will eventually disappear.",
+            profile="spiritual",
+        )
+        assert len(blocks) == 1
+
+    def test_all_profiles_accepted(self, rng):
+        analyzer = ThoughtAnalyzer()
+        narration = "Silence is truth. But the mind resists it."
+        for profile in ["normal", "documentary", "spiritual", "meditation", "slow_reflection"]:
+            result = analyzer.analyze(narration, profile=profile, rng=rng)
+            assert len(result) >= 1
+
+
+class TestNewBlockTrigger:
+    """Unit tests for the block-boundary trigger function."""
+
+    def test_but_triggers_contrast(self):
+        assert _new_block_trigger("But desire pulls us away.", ["Peace is within."]) == "contrast"
+
+    def test_yet_triggers_contrast(self):
+        assert _new_block_trigger("Yet stillness remains.", ["Many things change."]) == "contrast"
+
+    def test_however_triggers_contrast(self):
+        assert _new_block_trigger("However, the truth is within.", []) == "contrast"
+
+    def test_and_yet_triggers_contrast(self):
+        assert _new_block_trigger("And yet love persists.", ["All things fade away."]) == "contrast"
+
+    def test_now_triggers_shift(self):
+        assert _new_block_trigger("Now consider what truly matters.", ["The mind seeks peace."]) == "shift"
+
+    def test_remember_triggers_shift(self):
+        assert _new_block_trigger("Remember where you came from.", ["Much time has passed."]) == "shift"
+
+    def test_conclusive_with_concept_triggers_new_block(self):
+        trigger = _new_block_trigger("It is your awareness.", ["Everything else will fade."])
+        assert trigger == "conclusive"
+
+    def test_conclusive_without_concept_does_not_trigger(self):
+        # "This is natural" has no major concept word
+        trigger = _new_block_trigger("This is natural.", ["The mind works in cycles."])
+        assert trigger is None
+
+    def test_continuation_sentence_stays_in_block(self):
+        assert _new_block_trigger(
+            "It constantly seeks new experiences.",
+            ["The mind is often restless."],
+        ) is None
+
+    def test_very_short_standalone_with_concept(self):
+        # 3 words, has "peace", current block has 8+ words
+        current = ["The human mind wanders through many complicated thoughts daily."]
+        assert _new_block_trigger("Peace is within.", current) is not None
+
+    def test_very_short_without_concept_does_not_trigger(self):
+        current = ["The human mind wanders through many complicated thoughts daily."]
+        assert _new_block_trigger("And then more.", current) is None
+
+
+class TestScoreBlock:
+    """Unit tests for thought block scoring."""
+
+    def test_short_concept_block_scores_high(self):
+        category, triggers = _score_block(["Peace is within."])
+        assert category in (ThoughtPauseCategory.INSIGHT, ThoughtPauseCategory.REALIZATION)
+
+    def test_universal_negation_elevates_score(self):
+        category, triggers = _score_block(["Nothing you seek outside will ever satisfy you."])
+        assert category in (ThoughtPauseCategory.INSIGHT, ThoughtPauseCategory.REALIZATION)
+        assert any("negation" in t for t in triggers)
+
+    def test_plain_long_block_scores_small(self):
+        # Long, no concepts, no universals, no negation
+        category, _ = _score_block([
+            "In this section we will look at productivity techniques "
+            "and how they can be applied in daily life situations."
+        ])
+        assert category == ThoughtPauseCategory.SMALL
+
+    def test_ellipsis_adds_score(self):
+        _, triggers = _score_block(["Everything you chase... will eventually disappear."])
+        assert any("ellipsis" in t for t in triggers)
+
+    def test_rhetorical_question_adds_score(self):
+        _, triggers = _score_block(["What is the purpose of this suffering?"])
+        assert any("rhetorical" in t for t in triggers)
+
+
+class TestThoughtProfilePauses:
+    """Structural tests for THOUGHT_PROFILE_PAUSES table."""
+
+    def test_all_profiles_defined(self):
+        for profile in PacingProfile:
+            assert profile.value in THOUGHT_PROFILE_PAUSES
+
+    def test_spiritual_small_range(self):
+        r = THOUGHT_PROFILE_PAUSES["spiritual"]
+        assert r.small.min_ms == 800
+        assert r.small.max_ms == 1200
+
+    def test_spiritual_insight_range(self):
+        r = THOUGHT_PROFILE_PAUSES["spiritual"]
+        assert r.insight.min_ms == 2500
+        assert r.insight.max_ms == 4000
+
+    def test_ranges_monotonically_increasing(self):
+        for name, r in THOUGHT_PROFILE_PAUSES.items():
+            assert r.small.max_ms <= r.realization.min_ms, f"{name}: small.max >= realization.min"
+            assert r.realization.max_ms <= r.insight.min_ms, f"{name}: realization.max >= insight.min"
+
+    def test_slower_profiles_have_longer_pauses(self):
+        order = ["normal", "documentary", "spiritual", "meditation", "slow_reflection"]
+        for i in range(len(order) - 1):
+            a = THOUGHT_PROFILE_PAUSES[order[i]]
+            b = THOUGHT_PROFILE_PAUSES[order[i + 1]]
+            assert a.realization.min_ms <= b.realization.min_ms
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

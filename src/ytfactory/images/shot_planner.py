@@ -1,20 +1,24 @@
-"""Shot planner — assigns shot types to scenes with balanced distribution.
+"""Shot planner — assigns safe, documentary-appropriate shot types to scenes.
 
-V4 Image Prompt Engine: shot variety is the primary lever for visual diversity.
-The planner ensures no two adjacent scenes share the same shot type and that
-all shot types appear roughly equally across a full video.
+V5 Image Prompt Engine:
+  • Removed unsafe defaults: extreme close-up, macro, POV (first-person).
+  • Added safe cinematic alternatives: environmental portrait, profile shot,
+    wide cinematic.
+  • Shot variety remains the primary lever for visual diversity.
+  • No two adjacent scenes share the same shot type.
+  • All shot types appear roughly equally across a full video.
 """
 
 from __future__ import annotations
 
+# Safe composition defaults for documentary-quality images.
+# Unsafe types (extreme close-up, macro, POV/first-person) are excluded.
+# Override via the LLM prompt when the narration absolutely requires them.
 SHOT_TYPES: list[str] = [
     "establishing shot",
     "wide shot",
     "medium shot",
     "close-up",
-    "extreme close-up",
-    "macro",
-    "POV",
     "over-the-shoulder",
     "low angle",
     "high angle",
@@ -22,6 +26,9 @@ SHOT_TYPES: list[str] = [
     "tracking shot",
     "static",
     "handheld",
+    "environmental portrait",
+    "profile shot",
+    "wide cinematic",
 ]
 
 
@@ -45,15 +52,12 @@ def plan_shots(num_scenes: int) -> list[str]:
     result: list[str] = []
 
     for i in range(num_scenes):
-        # Rotate the starting point by i so every scene gets a fresh candidate
-        # that isn't the previous shot type.
         for offset in range(n):
             candidate = SHOT_TYPES[(i + offset) % n]
             if not result or candidate != result[-1]:
                 result.append(candidate)
                 break
         else:
-            # Safety fallback: if all types equal prev (only possible with 1-type list)
             result.append(SHOT_TYPES[i % n])
 
     return result
@@ -73,7 +77,6 @@ def validate_shot_diversity(shots: list[str]) -> list[str]:
     if not shots:
         return issues
 
-    # Consecutive repeats
     for i in range(1, len(shots)):
         if shots[i] == shots[i - 1]:
             issues.append(f"Consecutive repeat at position {i + 1}: '{shots[i]}'")

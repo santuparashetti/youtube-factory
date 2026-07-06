@@ -251,7 +251,6 @@ def generate_scene_assets(state: VideoState) -> dict:
     return {
         "image_paths": {index: str(image_path)} if image_path.exists() else {},
         "audio_paths": {index: str(audio_path)} if audio_path.exists() else {},
-        "audio_durations": {index: real_duration},
         "srt_paths": {index: subtitle_for_state},
         "stage_errors": errors,
     }

@@ -108,7 +108,6 @@ def run_pipeline(
         "scene_plan": [],
         "image_paths": {},
         "audio_paths": {},
-        "audio_durations": {},
         "srt_paths": {},
         "scene_video_paths": {},
         "stage_errors": [],

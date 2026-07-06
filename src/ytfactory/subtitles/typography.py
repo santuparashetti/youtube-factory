@@ -72,8 +72,25 @@ class SubtitleTypographer:
         text = self.capitalize_first(text)
         return text
 
+    def clean_continuation(self, text: str) -> str:
+        """
+        Clean a continuation line — all normalization steps except capitalize_first.
+
+        Used for the second display line when line 1 does not end with a sentence
+        terminal.  Preserves the original casing of the first word so that function
+        words (for, are, of, with …) remain lowercase where grammatically correct.
+        """
+        if not text.strip():
+            return text
+        text = self.normalize_quotes(text)
+        text = self.normalize_dashes(text)
+        text = self.normalize_ellipsis(text)
+        text = self.repair_punctuation(text)
+        text = self.normalize_spaces(text)
+        return text
+
     def clean_lines(self, lines: list[str]) -> list[str]:
-        """Clean each line independently."""
+        """Clean each line independently (all lines treated as new sentences)."""
         return [self.clean(line) for line in lines]
 
     def normalize_quotes(self, text: str) -> str:

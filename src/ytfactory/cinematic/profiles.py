@@ -7,7 +7,7 @@ Each profile controls:
 - Which motion types are available (simplified vs full emotion mapping)
 
 The profile system is the single place to tune the quality/speed trade-off.
-Phase 4 will wire profiles to Settings; here they are pure data.
+Profiles are selected via ``Settings.render_profile`` (default: "balanced").
 """
 
 from __future__ import annotations

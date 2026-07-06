@@ -227,6 +227,182 @@ class FFmpegRenderer:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def render_continuous(
+        self,
+        scenes: list[dict],
+        durations: list[float],
+        project_dir: Path,
+        output_path: Path,
+        intro_enabled: bool = False,
+        intro_seconds: float = 1.5,
+    ) -> None:
+        """Render all scenes into one continuous MP4 using a single filter_complex pass.
+
+        Produces a single H.264 stream with no GOP boundaries at scene cuts —
+        YouTube's transcoder handles this cleanly with no inter-scene pauses.
+
+        Each scene's raw assets (PNG image, MP3 narration, ASS/SRT subtitle) are
+        fed directly as inputs; the existing _vf_spatial / _effects_filters /
+        _fade_filters helpers build the per-scene filter chains, then the FFmpeg
+        concat filter joins them before the single libx264 encode.
+
+        Per-scene MP4 clips are still generated separately (by render()) for the
+        review and remediation systems — this function only replaces the final
+        composition step.
+        """
+        W = self.settings.video_width
+        H = self.settings.video_height
+        fps = self.settings.video_fps
+
+        cmd: list[str] = ["ffmpeg", "-y"]
+        filter_chains: list[str] = []
+        concat_in_pads: list[str] = []
+        inp = 0  # running input index
+
+        # ── Optional intro (silent black clip) ───────────────────────────────
+        if intro_enabled and intro_seconds > 0:
+            d = intro_seconds
+            cmd += [
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c=black:s={W}x{H}:r={fps}:d={d:.4f}",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=48000:cl=stereo",
+            ]
+            filter_chains.append(
+                f"[{inp}:v]trim=duration={d:.4f},setpts=PTS-STARTPTS[_iv]"
+            )
+            filter_chains.append(
+                f"[{inp + 1}:a]atrim=duration={d:.4f},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[_ia]"
+            )
+            concat_in_pads += ["[_iv]", "[_ia]"]
+            inp += 2
+
+        # ── Per-scene inputs + filter chains ─────────────────────────────────
+        for i, scene in enumerate(scenes):
+            dur = durations[i]
+            index = scene["index"]
+
+            if scene.get("scene_type") == "asset":
+                asset_path = Path(scene.get("asset_path", ""))
+                if not asset_path.is_absolute():
+                    asset_path = Path.cwd() / asset_path
+                image = asset_path
+            else:
+                image = project_dir / "images" / f"scene-{index:03d}.png"
+
+            audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+            ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
+            srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
+            subtitle: Path | None = (
+                ass_sub if ass_sub.exists() else srt_sub if srt_sub.exists() else None
+            )
+
+            vid_inp = inp
+            aud_inp = inp + 1
+            inp += 2
+
+            # Image input: looped still, limited to narration duration
+            cmd += [
+                "-loop",
+                "1",
+                "-framerate",
+                str(fps),
+                "-t",
+                f"{dur:.4f}",
+                "-i",
+                str(image),
+            ]
+            # Audio input
+            cmd += ["-i", str(audio)]
+
+            # Video filter chain — reuse existing private helpers
+            motion_spec = scene.get("motion")
+            effect_spec = scene.get("effects")
+            t_in = scene.get("transition_in")
+            t_out = scene.get("transition_out")
+
+            if motion_spec is not None:
+                spatial = self._vf_spatial(W, H, fps, motion_spec, dur)
+            else:
+                spatial = self._vf_spatial_legacy(
+                    W, H, fps, scene.get("animation"), dur
+                )
+
+            vf_parts: list[str] = [spatial]
+            vf_parts += self._effects_filters(effect_spec)
+            vf_parts += self._fade_filters(t_in, t_out, fps, dur)
+
+            if subtitle is not None:
+                # Escape backslash and single-quote so the path survives the
+                # filter_complex parser on Linux (colons are safe in Linux paths).
+                sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
+                vf_parts.append(f"subtitles='{sub_escaped}'")
+
+            # format=yuv420p ensures all segments entering concat share a pixel format
+            vf_parts.append("format=yuv420p")
+
+            vf_chain = ",".join(vf_parts)
+            filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
+            filter_chains.append(
+                f"[{aud_inp}:a]"
+                f"atrim=duration={dur:.4f},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+                f"[_a{i}]"
+            )
+            concat_in_pads += [f"[_v{i}]", f"[_a{i}]"]
+
+        # ── Concat filter ─────────────────────────────────────────────────────
+        n_segments = len(scenes) + (1 if intro_enabled and intro_seconds > 0 else 0)
+        pads_str = "".join(concat_in_pads)
+        filter_chains.append(f"{pads_str}concat=n={n_segments}:v=1:a=1[_vout][_aout]")
+
+        filter_complex = ";".join(filter_chains)
+
+        # ── Encoding ──────────────────────────────────────────────────────────
+        enc: list[str] = [
+            "-c:v",
+            "libx264",
+            "-preset",
+            self.settings.video_preset,
+            "-crf",
+            str(self.settings.video_crf),
+            "-pix_fmt",
+            "yuv420p",
+            "-profile:v",
+            "high",
+            "-g",
+            str(self.settings.video_keyframe_interval),
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            self.settings.video_audio_bitrate,
+            "-ar",
+            "48000",
+        ]
+        if self.settings.video_tune:
+            enc += ["-tune", self.settings.video_tune]
+
+        cmd += [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[_vout]",
+            "-map",
+            "[_aout]",
+            *enc,
+            str(output_path),
+        ]
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(cmd, check=True)
+
     def render(
         self,
         image: Path,
@@ -302,13 +478,20 @@ class FFmpegRenderer:
         # Build the encoder argument list from settings so CRF, preset, tune,
         # keyframe interval, and audio bitrate are all configurable.
         enc_args: list[str] = [
-            "-c:v", "libx264",
-            "-preset", self.settings.video_preset,
-            "-crf", str(self.settings.video_crf),
-            "-pix_fmt", "yuv420p",
-            "-profile:v", "high",
-            "-g", str(self.settings.video_keyframe_interval),
-            "-movflags", "+faststart",
+            "-c:v",
+            "libx264",
+            "-preset",
+            self.settings.video_preset,
+            "-crf",
+            str(self.settings.video_crf),
+            "-pix_fmt",
+            "yuv420p",
+            "-profile:v",
+            "high",
+            "-g",
+            str(self.settings.video_keyframe_interval),
+            "-movflags",
+            "+faststart",
         ]
         if self.settings.video_tune:
             enc_args += ["-tune", self.settings.video_tune]
@@ -318,19 +501,29 @@ class FFmpegRenderer:
                 "ffmpeg",
                 "-y",
                 # ---------- Input ----------
-                "-loop", "1",
-                "-framerate", str(fps),
-                "-i", str(image),
-                "-i", str(audio),
+                "-loop",
+                "1",
+                "-framerate",
+                str(fps),
+                "-i",
+                str(image),
+                "-i",
+                str(audio),
                 # ---------- Video ----------
-                "-vf", vf,
-                "-r", str(fps),
-                "-s", f"{width}x{height}",
+                "-vf",
+                vf,
+                "-r",
+                str(fps),
+                "-s",
+                f"{width}x{height}",
                 *enc_args,
                 # ---------- Audio ----------
-                "-c:a", "aac",
-                "-b:a", self.settings.video_audio_bitrate,
-                "-ar", "48000",
+                "-c:a",
+                "aac",
+                "-b:a",
+                self.settings.video_audio_bitrate,
+                "-ar",
+                "48000",
                 # ---------- Finish ----------
                 "-shortest",
                 str(output),

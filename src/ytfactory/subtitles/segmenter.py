@@ -88,7 +88,7 @@ _CLAUSE_TERMINALS = frozenset(",;:")
 # Sentence-terminal punctuation: we MUST break after these
 _SENTENCE_TERMINALS = frozenset(".!?")
 
-# Weak function words — avoid ending a cue with these
+# Weak function words — avoid ending a cue with these (bare, no punctuation)
 _NO_TRAIL = frozenset(
     {
         "a",
@@ -100,6 +100,9 @@ _NO_TRAIL = frozenset(
         "by",
         "of",
         "to",
+        "for",
+        "with",
+        "from",
         "and",
         "or",
         "but",
@@ -107,14 +110,42 @@ _NO_TRAIL = frozenset(
         "are",
         "was",
         "were",
-        "for",
-        "with",
-        "from",
         "that",
         "this",
         "which",
         "who",
         "as",
+    }
+)
+
+# Words that must not BEGIN the second display line of a two-line cue unless
+# the preceding word ends with clause/sentence punctuation (natural pause).
+# Never split: phrasal verbs, prepositional phrases, article-noun, aux-verb pairs.
+_NO_LINE2_START = frozenset(
+    {
+        # Prepositions
+        "for",
+        "to",
+        "of",
+        "with",
+        "on",
+        "in",
+        "at",
+        "from",
+        "by",
+        # Auxiliary / linking verbs
+        "is",
+        "are",
+        "was",
+        "were",
+        # Coordinating conjunctions
+        "and",
+        "or",
+        "but",
+        # Articles
+        "the",
+        "a",
+        "an",
     }
 )
 
@@ -278,17 +309,14 @@ class SubtitleSegmenter:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _flush(self, pending: _PendingCue, index: int) -> SubtitleCue:
-        """
-        Convert pending words into a SubtitleCue with 1 or 2 display lines.
-        Applies typography cleanup to each line.
-        """
+        """Convert pending words into a SubtitleCue with 1 or 2 display lines."""
         text = pending.text
         start = pending.start
         end = pending.end
         pending.clear()
 
         lines = self._split_lines(text)
-        lines = self._typo.clean_lines(lines)
+        lines = self._apply_typography(lines)
         lines = [ln for ln in lines if ln.strip()]
 
         return SubtitleCue(
@@ -298,25 +326,45 @@ class SubtitleSegmenter:
             lines=lines,
         )
 
+    def _apply_typography(self, lines: list[str]) -> list[str]:
+        """
+        Apply typography cleanup with continuation-aware capitalization.
+
+        Line 1 always gets capitalize_first.  Line 2 gets capitalize_first only
+        if line 1 ends with a sentence terminal (.!?) — otherwise it is a
+        continuation and the first word keeps its original casing.
+        """
+        if len(lines) == 2:
+            line1 = self._typo.clean(lines[0])
+            l1_last = line1.rstrip()
+            line1_ends_sentence = bool(l1_last) and l1_last[-1] in ".!?"
+            line2 = (
+                self._typo.clean(lines[1])
+                if line1_ends_sentence
+                else self._typo.clean_continuation(lines[1])
+            )
+            return [line1, line2]
+        return self._typo.clean_lines(lines)
+
     def _split_lines(self, text: str) -> list[str]:
         """
-        Split a cue's text into 1 or 2 balanced display lines.
+        Split a cue's text into 1 or 2 linguistically balanced display lines.
 
         Single line if text fits within MAX_CHARS_PER_LINE.
-        Two lines otherwise: split at the word boundary nearest the midpoint,
-        avoiding protected spans and trailing function words.
+        Two lines otherwise: find the word boundary nearest the midpoint that
+        satisfies linguistic constraints (no bad-start words, no trailing
+        function words without preceding punctuation).
         """
         text = text.strip()
         if len(text) <= self._max_chars_per_line:
             return [text]
 
-        # Find the midpoint and search for the nearest word boundary
         words = text.split()
         if len(words) <= 2:
             return [text]
 
         mid = len(text) // 2
-        best_split_idx = self._find_line_split(words, mid, text)
+        best_split_idx = self._find_line_split(words, mid)
 
         if best_split_idx <= 0 or best_split_idx >= len(words):
             return [text]
@@ -324,53 +372,85 @@ class SubtitleSegmenter:
         line1 = " ".join(words[:best_split_idx])
         line2 = " ".join(words[best_split_idx:])
 
-        # Reject if either line is empty or one line dwarfs the other badly
         if not line1.strip() or not line2.strip():
             return [text]
 
-        # Both lines should fit within the per-line limit
         if (
             len(line1) > self._max_chars_per_line
             or len(line2) > self._max_chars_per_line
         ):
-            # Recurse is not safe here (infinite loop risk); just return as-is
             return [text]
 
         return [line1, line2]
 
-    def _find_line_split(self, words: list[str], mid_chars: int, text: str) -> int:
+    def _find_line_split(self, words: list[str], mid_chars: int) -> int:
         """
-        Find the word-split index closest to `mid_chars` characters into `text`.
-        Returns 0 if no good split found.
+        Find the best word-split index using two-pass linguistic scoring.
+
+        Pass 1 (strict): enforces both trailing and leading function-word rules.
+        Pass 2 (permissive): only enforces the trailing rule if pass 1 finds nothing.
+
+        A candidate at index i means split BEFORE words[i] — line 1 is words[:i],
+        line 2 is words[i:].  Candidates where either resulting line would exceed
+        ``max_chars_per_line`` are skipped in both passes.
+
+        Scoring per accepted candidate:
+          - Minimise distance from midpoint
+          - Clause-punct bonus (-2) when word[i-1] ends with , ; :
+
+        Returns 0 when no valid split exists.
         """
         n = len(words)
-        best_idx = 0
-        best_dist = float("inf")
-        running = 0
+        total_len = len(" ".join(words))  # total character count of the full text
 
-        for i, word in enumerate(words):
-            if i > 0:
-                running += 1  # space
-            running += len(word)
+        def _best(strict: bool) -> int:
+            best_idx = 0
+            best_dist: float = float("inf")
+            running = 0
 
-            # Position after this word
-            pos = running
-            dist = abs(pos - mid_chars)
+            for i, word in enumerate(words):
+                if i > 0:
+                    running += 1  # one space between words
+                running += len(word)
 
-            # Don't split after a function word (leave it with next line)
-            bare = word.lower().rstrip(".,;:?!")
-            if bare in _NO_TRAIL:
-                continue
+                bare = word.lower().rstrip(".,;:?!'\"")
+                # Does this word carry explicit punctuation that marks a natural break?
+                ends_with_punct = bool(word) and word[-1] in ".,;:!?"
 
-            # Prefer splitting at a clause boundary (extra score)
-            clause_bonus = -2 if word.endswith((",", ";", ":")) else 0
-            effective_dist = dist + clause_bonus
+                # Rule 1: never trail line 1 with a bare function word (no punctuation).
+                if bare in _NO_TRAIL and not ends_with_punct:
+                    continue
 
-            if i >= 1 and i < n - 1 and effective_dist < best_dist:
-                best_dist = effective_dist
-                best_idx = i + 1  # split BEFORE word[i+1]
+                # Rule 2 (strict): never start line 2 with a function word unless
+                # the preceding word has clause/sentence punctuation.
+                if strict and i + 1 < n:
+                    next_bare = words[i + 1].lower().rstrip(".,;:?!'\"")
+                    if next_bare in _NO_LINE2_START and not ends_with_punct:
+                        continue
 
-        return best_idx
+                # Both resulting lines must fit within the per-line character limit.
+                line1_len = running
+                line2_len = total_len - running - 1  # -1 for the inter-word space
+                if (
+                    line1_len > self._max_chars_per_line
+                    or line2_len > self._max_chars_per_line
+                ):
+                    continue
+
+                # Prefer clause boundaries (comma, semicolon, colon)
+                clause_bonus = -2 if ends_with_punct and word[-1] in ",;:" else 0
+                effective_dist = abs(running - mid_chars) + clause_bonus
+
+                if 1 <= i < n - 1 and effective_dist < best_dist:
+                    best_dist = effective_dist
+                    best_idx = i + 1
+
+            return best_idx
+
+        result = _best(strict=True)
+        if result == 0:
+            result = _best(strict=False)
+        return result
 
     def _fallback_cues(
         self,
@@ -409,7 +489,7 @@ class SubtitleSegmenter:
             duration = max(self._min_duration, weight * total_duration)
             end = min(cursor + duration, total_duration)
             lines = self._split_lines(sentence.strip())
-            lines = self._typo.clean_lines(lines)
+            lines = self._apply_typography(lines)
             cues.append(SubtitleCue(index=idx, start=cursor, end=end, lines=lines))
             cursor = end
 

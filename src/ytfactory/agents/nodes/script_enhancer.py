@@ -1,4 +1,5 @@
-"""Script Enhancer node — rewrites a raw user script into a cinematic professional narration."""
+"""Script Enhancer node — expands a user-provided script to meet a target duration
+while preserving the author's original writing style, rhythm, and message."""
 
 from __future__ import annotations
 
@@ -29,11 +30,17 @@ def _duration_ok(estimated_minutes: float, target_minutes: int) -> bool:
 
 def script_enhancer_node(state: VideoState) -> dict:
     """
-    Transforms the raw user-provided script into a beautiful, cinematic narration.
+    Expands the user-provided script to meet the target duration without
+    rewriting the author's content.
 
-    V2 pacing rules: preserves the base script as source of truth, prefers
-    slower pacing over adding filler, and validates duration within ±1 min
-    of the requested target.
+    Expansion priority order (applied by the LLM prompt):
+      1. Preserve original wording exactly
+      2. Extend through pacing and silence (paragraph breaks, standalone lines)
+      3. Add meaningful pauses at thought boundaries
+      4. Naturally slow the narration (sparse text reads slower than dense text)
+      5. Add new content ONLY when priorities 1–4 are insufficient
+      6. New content must be a genuinely new example, analogy, or insight
+      7. Never add filler, repetitive explanations, or generic motivational language
 
     The enhanced script is what the scene planner uses to extract narrations,
     and those narrations go directly into TTS audio.
@@ -53,7 +60,7 @@ def script_enhancer_node(state: VideoState) -> dict:
     style_label = f" [{style}]" if style else ""
     console.print(
         f"\n[bold magenta]✍  Script Enhancer[/bold magenta]{style_label} — "
-        f"transforming script into cinematic narration "
+        f"expanding through pacing and reflection "
         f"(target: {target_minutes} min ±{DURATION_TOLERANCE_MINUTES} min)..."
     )
 

@@ -5,11 +5,13 @@ from pathlib import Path
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.image import ImageRequest
+from ytfactory.images.human_detector import compute_sharpness, detect_human_presence
 from ytfactory.images.models import (
     ImageArtifact,
     ImageGenerationResult,
     ImageManifest,
 )
+from ytfactory.images.prompt_engine import _DEFAULT_NEGATIVE_PROMPT, _PROVIDERS_WITH_NEGATIVE_PROMPTS
 from ytfactory.images.repository import ImageRepository
 from ytfactory.providers.image.factory import get_image_provider
 
@@ -21,6 +23,9 @@ class ImagePipeline:
         self._settings = settings
         self._provider = get_image_provider(settings)
         self._repository = ImageRepository()
+        self._uses_negative_prompts = (
+            settings.image_provider.lower() in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+        )
 
     def run(
         self,
@@ -79,11 +84,17 @@ class ImagePipeline:
                 )
                 continue
 
+            negative_prompt = (
+                scene.get("negative_prompt") or _DEFAULT_NEGATIVE_PROMPT
+                if self._uses_negative_prompts
+                else None
+            )
             request = ImageRequest(
                 prompt=scene["visual_prompt"],
                 output_path=output_path,
                 width=self._settings.image_width,
                 height=self._settings.image_height,
+                negative_prompt=negative_prompt,
             )
 
             if output_path.exists():
@@ -101,6 +112,28 @@ class ImagePipeline:
             print(f"[{index}/{total}] {filename}")
 
             self._provider.generate(request)
+
+            # Human quality validation: regenerate if sharpness is below threshold
+            prompt_text = scene.get("visual_prompt", "")
+            if detect_human_presence(prompt_text) and self._settings.image_human_max_retries > 0:
+                sharpness = compute_sharpness(output_path)
+                threshold = self._settings.image_human_min_sharpness
+                max_retries = self._settings.image_human_max_retries
+                for attempt in range(max_retries):
+                    if sharpness >= threshold:
+                        break
+                    print(
+                        f"  ↻ Human scene sharpness {sharpness:.1f} < {threshold} — "
+                        f"retry {attempt + 1}/{max_retries}"
+                    )
+                    output_path.unlink(missing_ok=True)
+                    self._provider.generate(request)
+                    sharpness = compute_sharpness(output_path)
+                if sharpness < threshold:
+                    print(
+                        f"  ⚠ {filename}: sharpness {sharpness:.1f} still below "
+                        f"{threshold} after {max_retries} retries"
+                    )
 
             manifest.images.append(
                 ImageArtifact(

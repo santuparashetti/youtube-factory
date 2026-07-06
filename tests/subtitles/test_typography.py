@@ -121,3 +121,32 @@ class TestFullClean:
     def test_spaces_normalized(self, typo):
         result = typo.clean("word   word")
         assert "   " not in result
+
+
+class TestCleanContinuation:
+    """clean_continuation skips capitalize_first; all other repairs still apply."""
+
+    def test_lowercase_first_word_preserved(self, typo):
+        result = typo.clean_continuation("for the sake of clarity")
+        assert result[0] == "f", f"Expected lowercase 'f', got: {result!r}"
+
+    def test_uppercase_first_word_preserved(self, typo):
+        # Proper nouns that are already uppercase must stay uppercase
+        result = typo.clean_continuation("London remains a great city")
+        assert result[0] == "L"
+
+    def test_punctuation_repair_still_applied(self, typo):
+        result = typo.clean_continuation("are you ready?. yes")
+        assert "?." not in result
+
+    def test_smart_quotes_still_cleaned(self, typo):
+        result = typo.clean_continuation("“hello” world")
+        assert "“" not in result
+        assert "”" not in result
+
+    def test_spaces_still_normalized(self, typo):
+        result = typo.clean_continuation("in  the  beginning")
+        assert "  " not in result
+
+    def test_empty_string_returned_unchanged(self, typo):
+        assert typo.clean_continuation("") == ""

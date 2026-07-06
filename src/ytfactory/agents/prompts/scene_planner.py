@@ -8,17 +8,17 @@ VISUAL STYLE — Spiritual Documentary
 Approach: silence as teacher, nature as metaphor, light as consciousness.
 Core metaphors to draw from:
   • desire → traveler pursuing endlessly receding horizon / moth flying toward flame
-  • ego → mirror maze / throne standing alone in empty hall
-  • peace → still mountain lake at dawn / snow-covered valley
-  • attachment → vine gripping ancient stone / anchor preventing boat from sailing
+  • ego → mirror maze / solitary bench in a vast empty courtyard
+  • peace → glacier-fed alpine lake, surface unbroken at pre-dawn / snow-covered valley
+  • attachment → vine grown through an iron gate it can no longer pass / anchor preventing boat from sailing
   • freedom → bird leaving open cage / cliff overlooking ocean
-  • wisdom → monk beneath ancient tree / open book in morning light
+  • wisdom → monk beneath ancient tree / worn pages of a journal, pen resting mid-sentence
   • time → worn stone staircase / autumn leaves on still water
-  • hope → first light breaking through storm clouds / single candle in darkness
-Color palette: warm amber/gold (enlightenment), cool silver-blue (inner peace), deep indigo (consciousness), white mist (transcendence).
-Camera: contemplative wide shots, behind-subject perspectives, high angle (humility), macro sacred details.
-Lighting: candlelight, temple lamp glow, golden hour, pre-dawn blue.
-Avoid: identifiable faces, yoga poses, specific religious symbols, generic sunsets.\
+  • hope → first light breaking through storm clouds / one lit window in a row of dark buildings
+Color palette: warm amber/gold (enlightenment), cool silver-blue (inner peace), deep indigo (consciousness), soft pre-dawn blue (transcendence).
+Camera: contemplative wide shots, behind-subject environmental portraits, high angle (humility), profile shots revealing emotional weight.
+Lighting: temple lamp glow, golden hour, pre-dawn blue — warm and purposeful.
+Avoid: identifiable faces, yoga poses, specific religious symbols, generic sunsets, candles as main subject, mist as shorthand for mystery.\
 """,
     "documentary": """\
 VISUAL STYLE — Documentary
@@ -32,8 +32,8 @@ Avoid: staged scenes, studio lighting, fantasy elements, cartoon.\
     "history": """\
 VISUAL STYLE — Historical Documentary
 Approach: evidence of time's passage, architecture as witness, textures as testimony.
-Core metaphors: ruined walls (fall), worn roads (journeys), empty thrones (power), ancient artifacts (civilization).
-Camera: wide sweeping establishing shots, low-angle hero framing, macro on aged textures.
+Core metaphors: ruined walls (fall), worn roads (journeys), crumbling columns (power), ancient artifacts (civilization).
+Camera: wide sweeping establishing shots, low-angle hero framing, close-up on aged textures and worn surfaces.
 Color: warm sepia/amber with dramatic shadow, earth tones, occasional dramatic gold.
 Lighting: golden-hour chiaroscuro, dusty shafts through ruins.
 Figures: silhouettes only — never detailed faces.\
@@ -131,6 +131,100 @@ REPETITIVE OBJECT ban — these appear too often in AI-generated spirituality vi
   ✗  fireplaces | lotus flowers | hourglasses | open books lying on tables
   ✓  Use fresh, specific visual equivalents that express the same emotion without the cliché
 
+AI VISUAL CLICHÉ ban — these reveal the image was AI-generated and look generic:
+  ✗  giant hands holding a tiny figure | floating clocks or melting watches
+  ✗  cracked desert floor merging with the sky | cosmic portals or vortexes
+  ✗  glowing eyes on a dark figure | glowing chakras or third-eye beams
+  ✗  broken chains or shattered glass for "freedom" | floating orbs of light
+  ✗  fractal universe inside a teardrop | silhouette with radiant rays behind it
+  ✗  digital matrix rain | ethereal glow emanating from a person's body
+  ✓  Real situations: a man sitting with his back to us, watching rain on glass
+  ✓  Specific textures: worn timber dock at pre-dawn, water absolutely still
+
+ANATOMY SAFETY — when a human figure must appear:
+  ✓  Show the subject from behind, in profile, or from the chest up — never isolated hands
+  ✓  Specify: "natural posture," "realistic proportions" in the prompt
+  ✓  Avoid requesting gesturing hands — if hands must appear, show them resting or holding an object
+  ✗  No disembodied hands | no floating hands | no macro shot of a hand
+  ✗  No extreme close-up on body parts unless the scene critically demands it
+
+CULTURAL MIXING ban — every visual element must belong to the same cultural world:
+  ✗  Indian sage inside a Japanese temple | Buddhist monk inside a Roman palace
+  ✗  Modern office worker wearing ancient robes | Greek philosopher inside an Indian ashram
+  ✗  Sanskrit scholar in a Tudor library | Mughal courtier in a Greek amphitheatre
+  ✗  Ancient warrior using modern objects | contemporary professional in historical ruins as background set
+  ✓  Identify the culture from the narration — then match environment, clothing, architecture,
+     objects, lighting, and atmosphere to that single culture
+
+══════════════════════════════════════════════════
+HUMAN SUBJECT QUALITY — mandatory when a human appears in the scene
+══════════════════════════════════════════════════
+
+AI image models render environments beautifully but often produce blurry faces,
+unnatural eyes, and stiff postures.  When a human subject appears, include ALL of
+these phrases explicitly in the prompt so the model prioritises human quality:
+
+  — "highly detailed human face"
+  — "natural facial expression"
+  — "realistic eyes"
+  — "authentic skin texture"
+  — "natural posture"
+  — "seamless integration with the environment"
+  — "documentary-quality realism"
+
+Subject Dominance Rule — for establishing shot, wide shot, drone, or wide cinematic
+when a human is present:
+  Add: "subject remains visually prominent and detailed despite wide framing"
+  Without this, the model may render a tiny, low-detail person inside a large environment.
+
+══════════════════════════════════════════════════
+CULTURAL AUTHENTICITY — identify once, apply throughout
+══════════════════════════════════════════════════
+
+Before writing a single prompt, read ALL narrations and identify the single cultural,
+historical, and geographical world the video inhabits.  Then keep every scene inside
+that world.  The environment, people, clothing, architecture, objects, and atmosphere
+must all belong to the same culture.
+
+Context → authentic visual elements (examples — not exhaustive):
+
+  Ancient Indian spirituality / philosophy
+    Sages, monks, ashrams, river ghats, banyan trees, Himalayan or Deccan landscapes,
+    dhoti, saffron or white robes, meditation halls, ancient temples, oil lamps (diyas),
+    clay vessels, Sanskrit manuscripts, peacocks, marigolds.
+
+  Contemporary / modern life
+    City streets, offices, apartments, cafés, metro stations, glass towers, smartphones,
+    laptops, cars; contemporary casual or business clothing; diverse modern settings.
+
+  Ancient Greek philosophy
+    Marble colonnades and porticos, draped tunics (chiton) and himation, agora,
+    olive groves, Aegean coastline, amphorae, scroll rolls, symposium settings.
+
+  East Asian spirituality (Buddhist, Daoist, Zen)
+    Wooden temples, tatami floors, rock and moss gardens, bamboo groves,
+    grey monk's robes, rice-paper lanterns, mountain mist, lotus ponds,
+    stone lanterns, cedar forests.
+
+  Islamic golden age / Middle Eastern
+    Minarets, geometric tile work, souks, desert landscapes, flowing robes and kufiya,
+    astrolabes, qalam and inkpot, courtyard gardens with fountains.
+
+  Medieval / feudal Europe
+    Stone castles and keeps, torchlit great halls, dirt roads and market squares,
+    period-accurate armour, wool tunics, quill and parchment, taverns, forest clearings.
+
+  Sub-Saharan African
+    Savannah, baobab trees, or dense jungle; traditional textiles and beadwork;
+    clay or thatch architecture; communal fire circles; specific regional dress.
+
+  Universal / timeless narration
+    When the script contains no specific cultural or historical reference, prefer
+    contemporary settings (city, nature, modern home) — never invent a historical context.
+
+⚠ NEVER mix elements from unrelated cultures in the same scene.
+⚠ NEVER invent a cultural context that is absent from the narration.
+
 ══════════════════════════════════════════════════
 CHARACTER BIBLE
 ══════════════════════════════════════════════════
@@ -153,9 +247,17 @@ STORYBOARD — complete this before writing any prompt
 6. List the metaphors you will use — commit to them, each used only once in this batch.
 
 PER-SCENE INTERNAL REASONING (work through this silently before writing each prompt):
-  A. Core meaning — what is this scene ABOUT beneath the words?
-  B. Dominant emotion — one only: wonder | mystery | hope | peace | grief | isolation | determination | reverence | longing | fear | regret
-  C. Best metaphor — what image makes the audience FEEL the idea without being told it?
+  A. Cultural context — what culture, era, and geography does this narration inhabit?
+     Ancient Indian philosophy → sages, ashrams, river ghats, banyan trees, dhotis, diyas
+     Modern / contemporary → city, office, apartment, contemporary clothing, technology
+     Ancient Greek → marble colonnades, tunics and himation, agora, olive groves
+     East Asian Buddhist / Daoist → wooden temples, bamboo, rock gardens, grey robes
+     Medieval / feudal → stone castles, torchlit halls, period armour, quill and parchment
+     Universal / timeless → default to contemporary unless the script implies otherwise
+     ⚠ Confirm: do my chosen environment, clothing, and objects all belong to this one culture?
+  B. Core meaning — what is this scene ABOUT beneath the words?
+  C. Dominant emotion — one only: wonder | mystery | hope | peace | grief | isolation | determination | reverence | longing | fear | regret
+  D. Best metaphor — what image makes the audience FEEL the idea without being told it?
      Library:  desire → traveler toward a horizon that keeps receding
                ego → an ornate throne in a vast echoing hall, dust settling
                peace → glacier lake at pre-dawn, surface still as polished stone
@@ -166,19 +268,16 @@ PER-SCENE INTERNAL REASONING (work through this silently before writing each pro
                freedom → a cage door open, white feathers still drifting
                transformation → cracked earth after the first monsoon rain
                loneliness → one chair at a set table, the second place never touched
-  D. Specific subject — not "a lake" but "a glacier-fed alpine lake, its surface not yet broken by wind"
-  E. Environment — two or three concrete details that reveal emotion without stating it:
+  E. Specific subject — not "a lake" but "a glacier-fed alpine lake, its surface not yet broken by wind"
+  F. Environment — two or three concrete details that reveal emotion without stating it:
      ✓  "an untouched dinner cooling, a voicemail light blinking unanswered, rain against the window"
      ✗  "a peaceful place, lush surroundings, beautiful landscape"
-  F. Shot type — the ASSIGNED SHOT TYPE for this scene is shown in [brackets] in the SCENES section below.
+  G. Shot type — the ASSIGNED SHOT TYPE for this scene is shown in [brackets] in the SCENES section below.
      Use that exact shot type. It determines camera distance and composition:
        establishing shot → wide view, scene-setting, full environment visible
        wide shot → landscape-scale subject, environmental context dominant
        medium shot → subject waist-up or object at mid-distance, context visible
-       close-up → face, hands, or object filling most of the frame
-       extreme close-up → single eye, fingertip, or tiny detail, bokeh background
-       macro → ultra-close, texture-level, abstract patterns in ordinary objects
-       POV → scene from the protagonist's viewpoint, immersive first-person
+       close-up → face or meaningful object filling most of the frame — NOT isolated body parts
        over-the-shoulder → looking past a figure at what they face
        low angle → camera below subject, looking up — conveys power or awe
        high angle → camera above subject, looking down — conveys scale or vulnerability
@@ -186,9 +285,13 @@ PER-SCENE INTERNAL REASONING (work through this silently before writing each pro
        tracking shot → camera moves laterally alongside a subject in motion
        static → locked-off camera, world moves within frame — conveys stillness
        handheld → slightly unsteady camera suggests intimacy or documentary feel
-  G. Lighting — one specific choice: pre-dawn blue | warm candlelight | storm-filtered gold | overcast flat | harsh noon | volumetric shafts
-  H. Color palette — two or three dominant colors: e.g. "muted ochre, slate grey, faint amber"
-  I. Self-critique — before writing: Is this specific? Does it avoid every banned pattern above?
+       environmental portrait → subject embedded in their environment, context tells the story
+       profile shot → subject in profile, revealing character through posture and silhouette
+       wide cinematic → ultra-wide horizontal composition, landscape or architectural grandeur
+  H. Lighting — one specific choice: pre-dawn blue | warm candlelight | storm-filtered gold | overcast flat | harsh noon | volumetric shafts
+  I. Color palette — two or three dominant colors: e.g. "muted ochre, slate grey, faint amber"
+  J. Self-critique — before writing: Is this specific? Does it avoid every banned pattern above?
+     Have I confirmed every element belongs to the same cultural context (step A)?
      Have I repeated an environment or metaphor from another scene in this batch?
      Would a documentary director choose this exact frame?
      Does this image naturally connect to the scene before and after it?

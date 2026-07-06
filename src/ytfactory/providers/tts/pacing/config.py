@@ -26,6 +26,15 @@ class PauseRange:
 
 
 @dataclass(frozen=True)
+class ThoughtPauseRanges:
+    """Per-depth silence ranges for thought-based pacing (one per profile)."""
+
+    small: PauseRange        # simple complete thought
+    realization: PauseRange  # meaningful insight / important realization
+    insight: PauseRange      # deep philosophical point — maximum contemplative space
+
+
+@dataclass(frozen=True)
 class ProfilePauses:
     """Per-category pause ranges for one pacing profile."""
 
@@ -35,7 +44,45 @@ class ProfilePauses:
     concept_pre: PauseRange  # extra pause added before a key-concept opener
 
 
-# Pause durations in milliseconds per profile.
+# ── Thought-based pause tables (ThoughtAnalyzer / PauseInjector) ─────────────
+#
+# Each profile defines silence ranges for three depth categories:
+#   small       — complete but simple thought (brief breathing space)
+#   realization — meaningful insight (let the idea land)
+#   insight     — deep philosophical point (full contemplative space)
+#
+# "spiritual" ranges match the channel's target feel (calm monk / philosopher).
+#
+THOUGHT_PROFILE_PAUSES: dict[str, ThoughtPauseRanges] = {
+    "normal": ThoughtPauseRanges(
+        small=PauseRange(400, 700),
+        realization=PauseRange(800, 1200),
+        insight=PauseRange(1200, 1800),
+    ),
+    "documentary": ThoughtPauseRanges(
+        small=PauseRange(600, 900),
+        realization=PauseRange(1200, 1800),
+        insight=PauseRange(1800, 2500),
+    ),
+    "spiritual": ThoughtPauseRanges(
+        small=PauseRange(800, 1200),
+        realization=PauseRange(1500, 2500),
+        insight=PauseRange(2500, 4000),
+    ),
+    "meditation": ThoughtPauseRanges(
+        small=PauseRange(1200, 1800),
+        realization=PauseRange(2000, 3000),
+        insight=PauseRange(3000, 4500),
+    ),
+    "slow_reflection": ThoughtPauseRanges(
+        small=PauseRange(1500, 2000),
+        realization=PauseRange(2500, 3500),
+        insight=PauseRange(3500, 5000),
+    ),
+}
+
+
+# ── Sentence-based pause tables (SentenceAnalyzer — legacy) ──────────────────
 #
 #   normal          — plain narration, slight breathiness
 #   documentary     — nature/history doc style, dignified pacing

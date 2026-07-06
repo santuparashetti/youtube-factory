@@ -123,46 +123,6 @@ class TestFFmpegRendererEncodingSettings:
         assert cmd[idx + 1] == "128k"
 
 
-# ── Intro clip encoding ───────────────────────────────────────────────────────
-
-
-class TestIntroClipEncoding:
-    def test_intro_uses_same_crf_and_preset(self, tmp_path):
-        from ytfactory.video.pipeline import _generate_intro_clip
-
-        captured_cmds = []
-
-        def fake_run(cmd, **kwargs):
-            captured_cmds.append(list(cmd))
-
-        from ytfactory.config.settings import Settings
-        s = Settings()
-        s.video_crf = 27
-        s.video_preset = "medium"
-        s.video_tune = ""
-        s.video_audio_bitrate = "96k"
-
-        with patch("ytfactory.video.pipeline.subprocess.run", side_effect=fake_run):
-            _generate_intro_clip(tmp_path, 1920, 1080, 30, 1.5, settings=s)
-
-        cmd = captured_cmds[0]
-        assert cmd[cmd.index("-crf") + 1] == "27"
-        assert cmd[cmd.index("-preset") + 1] == "medium"
-        assert "-tune" not in cmd
-        assert cmd[cmd.index("-b:a") + 1] == "96k"
-
-    def test_intro_skips_existing_file(self, tmp_path):
-        from ytfactory.video.pipeline import _generate_intro_clip
-
-        intro = tmp_path / "intro.mp4"
-        intro.write_bytes(b"existing")
-
-        with patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
-            result = _generate_intro_clip(tmp_path, 1920, 1080, 30, 1.5)
-            mock_run.assert_not_called()
-
-        assert result == intro
-
 
 # ── VideoStats + ComparisonReport ────────────────────────────────────────────
 

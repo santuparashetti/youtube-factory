@@ -15,6 +15,7 @@ from ytfactory.review.validation.config import ValidationRulesConfig
 from ytfactory.review.validation.models import ValidationReport, ValidationResult
 from ytfactory.review.validation.rules.audio import AudioValidator
 from ytfactory.review.validation.rules.bgm import BGMValidator
+from ytfactory.review.validation.rules.human import HumanValidator
 from ytfactory.review.validation.rules.image import ImageValidator
 from ytfactory.review.validation.rules.motion import MotionValidator
 from ytfactory.review.validation.rules.narration import NarrationValidator
@@ -55,6 +56,7 @@ class ValidationRunner:
             NarrationValidator(self._config),
             SubtitleValidator(self._config),
             ImageValidator(self._config),
+            HumanValidator(self._config),
             MotionValidator(self._config),
             AudioValidator(self._config),
             RenderingValidator(self._config),

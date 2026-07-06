@@ -2,7 +2,7 @@
 
 NOTE: BGM is NOT applied via this class in the build pipeline. Background
 music is mixed as a structural part of video composition inside
-``VideoPipeline._compose_final_video()`` (video/pipeline.py), ensuring that
+``compose_continuous_video()`` (video/pipeline.py), ensuring that
 every code path producing final.mp4 — including Auto Remediation — always
 outputs the fully-mixed version without any separate post-processing step.
 

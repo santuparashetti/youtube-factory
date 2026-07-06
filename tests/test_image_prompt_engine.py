@@ -1,4 +1,4 @@
-"""Tests for Image Prompt Engine V4 — shot planner, diagnostics, engine, integration."""
+"""Tests for Image Prompt Engine V5 — shot planner, diagnostics, engine, integration."""
 
 from __future__ import annotations
 
@@ -10,11 +10,17 @@ import pytest
 
 from ytfactory.images.diagnostics import (
     DiagnosticsReport,
+    _AI_CLICHES,
     _REPETITIVE_OBJECTS,
     _STYLE_MARKERS,
+    _UNSAFE_COMPOSITIONS,
     build_report,
 )
-from ytfactory.images.prompt_engine import ImagePromptEngineV4
+from ytfactory.images.prompt_engine import (
+    ImagePromptEngineV4,
+    _DEFAULT_NEGATIVE_PROMPT,
+    _PROVIDERS_WITH_NEGATIVE_PROMPTS,
+)
 from ytfactory.images.shot_planner import (
     SHOT_TYPES,
     plan_shots,
@@ -291,7 +297,7 @@ class TestImagePromptEngineV4:
             "Ancient ruins crumbling beneath monsoon sky, photorealistic, no text, no watermark, documentary style.",
             "A worn leather journal open on a rain-soaked windowsill, photorealistic, no text, no watermark.",
             "Barefoot children running across salt flats at golden hour, photorealistic, cinematic, no watermark.",
-            "Old man's hands tracing cracks in a stone wall, extreme close-up, no text, no watermark, photorealistic.",
+            "Profile shot of an elderly man tracing cracks in a stone wall, no text, no watermark, photorealistic.",
             "Aerial drone view of terraced fields carved into hillside, photorealistic, documentary, no text.",
         ]
         scenes = [
@@ -345,7 +351,7 @@ class TestImagePromptEngineV4:
         debug_json_path = debug_dir / "image_prompt_debug.json"
         assert debug_json_path.exists()
         data = json.loads(debug_json_path.read_text())
-        assert data["version"] == "v4"
+        assert data["version"] == "v5"
         assert data["generated_scenes"] == 3
 
     def test_write_debug_output_original_contains_narration(self, tmp_path, monkeypatch):
@@ -505,3 +511,353 @@ class TestBackwardCompatibility:
         # The visual_prompt field must still be present and unchanged
         for s in enriched:
             assert "visual_prompt" in s
+
+
+# ── V5: Safe compositions ─────────────────────────────────────────────────────
+
+
+class TestSafeCompositions:
+    def test_shot_types_excludes_macro(self):
+        assert "macro" not in SHOT_TYPES
+
+    def test_shot_types_excludes_pov(self):
+        assert "POV" not in SHOT_TYPES
+        assert "pov" not in SHOT_TYPES
+
+    def test_shot_types_excludes_extreme_close_up(self):
+        assert "extreme close-up" not in SHOT_TYPES
+
+    def test_shot_types_includes_environmental_portrait(self):
+        assert "environmental portrait" in SHOT_TYPES
+
+    def test_shot_types_includes_profile_shot(self):
+        assert "profile shot" in SHOT_TYPES
+
+    def test_shot_types_includes_wide_cinematic(self):
+        assert "wide cinematic" in SHOT_TYPES
+
+    def test_unsafe_compositions_tuple_is_non_empty(self):
+        assert len(_UNSAFE_COMPOSITIONS) > 0
+
+    def test_ai_cliches_tuple_is_non_empty(self):
+        assert len(_AI_CLICHES) > 0
+
+
+# ── V5: AI cliché detection ───────────────────────────────────────────────────
+
+
+class TestAIClicheDetection:
+    def test_cliche_in_prompt_detected(self):
+        scenes = [
+            _make_scene(1, visual_prompt="Giant hands holding a small figure, cosmic portal glow, photorealistic."),
+            _make_scene(2, visual_prompt="Wide cinematic shot, worn stone steps, no text, no watermark, photorealistic."),
+        ]
+        report = build_report(scenes, plan_shots(2))
+        assert "giant hands" in report.ai_cliches_detected
+        assert 1 in report.ai_cliches_detected["giant hands"]
+
+    def test_clean_prompt_has_no_cliches(self):
+        scenes = [
+            _make_scene(1, visual_prompt="Worn stone steps disappearing into morning amber, no text, no watermark, photorealistic."),
+        ]
+        report = build_report(scenes, plan_shots(1))
+        assert report.ai_cliches_detected == {}
+
+    def test_unsafe_composition_detected(self):
+        scenes = [
+            _make_scene(1, visual_prompt="Extreme close-up of fingertips, macro shot detail, no text, photorealistic."),
+        ]
+        report = build_report(scenes, plan_shots(1))
+        assert len(report.unsafe_compositions_detected) > 0
+
+    def test_cliche_reduces_diversity_score(self):
+        scenes_clean = [
+            _make_scene(1, visual_prompt="Worn stone steps at dawn, no text, no watermark, photorealistic."),
+        ]
+        scenes_cliche = [
+            _make_scene(1, visual_prompt="Giant hands holding the universe, no text, no watermark, photorealistic."),
+        ]
+        report_clean = build_report(scenes_clean, plan_shots(1))
+        report_cliche = build_report(scenes_cliche, plan_shots(1))
+        assert report_cliche.diversity_score < report_clean.diversity_score
+
+    def test_validate_flags_cliche(self):
+        engine = ImagePromptEngineV4()
+        scenes = [
+            _make_scene(1, visual_prompt="Giant hands holding a small glowing orb, photorealistic, no text, no watermark."),
+            _make_scene(2, visual_prompt="Worn stone steps in amber light, photorealistic, no text, no watermark."),
+        ]
+        enriched = engine.enrich_scenes_with_shots(scenes)
+        report = engine.build_diagnostics(enriched)
+        issues = engine.validate(enriched, report)
+        assert any("ai_cliche" in i for i in issues)
+
+
+# ── V5: Provider enrichment ───────────────────────────────────────────────────
+
+
+class TestEnrichForProvider:
+    def test_huggingface_gets_negative_prompt(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, visual_prompt="Wide shot, photorealistic, no text.")]
+        enriched = engine.enrich_for_provider(scenes, "huggingface")
+        assert "negative_prompt" in enriched[0]
+        assert "deformed" in enriched[0]["negative_prompt"]
+
+    def test_a1111_gets_negative_prompt(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, visual_prompt="Wide shot, photorealistic, no text.")]
+        enriched = engine.enrich_for_provider(scenes, "a1111")
+        assert "negative_prompt" in enriched[0]
+
+    def test_pollinations_gets_anatomy_reinforcement(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, visual_prompt="Wide shot, photorealistic, no text.")]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        assert "natural human anatomy" in enriched[0]["visual_prompt"]
+        assert "negative_prompt" not in enriched[0]
+
+    def test_gemini_gets_anatomy_reinforcement(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, visual_prompt="Cinematic wide, photorealistic, no text.")]
+        enriched = engine.enrich_for_provider(scenes, "gemini")
+        assert "five fingers" in enriched[0]["visual_prompt"]
+
+    def test_asset_scenes_not_modified(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, scene_type="asset")]
+        enriched = engine.enrich_for_provider(scenes, "huggingface")
+        assert "negative_prompt" not in enriched[0]
+
+    def test_does_not_double_append_reinforcement(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(1, visual_prompt="Wide shot, photorealistic, no text.")]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        enriched_again = engine.enrich_for_provider(enriched, "pollinations")
+        assert enriched[0]["visual_prompt"] == enriched_again[0]["visual_prompt"]
+
+    def test_providers_with_negative_prompts_set(self):
+        assert "huggingface" in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+        assert "a1111" in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+        assert "pollinations" not in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+        assert "gemini" not in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+
+    def test_default_negative_prompt_non_empty(self):
+        assert len(_DEFAULT_NEGATIVE_PROMPT) > 10
+        assert "deformed" in _DEFAULT_NEGATIVE_PROMPT
+
+
+# ── V5: Prompt review ─────────────────────────────────────────────────────────
+
+
+class TestPromptReview:
+    def test_clean_prompt_returns_no_issues(self):
+        engine = ImagePromptEngineV4()
+        # Human scene with all required quality markers — should produce no issues
+        prompt = (
+            "Worn stone steps descend into morning amber light. "
+            "A lean man in a grey linen shirt, highly detailed human face, "
+            "natural facial expression, realistic eyes, authentic skin texture, "
+            "natural posture, seamless integration with the environment, "
+            "documentary-quality realism, sits with his back to us, "
+            "watching the valley fill with golden haze. "
+            "Environmental portrait, muted ochre and slate grey palette, "
+            "overcast warmth. No text, no watermark, photorealistic, documentary style."
+        )
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert issues == []
+
+    def test_banned_opener_detected(self):
+        engine = ImagePromptEngineV4()
+        prompt = "a figure standing in the mist, photorealistic, no text, no watermark."
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert any("banned opener" in i for i in issues)
+
+    def test_ai_cliche_detected_in_review(self):
+        engine = ImagePromptEngineV4()
+        prompt = "Giant hands holding a floating orb of light. No text, no watermark, photorealistic."
+        issues = engine.review_prompt(prompt, scene_index=2)
+        assert any("cliché" in i or "cliche" in i for i in issues)
+
+    def test_missing_style_marker_detected(self):
+        engine = ImagePromptEngineV4()
+        prompt = "Worn stone steps at dawn, warm amber light, muted ochre tones."
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert any("style marker" in i for i in issues)
+
+    def test_too_short_prompt_detected(self):
+        engine = ImagePromptEngineV4()
+        prompt = "A stone step. Photorealistic."
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert any("too short" in i for i in issues)
+
+    def test_review_all_prompts_returns_per_scene_dict(self):
+        engine = ImagePromptEngineV4()
+        scenes = [
+            _make_scene(1, visual_prompt="a figure standing in the mist, photorealistic, no text."),
+            _make_scene(2, visual_prompt=(
+                "Worn stone steps at amber dawn, each tread hollowed by generations of crossings. "
+                "Static, locked-off camera, mid-distance, watching the valley below fill with golden haze. "
+                "Muted ochre and slate grey palette, soft directional morning light, "
+                "soft volumetric mist through stone arches. "
+                "No text, no watermark, photorealistic, documentary style, cinematic."
+            )),
+            _make_scene(3, scene_type="asset"),
+        ]
+        results = engine.review_all_prompts(scenes)
+        assert 1 in results
+        assert 2 in results
+        assert 3 not in results  # asset scene excluded
+        # Scene 1 has banned opener
+        assert any("banned opener" in i for i in results[1])
+        # Scene 2 is a non-human environment scene — should be clean
+        assert results[2] == []
+
+    def test_review_prompt_flags_human_without_quality_markers(self):
+        engine = ImagePromptEngineV4()
+        # Has a man but no quality markers
+        prompt = (
+            "A lean man in a grey linen shirt stands at the cliff edge. "
+            "Wide establishing shot, warm golden hour light, ochre and amber palette, "
+            "muted tones, photorealistic, no text, no watermark, documentary style."
+        )
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert any("human" in i.lower() and "quality" in i.lower() for i in issues)
+
+    def test_review_prompt_no_human_flag_for_non_human_scene(self):
+        engine = ImagePromptEngineV4()
+        prompt = (
+            "Worn stone steps descend into morning mist. Wide establishing shot, "
+            "warm amber light, muted ochre palette, photorealistic, no text, no watermark."
+        )
+        issues = engine.review_prompt(prompt, scene_index=1)
+        assert not any("human" in i.lower() and "quality" in i.lower() for i in issues)
+
+
+# ── Human enrichment ──────────────────────────────────────────────────────────
+
+
+class TestHumanEnrichment:
+    """Tests that enrich_for_provider applies human quality reinforcement."""
+
+    def test_human_scene_gets_quality_markers_pollinations(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(
+            1,
+            visual_prompt=(
+                "A lean man in a grey linen shirt stands at the cliff edge, "
+                "wide shot, photorealistic, no text, no watermark."
+            ),
+            shot_type="wide shot",
+        )]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        prompt = enriched[0]["visual_prompt"]
+        assert "highly detailed human face" in prompt
+        assert "natural facial expression" in prompt
+        assert "realistic eyes" in prompt
+
+    def test_human_scene_gets_quality_markers_huggingface(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(
+            1,
+            visual_prompt=(
+                "An elder monk seated beneath a banyan tree at dawn, "
+                "medium shot, photorealistic, no text, no watermark."
+            ),
+            shot_type="medium shot",
+        )]
+        enriched = engine.enrich_for_provider(scenes, "huggingface")
+        prompt = enriched[0]["visual_prompt"]
+        assert "highly detailed human face" in prompt
+
+    def test_wide_shot_with_human_gets_dominance_phrase(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(
+            1,
+            visual_prompt=(
+                "A warrior stands at the edge of the battlefield, "
+                "wide cinematic framing, golden hour, photorealistic, no text, no watermark."
+            ),
+            shot_type="wide cinematic",
+        )]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        assert "subject remains visually prominent" in enriched[0]["visual_prompt"]
+
+    def test_non_human_scene_no_quality_markers_added(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(
+            1,
+            visual_prompt=(
+                "Glacier-fed alpine lake, surface unbroken at pre-dawn, "
+                "establishing shot, photorealistic, no text, no watermark."
+            ),
+            shot_type="establishing shot",
+        )]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        assert "highly detailed human face" not in enriched[0]["visual_prompt"]
+        assert "subject remains visually prominent" not in enriched[0]["visual_prompt"]
+
+    def test_does_not_double_add_quality_markers(self):
+        engine = ImagePromptEngineV4()
+        already_reinforced = (
+            "A monk, highly detailed human face, natural facial expression, realistic eyes, "
+            "authentic skin texture, natural posture, seamless integration with the environment, "
+            "documentary-quality realism, photorealistic, no text, no watermark."
+        )
+        scenes = [_make_scene(1, visual_prompt=already_reinforced, shot_type="medium shot")]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        prompt = enriched[0]["visual_prompt"]
+        assert prompt.count("highly detailed human face") == 1
+
+    def test_medium_shot_with_human_no_dominance_phrase(self):
+        engine = ImagePromptEngineV4()
+        scenes = [_make_scene(
+            1,
+            visual_prompt=(
+                "A monk at a writing desk, medium shot, photorealistic, no text, no watermark."
+            ),
+            shot_type="medium shot",
+        )]
+        enriched = engine.enrich_for_provider(scenes, "pollinations")
+        assert "subject remains visually prominent" not in enriched[0]["visual_prompt"]
+
+    def test_diagnostics_tracks_human_scenes(self):
+        engine = ImagePromptEngineV4()
+        scenes = [
+            _make_scene(
+                1,
+                visual_prompt=(
+                    "A lean man, highly detailed human face, natural facial expression, "
+                    "realistic eyes, authentic skin texture, natural posture, "
+                    "seamless integration with the environment, documentary-quality realism, "
+                    "photorealistic, no text, no watermark."
+                ),
+            ),
+            _make_scene(
+                2,
+                visual_prompt=(
+                    "Worn stone steps at dawn, establishing shot, photorealistic, "
+                    "no text, no watermark."
+                ),
+            ),
+        ]
+        report = engine.build_diagnostics(scenes)
+        assert report.human_scenes_count == 1
+        assert report.human_quality_enforced == 1
+        assert report.human_quality_missing == []
+
+    def test_diagnostics_tracks_human_scenes_missing_quality(self):
+        engine = ImagePromptEngineV4()
+        scenes = [
+            _make_scene(
+                1,
+                visual_prompt=(
+                    "An elder man in a grey robe, wide shot, photorealistic, "
+                    "no text, no watermark."
+                ),
+            ),
+        ]
+        report = engine.build_diagnostics(scenes)
+        assert report.human_scenes_count == 1
+        assert report.human_quality_enforced == 0
+        assert 1 in report.human_quality_missing

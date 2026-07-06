@@ -153,6 +153,20 @@ class Settings(BaseSettings):
     image_prompt_debug: bool = False
 
     # ------------------------------------------------------------------
+    # Human Quality Validation
+    # ------------------------------------------------------------------
+
+    # Maximum additional generation attempts for scenes with detected humans
+    # when the generated image is below the sharpness threshold.
+    # 0 = disable human-quality retry entirely.
+    image_human_max_retries: int = 2
+
+    # Minimum Pillow edge-detection stddev score to accept a human scene.
+    # Images below this threshold are regenerated (up to image_human_max_retries).
+    # Score reference: < 8 = blurry, 8–15 = marginal, > 15 = sharp.
+    image_human_min_sharpness: float = 12.0
+
+    # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------
 

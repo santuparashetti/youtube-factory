@@ -194,6 +194,8 @@ remediation/                     # RemediationReporter — written by `ytfactory
 
 **EFL engine targets**: Research Engine, Script Generation Engine, Script Pacing Engine, Speech Optimizer, TTS Engine, Scene Planner, Image Prompt Engine, Image Generation Engine, Motion Engine, ASS Subtitle Engine, Video Renderer, Video Quality Review Engine. Engine names from RCA are normalized via `ENGINE_NORMALIZATION` in `efl/config.py`.
 
+**Human Quality Validation** (`images/human_detector.py`): `detect_human_presence(prompt)` identifies human subjects using whole-word regex matching against `_HUMAN_INDICATORS`. When a human is detected, `add_human_quality_reinforcement(prompt)` appends 7 quality phrases (highly detailed face, natural facial expression, realistic eyes, authentic skin texture, natural posture, seamless integration, documentary-quality realism). `apply_subject_dominance_rule(prompt, shot_type)` adds "subject remains visually prominent" for wide/establishing/drone shots. `ImagePipeline` retries generation (up to `settings.image_human_max_retries`) when sharpness (`compute_sharpness` via Pillow FIND_EDGES stddev) is below `settings.image_human_min_sharpness`. `HumanValidator` (category "human") in the review pipeline enforces HUM_001 (quality markers), HUM_002 (subject dominance), HUM_003 (sharpness).
+
 ### Domain Models
 
 `src/ytfactory/domain/` holds plain dataclasses / Pydantic models (no I/O):

@@ -124,7 +124,9 @@ class SubtitleEngine:
             max_cps=getattr(settings, "subtitle_max_cps", 18.0),
             max_chars_per_line=getattr(settings, "subtitle_max_chars_per_line", 42),
             max_lines=getattr(settings, "subtitle_max_lines", 2),
-            tail_extension_seconds=getattr(settings, "subtitle_tail_extension_seconds", 1.0),
+            tail_extension_seconds=getattr(
+                settings, "subtitle_tail_extension_seconds", 1.0
+            ),
             debug=getattr(settings, "subtitle_debug", False),
             validate=getattr(settings, "subtitle_validate", True),
             subtitle_format=fmt_str,
@@ -300,7 +302,9 @@ class SubtitleEngine:
         else:
             cues = self._segmenter.fallback_segment(narration, total_duration)
 
-        cues, repair_counts = self._timing.repair(cues, tail_extension_seconds=self._tail_extension)
+        cues, repair_counts = self._timing.repair(
+            cues, tail_extension_seconds=self._tail_extension
+        )
 
         issues: list[ValidationIssue] = []
         if self._validate and cues:

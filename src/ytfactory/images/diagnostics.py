@@ -1,9 +1,13 @@
-"""Image prompt diagnostics — V4 quality reporting.
+"""Image prompt diagnostics — V5 quality reporting.
 
 DiagnosticsReport aggregates all quality signals into a single serializable
 object.  It is produced by ImagePromptEngineV4 after visual prompts have
 been generated and is written to image_prompt_debug.json when debug mode
 is on.
+
+V5 additions:
+  • AI cliché detection  — patterns that produce stock-looking AI imagery
+  • Unsafe composition detection — shot types removed from V5 safe defaults
 """
 
 from __future__ import annotations
@@ -44,6 +48,39 @@ _STYLE_MARKERS: tuple[str, ...] = (
     "no watermark",
 )
 
+# V5 — AI visual clichés that signal generic / low-quality image generation.
+_AI_CLICHES: tuple[str, ...] = (
+    "giant hands",
+    "floating clock",
+    "cracked desert",
+    "cosmic portal",
+    "empty throne",
+    "glowing eyes",
+    "broken chains",
+    "third eye",
+    "floating orb",
+    "fractal",
+    "digital matrix",
+    "silhouette with rays",
+    "glowing chakra",
+    "galaxy within",
+    "ethereal glow emanating",
+)
+
+# V5 — Shot types removed from safe defaults in V5 (macro/POV/extreme close-up).
+# Flagged when they appear explicitly in the prompt text.
+_UNSAFE_COMPOSITIONS: tuple[str, ...] = (
+    "macro shot",
+    "extreme close-up",
+    "extreme closeup",
+    "pov shot",
+    "first-person view",
+    "first person view",
+    "point of view shot",
+    "isolated hands",
+    "disembodied hands",
+)
+
 
 @dataclass
 class DiagnosticsReport:
@@ -74,6 +111,15 @@ class DiagnosticsReport:
 
     # ── Prompt lengths ────────────────────────────────────────────────────
     prompt_lengths: list[int] = field(default_factory=list)  # word counts per scene
+
+    # ── V5 — AI clichés and unsafe compositions ───────────────────────────────
+    ai_cliches_detected: dict[str, list[int]] = field(default_factory=dict)
+    unsafe_compositions_detected: dict[str, list[int]] = field(default_factory=dict)
+
+    # ── Human quality tracking ────────────────────────────────────────────
+    human_scenes_count: int = 0
+    human_quality_enforced: int = 0
+    human_quality_missing: list[int] = field(default_factory=list)
 
     # ── Issues ────────────────────────────────────────────────────────────
     issues: list[str] = field(default_factory=list)
@@ -132,6 +178,41 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
     report.scenes_missing_style_markers = missing_style
     report.style_consistent = len(missing_style) == 0
 
+    # ── V5: AI cliché detection ───────────────────────────────────────────
+    cliche_scenes: dict[str, list[int]] = {}
+    for cliche in _AI_CLICHES:
+        matches = [
+            indices[i] for i, p in enumerate(prompts) if cliche.lower() in p.lower()
+        ]
+        if matches:
+            cliche_scenes[cliche] = matches
+    report.ai_cliches_detected = cliche_scenes
+
+    # ── V5: Unsafe composition detection ─────────────────────────────────
+    unsafe_scenes: dict[str, list[int]] = {}
+    for comp in _UNSAFE_COMPOSITIONS:
+        matches = [
+            indices[i] for i, p in enumerate(prompts) if comp.lower() in p.lower()
+        ]
+        if matches:
+            unsafe_scenes[comp] = matches
+    report.unsafe_compositions_detected = unsafe_scenes
+
+    # ── Human quality tracking ────────────────────────────────────────────
+    from ytfactory.images.human_detector import (
+        detect_human_presence,
+        has_human_quality_reinforcement,
+    )
+
+    for i, scene in enumerate(generated):
+        prompt = scene.get("visual_prompt", "")
+        if detect_human_presence(prompt):
+            report.human_scenes_count += 1
+            if has_human_quality_reinforcement(prompt):
+                report.human_quality_enforced += 1
+            else:
+                report.human_quality_missing.append(indices[i])
+
     # ── Diversity score ───────────────────────────────────────────────────
     report.diversity_score = _compute_diversity_score(report)
 
@@ -153,9 +234,23 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
         report.issues.append(
             f"Low prompt uniqueness: {report.unique_prompt_ratio:.0%} unique"
         )
+    if report.ai_cliches_detected:
+        for cliche, scene_list in report.ai_cliches_detected.items():
+            report.issues.append(
+                f"AI cliché '{cliche}' found in scenes: {scene_list}"
+            )
+    if report.unsafe_compositions_detected:
+        for comp, scene_list in report.unsafe_compositions_detected.items():
+            report.issues.append(
+                f"Unsafe composition '{comp}' found in scenes: {scene_list}"
+            )
     if report.diversity_score < 0.5:
         report.issues.append(
             f"Low visual diversity score: {report.diversity_score:.2f}"
+        )
+    if report.human_quality_missing:
+        report.issues.append(
+            f"Human scenes missing quality reinforcement: {report.human_quality_missing}"
         )
 
     return report
@@ -209,5 +304,11 @@ def _compute_diversity_score(report: DiagnosticsReport) -> float:
 
     # Missing style markers: -0.02 per scene
     score -= 0.02 * len(report.scenes_missing_style_markers)
+
+    # V5: AI clichés: -0.05 per unique cliché detected
+    score -= 0.05 * len(report.ai_cliches_detected)
+
+    # V5: Unsafe compositions: -0.05 per unique pattern detected
+    score -= 0.05 * len(report.unsafe_compositions_detected)
 
     return max(0.0, min(1.0, score))

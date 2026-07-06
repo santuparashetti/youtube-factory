@@ -41,11 +41,6 @@ def video_renderer_node(state: VideoState) -> dict:
     video_dir = project_dir / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Motion planning: enrich every scene with camera movement metadata ──
-    # The MotionPlanner reads the emotion classifier and profile config to
-    # assign a MotionSpec to each scene. The FFmpegRenderer does not yet
-    # consume this metadata (Phase 3); it is attached here so it is available
-    # and visible in logs/debug output today.
     cinematic_cfg = CinematicConfig(
         profile=state.get("render_profile") or _settings.render_profile
     )

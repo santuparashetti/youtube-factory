@@ -18,7 +18,7 @@ Transition types:
 
 Strategy A (current, Phase 3): transitions are baked per-clip using FFmpeg's
 'fade' filter on each scene clip independently. Scene N gets fade=t=out;
-Scene N+1 gets fade=t=in. This preserves the -c copy concat at stitch time.
+Scene N+1 gets fade=t=in. These baked fades feed into render_continuous().
 
 Strategy C (future, Phase 5): true overlapping cross-dissolves via a
 filter_complex graph. Requires re-encoding but enables genuine overlap.
