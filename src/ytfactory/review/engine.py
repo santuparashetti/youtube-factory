@@ -98,6 +98,15 @@ class VideoQualityReviewEngine:
         # Shared context dict — stages may deposit discovered values here
         context: dict = {}
 
+        # Populate BGM status so BGMValidator can skip when music is disabled
+        try:
+            from ytfactory.config.settings import Settings as _Settings
+            _s = _Settings()
+            context["bgm_enabled"] = _s.bgm_enabled
+            context["bgm_category"] = _s.bgm_category
+        except Exception:
+            context["bgm_enabled"] = False
+
         # Debug collector — zero overhead when level is OFF
         debug = DebugCollector(self._debug_config.level)
 

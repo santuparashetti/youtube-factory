@@ -14,6 +14,7 @@ from pathlib import Path
 from ytfactory.review.validation.config import ValidationRulesConfig
 from ytfactory.review.validation.models import ValidationReport, ValidationResult
 from ytfactory.review.validation.rules.audio import AudioValidator
+from ytfactory.review.validation.rules.bgm import BGMValidator
 from ytfactory.review.validation.rules.image import ImageValidator
 from ytfactory.review.validation.rules.motion import MotionValidator
 from ytfactory.review.validation.rules.narration import NarrationValidator
@@ -58,6 +59,7 @@ class ValidationRunner:
             AudioValidator(self._config),
             RenderingValidator(self._config),
             StoryValidator(self._config),
+            BGMValidator(self._config),
         ]
 
         all_results: list[ValidationResult] = []

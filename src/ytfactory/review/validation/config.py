@@ -106,6 +106,21 @@ class ValidationRulesConfig:
     # Seconds to skip at the end of each clip — covers intentional fade-out.
     rendering_black_frame_skip_end_seconds: float = 1.0
 
+    # ── BGM ───────────────────────────────────────────────────────────────
+    # BGM_001: minimum mean dBFS in the intro fade-in window (first 3 s).
+    # Below this → BGM was not audible at the start of the video.
+    bgm_intro_min_db: float = -50.0
+
+    # BGM_002: peak dBFS ceiling; above this → clipping detected.
+    bgm_clip_threshold_db: float = -0.5
+
+    # BGM_003: lowest acceptable mean loudness (approx -20 LUFS equivalent).
+    bgm_loudness_low_db: float = -25.0
+
+    # BGM_004: max dB the intro may exceed the narration body before
+    # flagging BGM dominance.
+    bgm_dominance_threshold_db: float = 3.0
+
     # ── Story ─────────────────────────────────────────────────────────────
     story_min_scenes: int = 3
     story_max_scenes: int = 50

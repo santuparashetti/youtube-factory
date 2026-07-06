@@ -11,6 +11,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.providers.tts.debug import TTSDebugWriter
 from ytfactory.providers.tts.factory import get_tts_provider
 from ytfactory.providers.tts.optimizer import SpeechOptimizer
+from ytfactory.providers.tts.pacing.injector import PauseInjector
 from ytfactory.providers.tts.validator import AudioValidator, ValidationResult
 
 from .artifacts import audio_directory
@@ -19,6 +20,7 @@ from .repository import VoiceRepository
 
 _optimizer = SpeechOptimizer()
 _validator = AudioValidator()
+_pacer = PauseInjector()
 
 # Exponential backoff base delay (doubles on each retry)
 _RETRY_BASE_DELAY_S = 2.0
@@ -87,6 +89,8 @@ class VoicePipeline:
             scene_position = idx / max(total - 1, 1)
             original_text = scene["narration"]
             word_count = len(original_text.split())
+            scene_title = scene.get("title", "")
+            scene_type = scene.get("scene_type", "generated_image")
 
             debug = TTSDebugWriter(
                 project_id=project_id,
@@ -95,15 +99,21 @@ class VoicePipeline:
             )
             debug.write_original(original_text)
 
-            # Speech Optimizer: restructure written narration into spoken phrases
-            scene_title = scene.get("title", "")
-            optimized = _optimizer.optimize(
-                original_text,
-                style=style,
-                scene_position=scene_position,
-                keywords=[scene_title] if scene_title else None,
+            # Contemplative pacing is skipped for asset/brand scenes (short by design).
+            use_pacing = (
+                self._settings.tts_pacing_enabled
+                and scene_type != "asset"
             )
-            debug.write_optimized(optimized)
+
+            if not use_pacing:
+                # Standard path: optimizer runs on the full narration.
+                optimized = _optimizer.optimize(
+                    original_text,
+                    style=style,
+                    scene_position=scene_position,
+                    keywords=[scene_title] if scene_title else None,
+                )
+                debug.write_optimized(optimized)
 
             # Retry loop with exponential backoff
             boundaries: list[dict] = []
@@ -124,28 +134,40 @@ class VoicePipeline:
                         delay,
                     )
                     time.sleep(delay)
-                    # Remove failed file so provider writes fresh
                     if output.exists():
                         output.unlink()
 
-                debug.write_provider_request(
-                    {
-                        "text": optimized,
-                        "voice": None,
-                        "language": language,
-                        "style": style,
-                        "scene_position": scene_position,
-                    }
-                )
-
                 try:
-                    _, boundaries = self._provider.generate_with_boundaries(
-                        text=optimized,
-                        output_path=output,
-                        language=language,
-                        style=style,
-                        scene_position=scene_position,
-                    )
+                    if use_pacing:
+                        # Pacing path: PauseInjector calls optimizer per-sentence
+                        # and injects silence between sentences via FFmpeg concat.
+                        _, boundaries = _pacer.generate(
+                            narration=original_text,
+                            output_path=output,
+                            optimizer=_optimizer,
+                            provider=self._provider,
+                            profile=self._settings.tts_pacing_profile,
+                            style=style,
+                            language=language,
+                            scene_position=scene_position,
+                            keywords=[scene_title] if scene_title else None,
+                        )
+                    else:
+                        debug.write_provider_request(
+                            {
+                                "text": optimized,
+                                "language": language,
+                                "style": style,
+                                "scene_position": scene_position,
+                            }
+                        )
+                        _, boundaries = self._provider.generate_with_boundaries(
+                            text=optimized,
+                            output_path=output,
+                            language=language,
+                            style=style,
+                            scene_position=scene_position,
+                        )
                 except Exception as exc:
                     logger.error("TTS error scene {}: {}", scene["index"], exc)
                     retry_count = attempt + 1
@@ -205,6 +227,8 @@ class VoicePipeline:
                 "retry_count": retry_count,
                 "validation_passed": validation.passed if validation else True,
                 "validation_issues": validation.issues if validation else [],
+                "pacing_enabled": use_pacing,
+                "pacing_profile": self._settings.tts_pacing_profile if use_pacing else None,
             }
             debug.write_metadata(scene_meta)
             scenes_metadata.append(scene_meta)

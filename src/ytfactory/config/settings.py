@@ -169,6 +169,22 @@ class Settings(BaseSettings):
     tts_max_retries: int = 3
 
     # ------------------------------------------------------------------
+    # Contemplative Pacing Engine
+    # ------------------------------------------------------------------
+
+    # Enable sentence-level pause injection (silence gaps between sentences).
+    # When True, the optimizer still applies phrase-splitting and keyword emphasis
+    # per sentence; silences are injected BETWEEN sentences via FFmpeg concat.
+    # Disabled automatically for scene_type=="asset" scenes.
+    tts_pacing_enabled: bool = True
+
+    # Pacing profile — controls pause duration ranges per sentence weight class.
+    # Options: normal | documentary | spiritual | meditation | slow_reflection
+    # "spiritual" inserts generous pauses (500–700ms normal, 1.2–1.8s important,
+    # 2.0–2.5s major realization) so viewers have time to absorb each idea.
+    tts_pacing_profile: str = "spiritual"
+
+    # ------------------------------------------------------------------
     # Video Encoding — FFmpeg H.264 parameters
     # ------------------------------------------------------------------
 
@@ -197,6 +213,49 @@ class Settings(BaseSettings):
     # AAC audio bitrate for the scene narration track.
     # 128k is sufficient and indistinguishable from 192k for voice content.
     video_audio_bitrate: str = "128k"
+
+    # ------------------------------------------------------------------
+    # Background Music (BGM)
+    # ------------------------------------------------------------------
+
+    # Master enable — False = no BGM (default; opt-in per project)
+    bgm_enabled: bool = False
+
+    # BGM category. "auto" selects based on video topic.
+    # Options: auto | spiritual | meditation | cinematic_ambient |
+    #          emotional_documentary | inspirational | calm_piano | nature_ambient
+    bgm_category: str = "auto"
+
+    # Directory containing music files.
+    # Layout: <path>/<category>/*.mp3  or  <path>/*.mp3 (flat)
+    bgm_library_path: str = "workspace/music"
+
+    # BGM volume relative to full scale during quiet sections (0.0–1.0).
+    bgm_volume: float = 0.20
+
+    # Sidechain compress threshold — amplitude above which ducking engages.
+    bgm_duck_threshold: float = 0.02
+
+    # Ducking compression ratio (BGM is reduced by this factor under speech).
+    bgm_duck_ratio: float = 4.0
+
+    # Milliseconds for ducking to engage after speech onset.
+    bgm_duck_attack_ms: int = 200
+
+    # Milliseconds for music to recover after speech ends.
+    bgm_duck_release_ms: int = 1000
+
+    # Music fade-in at video start (seconds).
+    bgm_fade_in_seconds: float = 3.0
+
+    # Music fade-out at video end (seconds).
+    bgm_fade_out_seconds: float = 4.0
+
+    # Crossfade between loop iterations (seconds).
+    bgm_crossfade_seconds: float = 2.0
+
+    # Randomly select from available tracks in the category.
+    bgm_random_track: bool = True
 
     # ------------------------------------------------------------------
     # Cinematic Intro

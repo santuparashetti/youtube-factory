@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from loguru import logger
 from rich.progress import track
 
 from ytfactory.cinematic.effects import EffectsPlanner
@@ -99,8 +100,62 @@ def _generate_intro_clip(
     return intro_path
 
 
+def _bgm_config_from_settings(settings: Settings):
+    """Build a BGMConfig from application Settings."""
+    from ytfactory.bgm.config import BGMConfig
+
+    return BGMConfig(
+        enabled=settings.bgm_enabled,
+        category=settings.bgm_category,
+        library_path=settings.bgm_library_path,
+        bgm_volume=settings.bgm_volume,
+        duck_threshold=settings.bgm_duck_threshold,
+        duck_ratio=settings.bgm_duck_ratio,
+        duck_attack_ms=settings.bgm_duck_attack_ms,
+        duck_release_ms=settings.bgm_duck_release_ms,
+        fade_in_seconds=settings.bgm_fade_in_seconds,
+        fade_out_seconds=settings.bgm_fade_out_seconds,
+        crossfade_seconds=settings.bgm_crossfade_seconds,
+        random_track=settings.bgm_random_track,
+    )
+
+
+def _resolve_bgm_category(settings: Settings, project_dir: Path) -> str:
+    """Return the BGM category to use — explicit setting or auto-detected from content."""
+    if settings.bgm_category != "auto":
+        return settings.bgm_category
+
+    from ytfactory.bgm.detector import detect_category
+
+    title = project_dir.name
+    try:
+        data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+        title = data.get("title", title)
+    except Exception:
+        pass
+
+    scene_titles: list[str] = []
+    try:
+        data = json.loads(
+            (project_dir / "scenes" / "scene-plan.json").read_text(encoding="utf-8")
+        )
+        scene_titles = [s.get("title", "") for s in data.get("scenes", [])]
+    except Exception:
+        pass
+
+    return detect_category(title, scene_titles)
+
+
 class VideoPipeline:
-    """Render all scenes into individual clips, then concatenate into final.mp4."""
+    """Render all scenes into individual clips, then compose into final.mp4.
+
+    Composition (``_compose_final_video``) concatenates all scene clips and,
+    when BGM is enabled, immediately mixes background music — producing a
+    single ``final.mp4`` that contains video, narration, subtitles, and music.
+    BGM is not a separate post-processing step; it is sealed inside composition
+    so every code path that calls ``VideoPipeline.run()`` — including the
+    Auto Remediation engine — always produces the fully-mixed output.
+    """
 
     def __init__(self):
         self.renderer = FFmpegRenderer()
@@ -206,13 +261,11 @@ class VideoPipeline:
 
             scene_clips.append(output)
 
-        print("\n✓ All scenes rendered. Concatenating final video...\n")
+        print("\n✓ All scenes rendered. Composing final video...\n")
 
         final_video = output_dir / "final.mp4"
-        concat_list = output_dir / "concat_list.txt"
 
-        # Optional cinematic intro: silent black screen prepended once before
-        # Scene 1.  Subtitles and audio begin naturally when Scene 1 starts.
+        # Build the clip list: optional intro + all scene clips.
         clips_to_concat: list[Path] = []
         if self._settings.video_intro_enabled and self._settings.video_intro_seconds > 0:
             intro_clip = _generate_intro_clip(
@@ -226,28 +279,71 @@ class VideoPipeline:
             clips_to_concat.append(intro_clip)
         clips_to_concat.extend(scene_clips)
 
+        # Compose: concatenate scenes + apply BGM in one indivisible step.
+        self._compose_final_video(project, clips_to_concat, final_video)
+
+        print(f"✓ Final video: {final_video}\n")
+
+    # ── Composition ───────────────────────────────────────────────────────────
+
+    def _compose_final_video(
+        self,
+        project_id: str,
+        clips: list[Path],
+        output_path: Path,
+    ) -> None:
+        """Concatenate all clips and apply BGM (when enabled) in one composition step.
+
+        Writes a single ``output_path`` (final.mp4) that contains video,
+        narration audio, burned-in subtitles, and — when ``bgm_enabled`` is
+        True — background music with sidechain ducking.
+
+        Uses a temporary ``.concat.mp4`` intermediate so that a failed BGM mix
+        never corrupts or removes the concatenated-only version.
+        """
+        concat_list = output_path.parent / "concat_list.txt"
         concat_list.write_text(
-            "\n".join(f"file '{clip.resolve()}'" for clip in clips_to_concat),
+            "\n".join(f"file '{clip.resolve()}'" for clip in clips),
             encoding="utf-8",
         )
 
+        # Step 1 — concatenate all scene clips (lossless stream copy).
+        tmp = output_path.with_suffix(".concat.mp4")
         subprocess.run(
             [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_list),
-                "-c",
-                "copy",
-                str(final_video),
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_list),
+                "-c", "copy",
+                str(tmp),
             ],
             check=True,
         )
-
         concat_list.unlink()
 
-        print(f"✓ Final video: {final_video}\n")
+        # Step 2 — BGM mixing (structural part of composition, not post-process).
+        if self._settings.bgm_enabled:
+            from ytfactory.bgm.library import BGMLibrary
+            from ytfactory.bgm.mixer import BGMMixer
+
+            config = _bgm_config_from_settings(self._settings)
+            project_dir = output_path.parent.parent
+            category = _resolve_bgm_category(self._settings, project_dir)
+
+            track = BGMLibrary(config).find_track(category)
+            if track:
+                logger.info("BGM composition: {} ({})", track.title, category)
+                result = BGMMixer(config).mix(tmp, track, output_path)
+                tmp.unlink(missing_ok=True)
+                if not result.success:
+                    raise RuntimeError(f"BGM mixing failed: {result.error[:300]}")
+                return
+            else:
+                logger.warning(
+                    "BGM enabled but no tracks found for category '{}' — composing without music",
+                    category,
+                )
+
+        # No BGM (or no tracks found): promote temp file to the final output.
+        tmp.rename(output_path)
