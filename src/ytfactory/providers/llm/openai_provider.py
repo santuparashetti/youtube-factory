@@ -37,19 +37,52 @@ class OpenAICompatibleProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Reasoning models (DeepSeek, etc.) consume tokens for thinking/reasoning
+        # before producing visible output. 8192 is too tight — they burn through
+        # it on reasoning alone and return empty content. Bumped to 65536 which
+        # gives most models ~32K+ tokens for actual output after reasoning.
+        max_tokens = 65536
+
         response = self._client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,
-            max_tokens=8192,
+            max_tokens=max_tokens,
         )
+
+        choice = response.choices[0]
+        content = choice.message.content
+        finish_reason = choice.finish_reason
+
+        text = content or ""
+
+        # Log warnings for truncated / filtered / empty responses
+        if finish_reason not in ("stop", None) or not text:
+            if not text:
+                logger.warning(
+                    "LLM returned empty content: model={} finish_reason={} "
+                    "completion_tokens={} — try increasing max_tokens or using a "
+                    "model with higher output limits",
+                    model,
+                    finish_reason,
+                    response.usage.completion_tokens if response.usage else "?",
+                )
+            elif finish_reason not in ("stop", None):
+                logger.warning(
+                    "LLM response finished unexpectedly: model={} finish_reason={} "
+                    "completion_tokens={} response_length={}",
+                    model,
+                    finish_reason,
+                    response.usage.completion_tokens if response.usage else "?",
+                    len(text),
+                )
 
         usage = response.usage
         return LLMResponse(
-            text=response.choices[0].message.content or "",
+            text=text,
             model=model,
             prompt_tokens=usage.prompt_tokens if usage else 0,
             completion_tokens=usage.completion_tokens if usage else 0,
             total_tokens=usage.total_tokens if usage else 0,
-            finish_reason=response.choices[0].finish_reason,
+            finish_reason=finish_reason,
         )

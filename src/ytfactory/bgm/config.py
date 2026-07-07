@@ -34,30 +34,39 @@ class BGMConfig:
     library_path: str = "workspace/music"
 
     # BGM volume relative to full scale (0.0–1.0) during quiet/pause sections.
-    # 0.12 = 12% — subtle; clearly secondary to narration.
-    bgm_volume: float = 0.12
+    # 0.35 = 35% — clearly audible ambient presence during silence between sentences.
+    bgm_volume: float = 0.35
+
+    # Minimum BGM level during active speech (0.0–bgm_volume).
+    # Music never drops below this level even at maximum narration amplitude.
+    # 0.05 = 5% floor — ensures music stays present but well behind narration.
+    duck_floor: float = 0.05
 
     # Sidechain compress threshold: amplitude above which ducking engages.
     # ~0.02 ≈ -34 dBFS — detects the onset of speech without false-triggering
     # on room noise or breath sounds.
     duck_threshold: float = 0.02
 
-    # Compression ratio — how aggressively to duck when threshold is exceeded.
-    # 6:1 reduces 12% music to ~2% while speech is active.
-    duck_ratio: float = 6.0
+    # Compression ratio — how aggressively the main BGM path ducks.
+    # 2.5:1 is a gentle duck: music drops to ~11% during strong narration
+    # while remaining clearly audible as a background presence.
+    duck_ratio: float = 2.5
 
     # Milliseconds for ducking to fully engage after speech onset.
-    duck_attack_ms: int = 200
+    # 50 ms: fast enough to duck before the listener hears the BGM clash.
+    duck_attack_ms: int = 50
 
     # Milliseconds for music to recover after speech ends.
-    # 1000 ms gives a smooth "breathe back in" feel between sentences.
-    duck_release_ms: int = 1000
+    # 600 ms: snappy enough to fill sentence gaps without feeling sluggish.
+    duck_release_ms: int = 600
 
     # Fade-in duration at the very start of the video.
-    fade_in_seconds: float = 3.0
+    # 1.5 s: music rises naturally under the opening hook.
+    fade_in_seconds: float = 1.5
 
     # Fade-out duration at the very end of the video.
-    fade_out_seconds: float = 4.0
+    # 2.5 s: smooth, unhurried exit.
+    fade_out_seconds: float = 2.5
 
     # Crossfade duration between successive loops of the music track.
     # 2 s overlap prevents audible clicks at loop boundaries.

@@ -1,16 +1,27 @@
 """BGMMixer — mixes background music into the final video using FFmpeg.
 
-Filter chain (applied to the concatenated final.mp4):
+Two-path filter architecture (applied to the concatenated final.mp4):
 
-  1.  Stream-loop the BGM track to cover the full video duration.
-  2.  Trim to exactly the video duration and reset PTS.
-  3.  Set BGM volume to the configured baseline (default 12 %).
-  4.  Apply fade-in at the start and fade-out at the end.
-  5.  Sidechain-compress the BGM using the narration track as the trigger
-      signal — BGM ducks smoothly while speech is detected.
-  6.  Mix the original narration and the ducked BGM with amix (no
-      normalisation so narration retains its full gain).
-  7.  Apply a hard limiter to the mixed output to prevent clipping.
+  BGM signal is split into two parallel paths:
+
+  Path A — floor (always-on):
+    BGM → volume(duck_floor) → fade-in/out → [bgm_floor]
+    Always present at the configured floor level regardless of narration.
+
+  Path B — main (sidechain-ducked):
+    BGM → volume(bgm_volume − duck_floor) → sidechaincompress(narration) →
+    fade-in/out → [bgm_main]
+    Carries the bulk of the BGM volume; ducks smoothly when narration is active.
+
+  Combined:
+    [bgm_floor] + [bgm_main] → amix → [bgm_ducked]
+
+    During silence:     floor + main_volume  = bgm_volume  (e.g. 35%)
+    During speech:      floor + main_ducked  ≈ duck_floor + small residual
+                                              (e.g. 5–11% depending on ratio)
+
+  Final mix:
+    narration (full gain) + [bgm_ducked] → amix → alimiter → [audio_out]
 """
 
 from __future__ import annotations
@@ -98,62 +109,67 @@ class BGMMixer:
     def _build_filter(self, duration: float, fade_out_start: float) -> str:
         """Return the FFmpeg filter_complex string for BGM mixing with ducking.
 
-        Graph:
-          [1:a] BGM stream
-              → atrim (cut to video duration)
-              → asetpts (reset timestamps after trim)
-              → volume (set baseline gain)
-              → afade=in (smooth start)
-              → afade=out (smooth end)
-              → aformat (normalise sample format/rate for compressor)
-              → [bgm_ready]
-
-          [0:a] narration
-              → aformat
-              → asplit=2  ← split into [nar_sc] and [nar_mix]
-                           (a named pad can only be consumed once;
-                            sidechaincompress AND amix both need narration)
-
-          [bgm_ready][nar_sc] sidechaincompress (duck BGM under speech)
-              → [bgm_ducked]
-
-          [nar_mix][bgm_ducked] amix (combine, no normalise)
-              → [premix]
-
-          [premix] alimiter (prevent clipping)
-              → [audio_out]
+        Two-path architecture — see module docstring for the full signal flow.
         """
         cfg = self._config
+        # Volume carried by the sidechain-compressed main path.
+        # The floor path always contributes cfg.duck_floor regardless of speech.
+        main_vol = max(0.0, cfg.bgm_volume - cfg.duck_floor)
+
         return (
-            # ── BGM preparation ──────────────────────────────────────────
+            # ── Prepare BGM: trim to video length, reset PTS, normalise format ─
             f"[1:a]"
             f"atrim=0:{duration:.4f},"
             f"asetpts=PTS-STARTPTS,"
-            f"volume={cfg.bgm_volume:.4f},"
+            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+            f"asplit=2"
+            f"[bgm_floor_raw][bgm_main_raw];"
+
+            # ── Path A: floor — always-on at duck_floor volume ────────────────
+            f"[bgm_floor_raw]"
+            f"volume={cfg.duck_floor:.4f},"
             f"afade=t=in:ss=0:d={cfg.fade_in_seconds:.2f},"
-            f"afade=t=out:st={fade_out_start:.4f}:d={cfg.fade_out_seconds:.2f},"
-            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-            f"[bgm_ready];"
-            # ── Narration split — each named pad may only be consumed once ─
+            f"afade=t=out:st={fade_out_start:.4f}:d={cfg.fade_out_seconds:.2f}"
+            f"[bgm_floor];"
+
+            # ── Path B: main — scaled then sidechain-compressed ───────────────
+            f"[bgm_main_raw]volume={main_vol:.4f}[bgm_main_scaled];"
+
+            # ── Narration split (each pad consumed exactly once) ──────────────
             f"[0:a]"
             f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
             f"asplit=2"
             f"[nar_sc][nar_mix];"
-            # ── Sidechain ducking ─────────────────────────────────────────
-            # BGM is the main signal; [nar_sc] is the sidechain trigger.
-            f"[bgm_ready][nar_sc]sidechaincompress="
+
+            # ── Sidechain compress: BGM ducks while narration is above threshold ─
+            f"[bgm_main_scaled][nar_sc]"
+            f"sidechaincompress="
             f"threshold={cfg.duck_threshold:.4f}:"
             f"ratio={cfg.duck_ratio:.1f}:"
             f"attack={cfg.duck_attack_ms}:"
             f"release={cfg.duck_release_ms}:"
             f"knee=2.0"
+            f"[bgm_main_compressed];"
+
+            # ── Fades on main path (applied after compression) ────────────────
+            f"[bgm_main_compressed]"
+            f"afade=t=in:ss=0:d={cfg.fade_in_seconds:.2f},"
+            f"afade=t=out:st={fade_out_start:.4f}:d={cfg.fade_out_seconds:.2f}"
+            f"[bgm_main_faded];"
+
+            # ── Combine floor + main → full BGM with floor guarantee ──────────
+            f"[bgm_floor][bgm_main_faded]"
+            f"amix=inputs=2:normalize=0"
             f"[bgm_ducked];"
-            # ── Mix: narration at full gain + ducked BGM ──────────────────
+
+            # ── Final mix: narration at full gain + ducked BGM ────────────────
             f"[nar_mix][bgm_ducked]"
             f"amix=inputs=2:duration=first:normalize=0:weights=1 1"
             f"[premix];"
-            # ── Hard limiter — prevent output clipping ────────────────────
-            f"[premix]alimiter=level_in=1:level_out=1:limit=0.95:attack=5:release=50"
+
+            # ── Hard limiter — catch any transient peaks ──────────────────────
+            f"[premix]"
+            f"alimiter=level_in=1:level_out=1:limit=0.95:attack=5:release=50"
             f"[audio_out]"
         )
 

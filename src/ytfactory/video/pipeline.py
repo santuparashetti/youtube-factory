@@ -68,6 +68,7 @@ def _bgm_config_from_settings(settings: Settings):
         category=settings.bgm_category,
         library_path=settings.bgm_library_path,
         bgm_volume=settings.bgm_volume,
+        duck_floor=settings.bgm_duck_floor,
         duck_threshold=settings.bgm_duck_threshold,
         duck_ratio=settings.bgm_duck_ratio,
         duck_attack_ms=settings.bgm_duck_attack_ms,

@@ -3,6 +3,11 @@ CaptionPipeline — standalone subtitle generation stage.
 
 Delegates all subtitle logic to SubtitleEngine.
 
+When subtitle_editor_enabled=True (settings), the raw cues produced by
+SubtitleEngine are passed through SubtitleEditingEngine before being
+written to disk.  The editing pass only changes text (punctuation,
+capitalisation, line breaks) — timing and cue count are frozen.
+
 When subtitle_format="ass" (default):
   - Writes scene-NNN.ass as the primary file (used for rendering)
   - Writes scene-NNN.srt alongside for compatibility and debug
@@ -38,6 +43,9 @@ class CaptionPipeline:
         engine = SubtitleEngine.from_settings(settings)
         use_ass = engine.format == SubtitleFormat.ASS
 
+        # Build subtitle editor once (None when disabled)
+        editor = _build_editor(settings)
+
         project_dir = Path("workspace") / "jobs" / project
         scene_file = project_dir / "scenes" / "scene-plan.json"
         scenes = json.loads(scene_file.read_text(encoding="utf-8"))["scenes"]
@@ -62,14 +70,25 @@ class CaptionPipeline:
 
             total_duration = float(scene.get("duration_seconds", 10.0))
 
-            if use_ass:
-                ass, srt, report = engine.build_both(
-                    boundaries=boundaries,
-                    narration=scene["narration"],
-                    scene_index=index,
-                    project_id=project,
-                    total_duration=total_duration,
+            # ── Build raw cues ────────────────────────────────────────────
+            cues, report = engine.build_cues(
+                boundaries=boundaries,
+                narration=scene["narration"],
+                scene_index=index,
+                project_id=project,
+                total_duration=total_duration,
+            )
+
+            # ── Editorial pass (when enabled) ─────────────────────────────
+            if editor is not None:
+                cues = editor.edit(
+                    cues, scene_id=f"scene-{index:03d}", project_id=project
                 )
+
+            # ── Serialise and write ───────────────────────────────────────
+            if use_ass:
+                ass = engine.ass_writer.write(cues)
+                srt = engine.srt_writer.write(cues)
                 ass_path.write_text(ass, encoding="utf-8")
                 srt_path.write_text(srt, encoding="utf-8")
                 artifact = CaptionArtifact(
@@ -78,13 +97,7 @@ class CaptionPipeline:
                     ass_path=ass_path,
                 )
             else:
-                srt, report = engine.build_report(
-                    boundaries=boundaries,
-                    narration=scene["narration"],
-                    scene_index=index,
-                    project_id=project,
-                    total_duration=total_duration,
-                )
+                srt = engine.srt_writer.write(cues)
                 srt_path.write_text(srt, encoding="utf-8")
                 artifact = CaptionArtifact(
                     scene_id=index,
@@ -99,3 +112,21 @@ class CaptionPipeline:
             reports=reports,
             enabled=settings.subtitle_debug,
         )
+
+
+def _build_editor(settings: Settings):
+    """Return a SubtitleEditingEngine or None when editor is disabled."""
+    if not settings.subtitle_editor_enabled:
+        return None
+
+    from ytfactory.subtitles.editor import SubtitleEditingEngine
+    from ytfactory.subtitles.editor.factory import get_subtitle_editor_provider
+
+    provider = get_subtitle_editor_provider(settings)
+    return SubtitleEditingEngine(
+        provider=provider,
+        max_passes=settings.subtitle_editor_max_passes,
+        pass_threshold=settings.subtitle_editor_pass_threshold,
+        max_retries=settings.subtitle_editor_max_retries,
+        debug=settings.subtitle_debug,
+    )

@@ -145,6 +145,30 @@ class Settings(BaseSettings):
     subtitle_tail_extension_seconds: float = 1.0
 
     # ------------------------------------------------------------------
+    # Subtitle Intelligence Editor (V2)
+    # ------------------------------------------------------------------
+
+    # Enable the LLM editorial pass after raw subtitle generation.
+    # When True, SubtitleEditingEngine runs after SubtitleEngine and
+    # re-writes .srt / .ass with improved punctuation, capitalisation,
+    # and line breaks while preserving all timing exactly.
+    subtitle_editor_enabled: bool = False
+
+    # Subtitle editor backend: "llm" (uses the configured LLM provider)
+    # or "mock" (passthrough, no API calls — useful for tests).
+    subtitle_editor_provider: str = "llm"
+
+    # Maximum editorial passes before accepting the best-scoring version.
+    subtitle_editor_max_passes: int = 3
+
+    # Quality score threshold (0–100) to stop iterating early.
+    # The engine stops as soon as a pass scores >= this value.
+    subtitle_editor_pass_threshold: float = 95.0
+
+    # Maximum LLM call retries per pass on cue_id mismatch or parse error.
+    subtitle_editor_max_retries: int = 3
+
+    # ------------------------------------------------------------------
     # Image Prompt Engine V4 — Debug & Quality Control
     # ------------------------------------------------------------------
 
@@ -244,26 +268,35 @@ class Settings(BaseSettings):
     # Layout: <path>/<category>/*.mp3  or  <path>/*.mp3 (flat)
     bgm_library_path: str = "workspace/music"
 
-    # BGM volume relative to full scale during quiet sections (0.0–1.0).
-    bgm_volume: float = 0.20
+    # BGM volume relative to full scale during quiet/pause sections (0.0–1.0).
+    # 0.35 = 35% — clearly audible ambient presence between narration sentences.
+    bgm_volume: float = 0.35
+
+    # Minimum BGM level during active speech (0.0–bgm_volume).
+    # Music never drops below this floor even under heavy narration.
+    # 0.05 = 5% — always present, clearly behind narration.
+    bgm_duck_floor: float = 0.05
 
     # Sidechain compress threshold — amplitude above which ducking engages.
     bgm_duck_threshold: float = 0.02
 
-    # Ducking compression ratio (BGM is reduced by this factor under speech).
-    bgm_duck_ratio: float = 4.0
+    # Ducking compression ratio for the main BGM path (above the floor).
+    # 2.5:1 is gentle — music stays perceptible (~11%) during active speech.
+    bgm_duck_ratio: float = 2.5
 
     # Milliseconds for ducking to engage after speech onset.
-    bgm_duck_attack_ms: int = 200
+    # 50 ms: fast enough to duck before the listener hears the BGM clash.
+    bgm_duck_attack_ms: int = 50
 
     # Milliseconds for music to recover after speech ends.
-    bgm_duck_release_ms: int = 1000
+    # 600 ms: snappy recovery that naturally fills sentence gaps.
+    bgm_duck_release_ms: int = 600
 
-    # Music fade-in at video start (seconds).
-    bgm_fade_in_seconds: float = 3.0
+    # Music fade-in at video start (seconds). 1–2 s recommended.
+    bgm_fade_in_seconds: float = 1.5
 
-    # Music fade-out at video end (seconds).
-    bgm_fade_out_seconds: float = 4.0
+    # Music fade-out at video end (seconds). 2–3 s recommended.
+    bgm_fade_out_seconds: float = 2.5
 
     # Crossfade between loop iterations (seconds).
     bgm_crossfade_seconds: float = 2.0

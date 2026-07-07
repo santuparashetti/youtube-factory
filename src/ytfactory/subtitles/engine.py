@@ -288,6 +288,59 @@ class SubtitleEngine:
 
         return ass, srt, report
 
+    @property
+    def ass_writer(self) -> ASSWriter:
+        """Direct access to the ASS writer — use after build_cues() for editing passes."""
+        return self._ass_writer
+
+    @property
+    def srt_writer(self) -> SRTWriter:
+        """Direct access to the SRT writer — use after build_cues() for editing passes."""
+        return self._srt_writer
+
+    def build_cues(
+        self,
+        *,
+        boundaries: list[dict],
+        narration: str,
+        scene_index: int,
+        project_id: str,
+        total_duration: float = 0.0,
+        formatted_narration: str = "",
+    ) -> tuple[list[SubtitleCue], SubtitleReport]:
+        """Build subtitle cues without writing output files.
+
+        Useful when an editing pass (SubtitleEditingEngine) should run
+        before the final SRT/ASS is serialised. Returns (cues, report).
+        Debug files are written here so they reflect the raw generated
+        cues (pre-edit). The caller is responsible for serialising and
+        writing the (potentially edited) cues via ass_writer / srt_writer.
+        """
+        debug = SubtitleDebugWriter(
+            project_id=project_id,
+            scene_index=scene_index,
+            enabled=self._debug,
+        )
+        debug.write_original(narration)
+        debug.write_word_boundaries(boundaries)
+        if formatted_narration:
+            debug.write_optimized(formatted_narration)
+
+        cues, (overlaps, gaps), issues = self._process(
+            boundaries, narration, total_duration
+        )
+
+        report = _build_report(
+            scene_index=scene_index,
+            cues=cues,
+            issues=issues,
+            overlap_repairs=overlaps,
+            gap_repairs=gaps,
+        )
+        _log_report(scene_index, report, issues)
+
+        return cues, report
+
     # ── Internal pipeline ─────────────────────────────────────────────────────
 
     def _process(

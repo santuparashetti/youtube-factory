@@ -43,6 +43,7 @@ class BGMPipeline:
             category=self._settings.bgm_category,
             library_path=self._settings.bgm_library_path,
             bgm_volume=self._settings.bgm_volume,
+            duck_floor=self._settings.bgm_duck_floor,
             duck_threshold=self._settings.bgm_duck_threshold,
             duck_ratio=self._settings.bgm_duck_ratio,
             duck_attack_ms=self._settings.bgm_duck_attack_ms,

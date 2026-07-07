@@ -36,22 +36,25 @@ class TestBGMConfig:
         assert self._cfg().category == "auto"
 
     def test_default_bgm_volume(self):
-        assert self._cfg().bgm_volume == pytest.approx(0.12)
+        assert self._cfg().bgm_volume == pytest.approx(0.35)
+
+    def test_default_duck_floor(self):
+        assert self._cfg().duck_floor == pytest.approx(0.05)
 
     def test_default_duck_ratio(self):
-        assert self._cfg().duck_ratio == pytest.approx(6.0)
+        assert self._cfg().duck_ratio == pytest.approx(2.5)
 
     def test_default_duck_attack_ms(self):
-        assert self._cfg().duck_attack_ms == 200
+        assert self._cfg().duck_attack_ms == 50
 
     def test_default_duck_release_ms(self):
-        assert self._cfg().duck_release_ms == 1000
+        assert self._cfg().duck_release_ms == 600
 
     def test_default_fade_in(self):
-        assert self._cfg().fade_in_seconds == pytest.approx(3.0)
+        assert self._cfg().fade_in_seconds == pytest.approx(1.5)
 
     def test_default_fade_out(self):
-        assert self._cfg().fade_out_seconds == pytest.approx(4.0)
+        assert self._cfg().fade_out_seconds == pytest.approx(2.5)
 
     def test_default_crossfade(self):
         assert self._cfg().crossfade_seconds == pytest.approx(2.0)
@@ -210,10 +213,24 @@ class TestBGMMixer:
         fc = mixer._build_filter(120.0, 116.0)
         assert "amix" in fc
 
-    def test_filter_contains_volume(self, tmp_path):
-        mixer = self._mixer(bgm_volume=0.08)
+    def test_filter_contains_floor_volume(self, tmp_path):
+        # duck_floor appears in the floor path
+        mixer = self._mixer(bgm_volume=0.40, duck_floor=0.10)
         fc = mixer._build_filter(120.0, 116.0)
-        assert "volume=0.0800" in fc
+        assert "volume=0.1000" in fc  # floor path
+
+    def test_filter_contains_main_volume(self, tmp_path):
+        # main_vol = bgm_volume - duck_floor appears in the main path
+        mixer = self._mixer(bgm_volume=0.40, duck_floor=0.10)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "volume=0.3000" in fc  # main path (0.40 - 0.10)
+
+    def test_filter_duck_floor_zero_main_vol(self, tmp_path):
+        # When duck_floor == bgm_volume, main_vol is clamped to 0
+        mixer = self._mixer(bgm_volume=0.10, duck_floor=0.10)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "volume=0.1000" in fc  # floor
+        assert "volume=0.0000" in fc  # main (clamped)
 
     def test_filter_fade_in_out_times(self, tmp_path):
         mixer = self._mixer(fade_in_seconds=5.0, fade_out_seconds=6.0)
@@ -380,7 +397,11 @@ class TestSettingsBGMFields:
     def test_bgm_volume_default(self):
         # Test the code-level field default; Settings() reads .env which may override it.
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_volume"].default == pytest.approx(0.20)
+        assert _S.model_fields["bgm_volume"].default == pytest.approx(0.35)
+
+    def test_bgm_duck_floor_default(self):
+        from ytfactory.config.settings import Settings as _S
+        assert _S.model_fields["bgm_duck_floor"].default == pytest.approx(0.05)
 
     def test_bgm_duck_threshold_default(self):
         assert self._s().bgm_duck_threshold == pytest.approx(0.02)
@@ -388,13 +409,15 @@ class TestSettingsBGMFields:
     def test_bgm_duck_ratio_default(self):
         # Test the code-level field default; Settings() reads .env which may override it.
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_duck_ratio"].default == pytest.approx(4.0)
+        assert _S.model_fields["bgm_duck_ratio"].default == pytest.approx(2.5)
 
     def test_bgm_fade_in_default(self):
-        assert self._s().bgm_fade_in_seconds == pytest.approx(3.0)
+        from ytfactory.config.settings import Settings as _S
+        assert _S.model_fields["bgm_fade_in_seconds"].default == pytest.approx(1.5)
 
     def test_bgm_fade_out_default(self):
-        assert self._s().bgm_fade_out_seconds == pytest.approx(4.0)
+        from ytfactory.config.settings import Settings as _S
+        assert _S.model_fields["bgm_fade_out_seconds"].default == pytest.approx(2.5)
 
     def test_bgm_random_track_default(self):
         assert self._s().bgm_random_track is True
