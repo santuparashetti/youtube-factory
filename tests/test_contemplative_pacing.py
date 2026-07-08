@@ -709,8 +709,8 @@ class TestThoughtProfilePauses:
 
     def test_spiritual_insight_range(self):
         r = THOUGHT_PROFILE_PAUSES["spiritual"]
-        assert r.insight.min_ms == 2500
-        assert r.insight.max_ms == 4000
+        assert r.insight.min_ms == 1800
+        assert r.insight.max_ms == 2500
 
     def test_ranges_monotonically_increasing(self):
         for name, r in THOUGHT_PROFILE_PAUSES.items():

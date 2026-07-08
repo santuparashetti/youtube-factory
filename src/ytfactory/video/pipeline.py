@@ -77,6 +77,12 @@ def _bgm_config_from_settings(settings: Settings):
         fade_out_seconds=settings.bgm_fade_out_seconds,
         crossfade_seconds=settings.bgm_crossfade_seconds,
         random_track=settings.bgm_random_track,
+        vad_enabled=settings.bgm_vad_enabled,
+        vad_provider=settings.bgm_vad_provider,
+        phrase_gap_ms=settings.bgm_phrase_gap_ms,
+        long_silence_ms=settings.bgm_long_silence_ms,
+        dynamic_ducking=settings.bgm_dynamic_ducking,
+        restore_curve=settings.bgm_restore_curve,
     )
 
 
@@ -122,7 +128,7 @@ def _apply_bgm(
         track = BGMLibrary(config).find_track(category)
         if track:
             logger.info("BGM composition: {} ({})", track.title, category)
-            result = BGMMixer(config).mix(tmp, track, output_path)
+            result = BGMMixer(config).mix(tmp, track, output_path, project_dir=project_dir)
             tmp.unlink(missing_ok=True)
             if not result.success:
                 raise RuntimeError(f"BGM mixing failed: {result.error[:300]}")

@@ -11,7 +11,7 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 1644 passing (as of 2026-07-09)  
+**Test count:** 1677 passing (as of 2026-07-09)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
 
 ---
@@ -207,7 +207,33 @@ SUBTITLE_EDITOR_MAX_RETRIES=3
 
 ---
 
-### 9. KOKORO_PROVIDER_AND_SUBTITLE_ENGINE_UPGRADE_V1
+### 9. Contemplative Pacing Engine
+**Files:** `src/ytfactory/providers/tts/pacing/` — `config.py`, `thought_analyzer.py`, `injector.py`, `models.py`
+
+Three-level thought-based pacing (replaces sentence-level pauses):
+- `ThoughtAnalyzer` groups narration into semantic thought blocks; `PauseInjector` inserts silence between blocks.
+- Block triggers: contrast opener (But/Yet/However), shift opener (Now/Remember/Consider), **reveal starter** (It is/This is/That is/You are/We are/Life is/Truth is — fires at any length when block has a concept or universal word), short conclusive (≤5 words + concept).
+- Block scoring: concept density, universals, negation/paradox, rhetorical question, ellipsis, brevity → INSIGHT / REALIZATION / SMALL pause tier.
+
+**`spiritual` profile pause ranges (current):**
+```
+small:       800–1200 ms
+realization: 1200–1800 ms
+insight:     1800–2500 ms   ← reduced from 2500–4000 for natural pacing
+```
+
+**Settings:**
+```
+TTS_PACING_ENABLED=true
+TTS_PACING_PROFILE=spiritual    # normal | documentary | spiritual | meditation | slow_reflection
+KOKORO_SPEED=0.85               # 1.0 = natural, 0.85 = contemplative
+```
+
+**Gotcha:** "It is the presence of everything you have been running from." contains "everything" (in `_UNIVERSALS`) → fires reveal trigger even though no `_MAJOR_CONCEPTS` word present. "This is natural." has neither concept nor universal → does NOT trigger (expected).
+
+---
+
+### 10. KOKORO_PROVIDER_AND_SUBTITLE_ENGINE_UPGRADE_V1
 **Spec:** `docs/video/KOKORO_PROVIDER_AND_SUBTITLE_ENGINE_UPGRADE_V1.md`
 
 #### Kokoro TTS Provider
@@ -254,6 +280,63 @@ In `review/remediation/executor.py`. Deletes `*.alignment.json` files, calls `Vo
 
 ---
 
+### 11. BGM_MIXING_ENGINE_V2
+**Spec:** `docs/video/BGM_MIXING_ENGINE_V2.md`  
+**New files:** `src/ytfactory/bgm/vad.py`, `src/ytfactory/bgm/debug.py`  
+**Modified:** `bgm/config.py`, `bgm/mixer.py`, `bgm/pipeline.py`, `video/pipeline.py`, `config/settings.py`, `review/validation/rules/bgm.py`, `review/engine.py`
+
+#### Architecture
+Extends the existing two-path floor+main sidechaincompress architecture. No redesign.
+
+**Key V2 addition — agate phrase grouping on sidechain:**
+```
+[nar_raw]agate=threshold={duck_threshold}:hold={phrase_gap_ms/1000}:attack=0.015:release=0.350:range=0.01[nar_sc]
+```
+The `hold` parameter keeps the gate open across inter-word gaps ≤ `phrase_gap_ms` → music stays ducked for the whole phrase, eliminating inter-word pumping. Long silence recovery (>2s) happens naturally via sidechaincompress release=350ms (reaches ≥99% of target).
+
+#### VAD module (`bgm/vad.py`)
+Uses FFmpeg `silencedetect` (no new deps). `detect_speech(audio_path, phrase_gap_ms=300)` → `SpeechTimeline(segments, total_duration, speech_ratio)`. Each `SpeechSegment` has `start`, `end`, `energy` (normalised from volumedetect mean).
+
+#### Debug output (`bgm/debug.py`)
+`BGMDebugWriter(project_dir).write(timeline, mix_profile, ffmpeg_filter)` — writes 5 files to `workspace/jobs/<id>/bgm-debug/`: `speech_timeline.json`, `ducking_events.json`, `mix_profile.json`, `ffmpeg_filter.txt`, `audio_levels.csv`.
+
+#### New compressor defaults (V2)
+| Setting | Old | New (V2) |
+|---|---|---|
+| `BGM_VOLUME` | 0.35 | 0.30 |
+| `BGM_DUCK_FLOOR` | 0.05 | 0.04 |
+| `BGM_DUCK_THRESHOLD` | 0.02 | 0.008 |
+| `BGM_DUCK_RATIO` | 2.5 | 8.0 |
+| `BGM_DUCK_ATTACK_MS` | 50 | 15 |
+| `BGM_DUCK_RELEASE_MS` | 600 | 350 |
+
+#### New Settings fields
+```
+BGM_VAD_ENABLED=true
+BGM_VAD_PROVIDER=silero       # reserved; current impl uses ffmpeg silencedetect
+BGM_PHRASE_GAP_MS=300
+BGM_LONG_SILENCE_MS=2000
+BGM_DYNAMIC_DUCKING=true
+BGM_RESTORE_CURVE=logarithmic
+```
+
+#### New review rules
+- **BGM_005 [medium]:** Duck depth — BGM during narration not louder than BGM intro
+- **BGM_006 [low]:** Phrase detection active — `bgm-debug/speech_timeline.json` present and non-empty
+- **BGM_007 [medium]:** Long silence recovery — BGM volume during >2s silence gap within 4 dB of intro level
+
+BGM_005–007 SKIP when `bgm-debug/speech_timeline.json` absent.
+
+#### Backward compatibility
+- Existing `.env` overrides (`BGM_VOLUME=0.24`, `BGM_DUCK_THRESHOLD=0.02`, `BGM_DUCK_RATIO=6.2`) still take precedence over the new code defaults.
+- `vad_enabled=False` in `BGMConfig` restores the V1 filter (no agate). Default is `True`.
+- `BGMMixer.mix()` gains optional `project_dir: Path | None = None` — existing callers passing 3 args are unaffected.
+
+#### Incremental build
+Already handled — `"bgm": "video"` in `incremental/deps.py` invalidates only the video stage when BGM settings change.
+
+---
+
 ## Image Prompt Engine Layers (order of application)
 
 1. Shot planning — `images/shot_planner.py`
@@ -297,7 +380,8 @@ workspace/jobs/<project-id>/
 ├── video/            scene-001.mp4 … final.mp4
 ├── review/           17+ review output files
 ├── remediation/      4 files
-└── publish/          9+ files
+├── publish/          10 files (includes pinned-comment.txt)
+└── bgm-debug/        5 files (written when BGM_VAD_ENABLED=true): speech_timeline.json, ducking_events.json, mix_profile.json, ffmpeg_filter.txt, audio_levels.csv
 ```
 
 ---

@@ -104,6 +104,9 @@ class VideoQualityReviewEngine:
             _s = _Settings()
             context["bgm_enabled"] = _s.bgm_enabled
             context["bgm_category"] = _s.bgm_category
+            context["bgm_vad_enabled"] = _s.bgm_vad_enabled
+            context["bgm_phrase_gap_ms"] = _s.bgm_phrase_gap_ms
+            context["bgm_long_silence_ms"] = _s.bgm_long_silence_ms
         except Exception:
             context["bgm_enabled"] = False
 

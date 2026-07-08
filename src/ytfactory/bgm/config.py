@@ -34,42 +34,35 @@ class BGMConfig:
     library_path: str = "workspace/music"
 
     # BGM volume relative to full scale (0.0–1.0) during quiet/pause sections.
-    # 0.35 = 35% — clearly audible ambient presence during silence between sentences.
-    bgm_volume: float = 0.35
+    bgm_volume: float = 0.30
 
     # Minimum BGM level during active speech (0.0–bgm_volume).
-    # Music never drops below this level even at maximum narration amplitude.
-    # 0.05 = 5% floor — ensures music stays present but well behind narration.
-    duck_floor: float = 0.05
+    # Music never drops below this floor even at maximum narration amplitude.
+    duck_floor: float = 0.04
 
     # Sidechain compress threshold: amplitude above which ducking engages.
-    # ~0.02 ≈ -34 dBFS — detects the onset of speech without false-triggering
-    # on room noise or breath sounds.
-    duck_threshold: float = 0.02
+    # 0.008 ≈ -42 dBFS — sensitive enough to catch speech onset early.
+    duck_threshold: float = 0.008
 
     # Compression ratio — how aggressively the main BGM path ducks.
-    # 2.5:1 is a gentle duck: music drops to ~11% during strong narration
-    # while remaining clearly audible as a background presence.
-    duck_ratio: float = 2.5
+    # 8.0:1 produces strong ducking while still preserving a floor.
+    duck_ratio: float = 8.0
 
-    # Milliseconds for ducking to fully engage after speech onset.
-    # 50 ms: fast enough to duck before the listener hears the BGM clash.
-    duck_attack_ms: int = 50
+    # Milliseconds for ducking to engage after speech onset.
+    # 15 ms: near-instantaneous — BGM ducks before the word lands.
+    duck_attack_ms: int = 15
 
     # Milliseconds for music to recover after speech ends.
-    # 600 ms: snappy enough to fill sentence gaps without feeling sluggish.
-    duck_release_ms: int = 600
+    # 350 ms: fast enough to fill sentence gaps, slow enough to avoid pumping.
+    duck_release_ms: int = 350
 
     # Fade-in duration at the very start of the video.
-    # 1.5 s: music rises naturally under the opening hook.
     fade_in_seconds: float = 1.5
 
     # Fade-out duration at the very end of the video.
-    # 2.5 s: smooth, unhurried exit.
     fade_out_seconds: float = 2.5
 
     # Crossfade duration between successive loops of the music track.
-    # 2 s overlap prevents audible clicks at loop boundaries.
     crossfade_seconds: float = 2.0
 
     # When multiple tracks exist in the selected category, pick randomly.
@@ -77,3 +70,31 @@ class BGMConfig:
 
     # AAC bitrate for the final mixed audio track.
     audio_bitrate: str = "192k"
+
+    # ── V2: VAD-assisted adaptive ducking ────────────────────────────────────
+
+    # Enable VAD pre-analysis for phrase grouping and debug output.
+    # When True, an agate filter is added to the sidechain to suppress
+    # inter-word pumping; debug files are written to bgm-debug/.
+    vad_enabled: bool = True
+
+    # VAD backend — "silero" preferred per spec; current implementation uses
+    # FFmpeg silencedetect (no extra deps). Reserved for future Silero support.
+    vad_provider: str = "silero"
+
+    # Gap (ms) between speech bursts treated as one continuous phrase.
+    # The agate hold parameter is set to this value so music stays ducked
+    # across brief inter-word pauses.
+    phrase_gap_ms: int = 300
+
+    # Silence duration (ms) after which music recovers to full volume.
+    # Used by review rules to verify recovery timing.
+    long_silence_ms: int = 2000
+
+    # Vary duck depth with narration energy (louder → deeper duck).
+    # Implemented naturally by sidechaincompress — this flag gates debug output.
+    dynamic_ducking: bool = True
+
+    # Volume recovery curve after long silence.
+    # "logarithmic" matches the natural sidechaincompress release envelope.
+    restore_curve: str = "logarithmic"

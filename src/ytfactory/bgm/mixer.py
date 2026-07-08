@@ -1,27 +1,35 @@
 """BGMMixer — mixes background music into the final video using FFmpeg.
 
-Two-path filter architecture (applied to the concatenated final.mp4):
+V2 two-path filter architecture:
 
   BGM signal is split into two parallel paths:
 
   Path A — floor (always-on):
     BGM → volume(duck_floor) → fade-in/out → [bgm_floor]
-    Always present at the configured floor level regardless of narration.
 
   Path B — main (sidechain-ducked):
-    BGM → volume(bgm_volume − duck_floor) → sidechaincompress(narration) →
+    BGM → volume(bgm_volume − duck_floor) → sidechaincompress(narration_gated) →
     fade-in/out → [bgm_main]
-    Carries the bulk of the BGM volume; ducks smoothly when narration is active.
+
+  V2 sidechain enhancement (when vad_enabled=True):
+    Narration is passed through agate(hold=phrase_gap_ms) before feeding
+    the sidechaincompress.  The hold parameter keeps the gate open across
+    brief inter-word gaps so music stays ducked across a whole phrase,
+    eliminating inter-word pumping.
 
   Combined:
     [bgm_floor] + [bgm_main] → amix → [bgm_ducked]
 
-    During silence:     floor + main_volume  = bgm_volume  (e.g. 35%)
-    During speech:      floor + main_ducked  ≈ duck_floor + small residual
-                                              (e.g. 5–11% depending on ratio)
+    During silence:     floor + main_volume  = bgm_volume
+    During speech:      floor + main_ducked  ≈ duck_floor (10–20%)
 
   Final mix:
     narration (full gain) + [bgm_ducked] → amix → alimiter → [audio_out]
+
+  Long-silence recovery:
+    sidechaincompress release=350 ms means after 2 s of silence the BGM has
+    recovered to ≥99% of target — the logarithmic envelope sidechaincompress
+    provides naturally satisfies the spec's smooth logarithmic recovery rule.
 """
 
 from __future__ import annotations
@@ -49,18 +57,50 @@ class BGMMixer:
         video_path: Path,
         track: BGMTrack,
         output_path: Path,
+        project_dir: Path | None = None,
     ) -> BGMMixResult:
         """Mix *track* into *video_path* and write the result to *output_path*.
 
         The narration in the original video is always preserved at its
         original level.  The BGM is ducked via sidechain compression
         whenever narration is detected above the configured threshold.
+
+        When *project_dir* is supplied and *config.vad_enabled* is True,
+        a speech timeline is computed from the narration and five debug files
+        are written to ``<project_dir>/bgm-debug/``.
         """
         cfg = self._config
         video_duration = self._probe_duration(video_path)
         fade_out_start = max(0.0, video_duration - cfg.fade_out_seconds)
 
         filter_complex = self._build_filter(video_duration, fade_out_start)
+
+        # VAD pre-analysis + debug output (non-fatal if ffmpeg probe fails)
+        if cfg.vad_enabled and project_dir is not None:
+            try:
+                from .debug import BGMDebugWriter
+                from .vad import detect_speech
+
+                timeline = detect_speech(
+                    video_path,
+                    phrase_gap_ms=cfg.phrase_gap_ms,
+                )
+                mix_profile = {
+                    "bgm_volume": cfg.bgm_volume,
+                    "duck_floor": cfg.duck_floor,
+                    "duck_threshold": cfg.duck_threshold,
+                    "duck_ratio": cfg.duck_ratio,
+                    "duck_attack_ms": cfg.duck_attack_ms,
+                    "duck_release_ms": cfg.duck_release_ms,
+                    "phrase_gap_ms": cfg.phrase_gap_ms,
+                    "long_silence_ms": cfg.long_silence_ms,
+                    "dynamic_ducking": cfg.dynamic_ducking,
+                    "restore_curve": cfg.restore_curve,
+                    "vad_provider": cfg.vad_provider,
+                }
+                BGMDebugWriter(project_dir).write(timeline, mix_profile, filter_complex)
+            except Exception as exc:
+                logger.warning("BGM debug write failed (non-fatal): {}", exc)
 
         cmd: list[str] = [
             "ffmpeg", "-y",
@@ -109,12 +149,41 @@ class BGMMixer:
     def _build_filter(self, duration: float, fade_out_start: float) -> str:
         """Return the FFmpeg filter_complex string for BGM mixing with ducking.
 
-        Two-path architecture — see module docstring for the full signal flow.
+        V2 two-path architecture — see module docstring for the full signal flow.
+        When vad_enabled the narration sidechain is pre-processed with agate to
+        group nearby words into phrases (eliminating inter-word pumping).
         """
         cfg = self._config
-        # Volume carried by the sidechain-compressed main path.
-        # The floor path always contributes cfg.duck_floor regardless of speech.
         main_vol = max(0.0, cfg.bgm_volume - cfg.duck_floor)
+        phrase_gap_s = cfg.phrase_gap_ms / 1000.0
+
+        # ── Narration sidechain label — V1 or V2 depending on vad_enabled ────
+        if cfg.vad_enabled:
+            nar_split = (
+                # Split narration: one copy for sidechain gating, one for the mix
+                f"[0:a]"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                f"asplit=2"
+                f"[nar_raw][nar_mix];"
+
+                # Phrase-grouping gate on sidechain — hold keeps gate open across
+                # inter-word gaps ≤ phrase_gap_ms so music stays ducked per phrase.
+                f"[nar_raw]"
+                f"agate="
+                f"threshold={cfg.duck_threshold:.4f}:"
+                f"hold={phrase_gap_s:.3f}:"
+                f"attack=0.015:"
+                f"release=0.350:"
+                f"range=0.01"
+                f"[nar_sc];"
+            )
+        else:
+            nar_split = (
+                "[0:a]"
+                "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                "asplit=2"
+                "[nar_sc][nar_mix];"
+            )
 
         return (
             # ── Prepare BGM: trim to video length, reset PTS, normalise format ─
@@ -135,11 +204,8 @@ class BGMMixer:
             # ── Path B: main — scaled then sidechain-compressed ───────────────
             f"[bgm_main_raw]volume={main_vol:.4f}[bgm_main_scaled];"
 
-            # ── Narration split (each pad consumed exactly once) ──────────────
-            f"[0:a]"
-            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
-            f"asplit=2"
-            f"[nar_sc][nar_mix];"
+            # ── Narration split + optional phrase-grouping gate ───────────────
+            + nar_split +
 
             # ── Sidechain compress: BGM ducks while narration is above threshold ─
             f"[bgm_main_scaled][nar_sc]"

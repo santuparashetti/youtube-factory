@@ -269,33 +269,30 @@ class Settings(BaseSettings):
     bgm_library_path: str = "workspace/music"
 
     # BGM volume relative to full scale during quiet/pause sections (0.0–1.0).
-    # 0.35 = 35% — clearly audible ambient presence between narration sentences.
-    bgm_volume: float = 0.35
+    bgm_volume: float = 0.30
 
     # Minimum BGM level during active speech (0.0–bgm_volume).
-    # Music never drops below this floor even under heavy narration.
-    # 0.05 = 5% — always present, clearly behind narration.
-    bgm_duck_floor: float = 0.05
+    bgm_duck_floor: float = 0.04
 
     # Sidechain compress threshold — amplitude above which ducking engages.
-    bgm_duck_threshold: float = 0.02
+    # 0.008 ≈ −42 dBFS — catches speech onset early.
+    bgm_duck_threshold: float = 0.008
 
-    # Ducking compression ratio for the main BGM path (above the floor).
-    # 2.5:1 is gentle — music stays perceptible (~11%) during active speech.
-    bgm_duck_ratio: float = 2.5
+    # Ducking compression ratio — 8:1 for strong, clean ducking.
+    bgm_duck_ratio: float = 8.0
 
     # Milliseconds for ducking to engage after speech onset.
-    # 50 ms: fast enough to duck before the listener hears the BGM clash.
-    bgm_duck_attack_ms: int = 50
+    # 15 ms: near-instantaneous onset.
+    bgm_duck_attack_ms: int = 15
 
     # Milliseconds for music to recover after speech ends.
-    # 600 ms: snappy recovery that naturally fills sentence gaps.
-    bgm_duck_release_ms: int = 600
+    # 350 ms: fast recovery without audible pumping.
+    bgm_duck_release_ms: int = 350
 
-    # Music fade-in at video start (seconds). 1–2 s recommended.
+    # Music fade-in at video start (seconds).
     bgm_fade_in_seconds: float = 1.5
 
-    # Music fade-out at video end (seconds). 2–3 s recommended.
+    # Music fade-out at video end (seconds).
     bgm_fade_out_seconds: float = 2.5
 
     # Crossfade between loop iterations (seconds).
@@ -303,6 +300,26 @@ class Settings(BaseSettings):
 
     # Randomly select from available tracks in the category.
     bgm_random_track: bool = True
+
+    # ── BGM V2: VAD-assisted adaptive ducking ─────────────────────────────
+
+    # Enable VAD pre-analysis for phrase grouping and debug output.
+    bgm_vad_enabled: bool = True
+
+    # VAD backend ("silero" preferred; current impl uses FFmpeg silencedetect).
+    bgm_vad_provider: str = "silero"
+
+    # Gap (ms) between speech bursts treated as a single continuous phrase.
+    bgm_phrase_gap_ms: int = 300
+
+    # Silence duration (ms) after which music recovers to full volume.
+    bgm_long_silence_ms: int = 2000
+
+    # Vary duck depth with narration energy (louder → deeper duck).
+    bgm_dynamic_ducking: bool = True
+
+    # Volume recovery curve after long silence ("logarithmic" matches compressor).
+    bgm_restore_curve: str = "logarithmic"
 
     # ------------------------------------------------------------------
     # Cinematic Intro

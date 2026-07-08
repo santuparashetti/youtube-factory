@@ -52,6 +52,12 @@ class BGMPipeline:
             fade_out_seconds=self._settings.bgm_fade_out_seconds,
             crossfade_seconds=self._settings.bgm_crossfade_seconds,
             random_track=self._settings.bgm_random_track,
+            vad_enabled=self._settings.bgm_vad_enabled,
+            vad_provider=self._settings.bgm_vad_provider,
+            phrase_gap_ms=self._settings.bgm_phrase_gap_ms,
+            long_silence_ms=self._settings.bgm_long_silence_ms,
+            dynamic_ducking=self._settings.bgm_dynamic_ducking,
+            restore_curve=self._settings.bgm_restore_curve,
         )
         self._library = BGMLibrary(self._config)
         self._mixer = BGMMixer(self._config)
@@ -99,7 +105,7 @@ class BGMPipeline:
 
         # ── Mix ───────────────────────────────────────────────────────────
         tmp_path = video_path.with_suffix(".bgm.mp4")
-        result = self._mixer.mix(video_path, track, tmp_path)
+        result = self._mixer.mix(video_path, track, tmp_path, project_dir=project_dir)
 
         if result.success:
             tmp_path.replace(video_path)
