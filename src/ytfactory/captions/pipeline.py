@@ -25,6 +25,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.subtitles import SubtitleEngine
 from ytfactory.subtitles.debug import SubtitleDebugWriter
 from ytfactory.subtitles.models import SubtitleFormat, SubtitleReport
+from ytfactory.voice.aligner import boundaries_from_alignment, load_alignment
 
 from .artifacts import subtitles_directory
 from .models import CaptionArtifact
@@ -62,9 +63,15 @@ class CaptionPipeline:
             if primary.exists():
                 continue
 
+            # Prefer WhisperX alignment (more accurate) over TTS timing.
+            alignment_file = project_dir / "audio" / f"scene-{index:03d}.alignment.json"
             timing_file = project_dir / "audio" / f"scene-{index:03d}.timing.json"
+
             boundaries: list[dict] = []
-            if timing_file.exists():
+            alignment_data = load_alignment(alignment_file)
+            if alignment_data is not None:
+                boundaries = boundaries_from_alignment(alignment_data)
+            elif timing_file.exists():
                 data = timing_file.read_text(encoding="utf-8")
                 boundaries = json.loads(data) if data.strip() else []
 

@@ -30,6 +30,13 @@ class GeminiImageProvider(ImageProvider):
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        if not settings.gemini_api_key:
+            raise ValueError(
+                "GEMINI_API_KEY is not set. "
+                "Add it to your .env file, or set IMAGE_PROVIDER to a different provider "
+                "(e.g. IMAGE_PROVIDER=huggingface). "
+                "Make sure you run ytfactory from the repo root so .env is found."
+            )
         self._client = genai.Client(api_key=settings.gemini_api_key)
 
     @retry(

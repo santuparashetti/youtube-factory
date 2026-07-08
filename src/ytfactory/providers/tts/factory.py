@@ -13,6 +13,11 @@ def get_tts_provider(settings: Settings) -> TTSProvider:
         case "edge":
             return EdgeTTSProvider(settings)
 
+        case "kokoro":
+            from .kokoro import KokoroProvider
+
+            return KokoroProvider(settings)
+
         case "elevenlabs":
             raise NotImplementedError(
                 "ElevenLabs TTS is not yet implemented. "
@@ -24,5 +29,5 @@ def get_tts_provider(settings: Settings) -> TTSProvider:
         case _:
             raise ValueError(
                 f"Unsupported TTS provider: {settings.tts_provider!r}. "
-                f"Valid values: edge, elevenlabs (coming soon)."
+                f"Valid values: edge, kokoro, elevenlabs (coming soon)."
             )

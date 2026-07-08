@@ -7,6 +7,11 @@ Rules:
   SUBT_004 [medium]   — Characters per subtitle line within limit
   SUBT_005 [medium]   — No empty subtitle cues
   SUBT_006 [medium]   — Subtitle text overlaps with narration (Jaccard)
+  SUBT_007 [medium]   — Semantic boundary quality (no orphan words)
+  SUBT_008 [low]      — Balanced two-line subtitles
+  SUBT_009 [medium]   — No duplicate consecutive cues
+  SUBT_010 [medium]   — Cue duration within acceptable bounds
+  SUBT_011 [low]      — Cue count relative to narration length (density check)
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ def _parse_srt_blocks(text: str) -> list[tuple[float, float, str]]:
             and not _SRT_TS_RE.match(ln.strip())
             and not re.match(r"^\d+$", ln.strip())
         ]
-        blocks.append((start, end, " ".join(text_lines)))
+        blocks.append((start, end, "\n".join(text_lines)))
     return blocks
 
 
@@ -55,6 +60,48 @@ def _jaccard(a: str, b: str) -> float:
     if not sa or not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
+
+
+_ALL_RULES = (
+    "SUBT_001",
+    "SUBT_002",
+    "SUBT_003",
+    "SUBT_004",
+    "SUBT_005",
+    "SUBT_006",
+    "SUBT_007",
+    "SUBT_008",
+    "SUBT_009",
+    "SUBT_010",
+    "SUBT_011",
+)
+
+# Words that should not be left alone as the only word in a subtitle line.
+_ORPHAN_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "in",
+        "on",
+        "at",
+        "by",
+        "of",
+        "to",
+        "for",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+    }
+)
+
+# Cue duration thresholds for SUBT_010
+_MIN_CUE_DURATION_S = 0.3
+_MAX_CUE_DURATION_S = 8.0
 
 
 class SubtitleValidator(BaseValidator):
@@ -70,14 +117,7 @@ class SubtitleValidator(BaseValidator):
         results: list[ValidationResult] = []
 
         if not scenes:
-            for rule_id in (
-                "SUBT_001",
-                "SUBT_002",
-                "SUBT_003",
-                "SUBT_004",
-                "SUBT_005",
-                "SUBT_006",
-            ):
+            for rule_id in _ALL_RULES:
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
             return results
@@ -208,7 +248,7 @@ class SubtitleValidator(BaseValidator):
                         duration = end - start
                         if duration <= 0 or not cue_text:
                             continue
-                        cps = len(cue_text) / duration
+                        cps = len(cue_text.replace("\n", " ")) / duration
                         if cps > max_cps:
                             violations.append(f"block {i + 1}: {cps:.1f} CPS")
                     if violations:
@@ -294,7 +334,9 @@ class SubtitleValidator(BaseValidator):
                         )
                     )
                 else:
-                    subtitle_text = " ".join(cue for _, _, cue in blocks)
+                    subtitle_text = " ".join(
+                        cue.replace("\n", " ") for _, _, cue in blocks
+                    )
                     threshold = self._config.subtitle_narration_overlap_threshold
                     sim = _jaccard(subtitle_text, narration)
                     if sim < threshold:
@@ -317,5 +359,195 @@ class SubtitleValidator(BaseValidator):
                                 scene_index=idx,
                             )
                         )
+
+            # SUBT_007: Semantic boundary quality — orphan words
+            if self._config.is_enabled("SUBT_007"):
+                if not blocks:
+                    results.append(
+                        self._skip(
+                            "SUBT_007", "no SRT blocks to evaluate", scene_index=idx
+                        )
+                    )
+                else:
+                    orphans: list[str] = []
+                    for _, _, cue_text in blocks:
+                        words = cue_text.split()
+                        if (
+                            len(words) == 1
+                            and words[0].lower().rstrip(".,;:!?") in _ORPHAN_WORDS
+                        ):
+                            orphans.append(f"orphan function word: '{cue_text}'")
+                        elif len(words) == 1 and len(words[0].rstrip(".,;:!?")) <= 3:
+                            orphans.append(f"very short orphan cue: '{cue_text}'")
+                    if orphans:
+                        results.append(
+                            self._warn(
+                                "SUBT_007",
+                                f"Scene {idx}: {len(orphans)} orphan word cue(s)",
+                                "; ".join(orphans[:3]),
+                                "medium",
+                                scene_index=idx,
+                                orphan_count=len(orphans),
+                            )
+                        )
+                    else:
+                        results.append(
+                            self._pass(
+                                "SUBT_007",
+                                f"Scene {idx} no orphan word cues",
+                                scene_index=idx,
+                            )
+                        )
+
+            # SUBT_008: Balanced two-line subtitles
+            if self._config.is_enabled("SUBT_008"):
+                if not blocks:
+                    results.append(
+                        self._skip(
+                            "SUBT_008", "no SRT blocks to evaluate", scene_index=idx
+                        )
+                    )
+                else:
+                    unbalanced: list[str] = []
+                    for i_b, (_, _, cue_text) in enumerate(blocks):
+                        lines = cue_text.splitlines()
+                        if len(lines) == 2:
+                            len1 = len(lines[0].strip())
+                            len2 = len(lines[1].strip())
+                            if len1 > 0 and len2 > 0:
+                                ratio = min(len1, len2) / max(len1, len2)
+                                if ratio < 0.4:
+                                    unbalanced.append(
+                                        f"block {i_b + 1}: ratio {ratio:.2f}"
+                                    )
+                    if unbalanced:
+                        results.append(
+                            self._warn(
+                                "SUBT_008",
+                                f"Scene {idx}: {len(unbalanced)} unbalanced two-line cue(s)",
+                                "; ".join(unbalanced[:3]),
+                                "low",
+                                scene_index=idx,
+                                unbalanced_count=len(unbalanced),
+                            )
+                        )
+                    else:
+                        results.append(
+                            self._pass(
+                                "SUBT_008",
+                                f"Scene {idx} two-line cues are balanced",
+                                scene_index=idx,
+                            )
+                        )
+
+            # SUBT_009: No duplicate consecutive cues
+            if self._config.is_enabled("SUBT_009"):
+                if not blocks:
+                    results.append(
+                        self._skip(
+                            "SUBT_009", "no SRT blocks to evaluate", scene_index=idx
+                        )
+                    )
+                else:
+                    dupes: list[str] = []
+                    for i_b in range(1, len(blocks)):
+                        prev_text = blocks[i_b - 1][2].strip().lower()
+                        curr_text = blocks[i_b][2].strip().lower()
+                        if prev_text and curr_text and prev_text == curr_text:
+                            dupes.append(f"blocks {i_b}/{i_b + 1}: '{curr_text[:30]}'")
+                    if dupes:
+                        results.append(
+                            self._warn(
+                                "SUBT_009",
+                                f"Scene {idx}: {len(dupes)} duplicate consecutive cue(s)",
+                                "; ".join(dupes[:3]),
+                                "medium",
+                                scene_index=idx,
+                                duplicate_count=len(dupes),
+                            )
+                        )
+                    else:
+                        results.append(
+                            self._pass(
+                                "SUBT_009",
+                                f"Scene {idx} no duplicate consecutive cues",
+                                scene_index=idx,
+                            )
+                        )
+
+            # SUBT_010: Cue duration within acceptable bounds
+            if self._config.is_enabled("SUBT_010"):
+                if not blocks:
+                    results.append(
+                        self._skip(
+                            "SUBT_010", "no SRT blocks to evaluate", scene_index=idx
+                        )
+                    )
+                else:
+                    short_cues: list[str] = []
+                    long_cues: list[str] = []
+                    for i_b, (start, end, cue_text) in enumerate(blocks):
+                        dur = end - start
+                        if dur < _MIN_CUE_DURATION_S and cue_text.strip():
+                            short_cues.append(f"block {i_b + 1}: {dur:.2f}s")
+                        if dur > _MAX_CUE_DURATION_S:
+                            long_cues.append(f"block {i_b + 1}: {dur:.2f}s")
+                    issues_10 = short_cues + long_cues
+                    if issues_10:
+                        results.append(
+                            self._warn(
+                                "SUBT_010",
+                                f"Scene {idx}: {len(issues_10)} cue(s) with extreme duration",
+                                "; ".join(issues_10[:3]),
+                                "medium",
+                                scene_index=idx,
+                                short_count=len(short_cues),
+                                long_count=len(long_cues),
+                            )
+                        )
+                    else:
+                        results.append(
+                            self._pass(
+                                "SUBT_010",
+                                f"Scene {idx} all cue durations within bounds",
+                                scene_index=idx,
+                            )
+                        )
+
+            # SUBT_011: Subtitle density relative to narration length
+            if self._config.is_enabled("SUBT_011"):
+                narration_words = len(narration.split()) if narration else 0
+                cue_count = len(blocks)
+                if narration_words > 20 and cue_count > 0:
+                    min_expected_cues = max(1, narration_words // 25)
+                    if cue_count < min_expected_cues:
+                        results.append(
+                            self._warn(
+                                "SUBT_011",
+                                f"Scene {idx}: only {cue_count} cue(s) for "
+                                f"{narration_words} narration words (expected ≥{min_expected_cues})",
+                                f"cue_count={cue_count}, narration_words={narration_words}",
+                                "low",
+                                scene_index=idx,
+                                cue_count=cue_count,
+                                narration_words=narration_words,
+                            )
+                        )
+                    else:
+                        results.append(
+                            self._pass(
+                                "SUBT_011",
+                                f"Scene {idx} subtitle density OK ({cue_count} cues)",
+                                scene_index=idx,
+                            )
+                        )
+                else:
+                    results.append(
+                        self._skip(
+                            "SUBT_011",
+                            "narration too short for density check",
+                            scene_index=idx,
+                        )
+                    )
 
         return results

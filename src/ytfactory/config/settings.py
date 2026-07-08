@@ -314,6 +314,55 @@ class Settings(BaseSettings):
     video_intro_seconds: float = 1.5
 
     # ------------------------------------------------------------------
+    # Kokoro TTS Provider
+    # ------------------------------------------------------------------
+
+    # API key for a hosted Kokoro endpoint (leave empty to use local model).
+    kokoro_api_key: str = Field(default="")
+
+    # Voice ID — Kokoro American English voices: am_michael, am_adam, af_sarah, etc.
+    kokoro_voice: str = "am_michael"
+
+    # BCP-47 language code passed to Kokoro.
+    kokoro_language: str = "en-US"
+
+    # Speech speed multiplier (1.0 = natural).
+    kokoro_speed: float = 1.0
+
+    # Audio sample rate in Hz produced by Kokoro (native 24 kHz).
+    kokoro_sample_rate: int = 24000
+
+    # ------------------------------------------------------------------
+    # WhisperX Forced Alignment
+    # ------------------------------------------------------------------
+
+    # Enable WhisperX forced alignment after TTS generation.
+    # When True, alignment.json is written to audio/ alongside timing.json.
+    # CaptionPipeline prefers alignment.json for subtitle timing when present.
+    whisperx_enabled: bool = False
+
+    # Reserved for future Whisper-based transcription support.
+    # Forced alignment uses a fixed wav2vec2 phoneme model per language and
+    # does not have configurable sizes — this setting is currently unused.
+    whisperx_model: str = "base"
+
+    # Device for WhisperX inference: "cpu" or "cuda".
+    whisperx_device: str = "cpu"
+
+    # ------------------------------------------------------------------
+    # Subtitle Segmentation
+    # ------------------------------------------------------------------
+
+    # Segmentation mode: "semantic" (default, sentence/clause/pause aware)
+    # or "legacy" (preserves previous purely-CPS-driven behaviour).
+    subtitle_segmentation_mode: str = "semantic"
+
+    # Target characters per second for subtitle segmentation.
+    # Subtitles are split when CPS would exceed this value.
+    # Lower than max_cps so there is headroom for natural variation.
+    subtitle_target_cps: float = 15.0
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 

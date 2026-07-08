@@ -73,6 +73,10 @@ class ProductionExecutor(RemediationExecutorBase):
                 return self._regenerate_video_clip(
                     action, project_dir, project_id, scenes, cycle, enable_rollback
                 )
+            elif strategy == "regenerate_alignment":
+                return self._regenerate_alignment(
+                    action, project_dir, project_id, scenes, cycle, enable_rollback
+                )
             elif strategy == "retry_validation":
                 return True, "Validation retry — no artifact changes needed", []
             elif strategy == "full_regeneration":
@@ -195,6 +199,42 @@ class ProductionExecutor(RemediationExecutorBase):
         VideoPipeline().run(project_id)
         return True, f"Re-rendered {len(targets)} video file(s)", assets
 
+    def _regenerate_alignment(
+        self,
+        action: RemediationAction,
+        project_dir: Path,
+        project_id: str,
+        scenes: list[dict],
+        cycle: int,
+        enable_rollback: bool,
+    ) -> tuple[bool, str, list[RegeneratedAsset]]:
+        """Delete alignment files and re-run VoicePipeline to regenerate them.
+
+        Audio (mp3) is preserved; VoicePipeline skips existing audio and only
+        re-runs WhisperX alignment when WHISPERX_ENABLED=true.
+        """
+        from ytfactory.config.settings import Settings
+
+        audio_dir = project_dir / "audio"
+        alignment_files = _scene_files(
+            audio_dir, action.scene_index, "*.alignment.json"
+        )
+        assets = _backup_and_delete(
+            alignment_files,
+            project_dir,
+            cycle,
+            action.strategy,
+            "subtitle",
+            action.scene_index,
+            enable_rollback,
+        )
+        settings = Settings()
+        if settings.whisperx_enabled:
+            from ytfactory.voice.pipeline import VoicePipeline
+
+            VoicePipeline(settings).run(project_id)
+        return True, f"Regenerated {len(alignment_files)} alignment file(s)", assets
+
     def _full_regeneration(
         self,
         action: RemediationAction,
@@ -215,6 +255,7 @@ class ProductionExecutor(RemediationExecutorBase):
             ("images", "*.png"),
             ("audio", "*.mp3"),
             ("audio", "*.timing.json"),
+            ("audio", "*.alignment.json"),
             ("subtitles", "*.srt"),
             ("subtitles", "*.ass"),
             ("video", "*.mp4"),

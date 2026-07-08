@@ -42,7 +42,7 @@ STAGE_OUTPUT_PATTERNS: dict[str, list[str]] = {
     "script": ["script/script.md"],
     "scenes": ["scenes/scene-plan.json"],
     "images": ["images/scene-*.png"],
-    "voice": ["audio/scene-*.mp3"],
+    "voice": ["audio/scene-*.mp3", "audio/scene-*.timing.json", "audio/scene-*.alignment.json"],
     "captions": ["subtitles/scene-*.srt", "subtitles/scene-*.ass"],
     "video": ["video/scene-*.mp4", "video/final.mp4"],
     "review": ["review/review-report.md"],
@@ -59,6 +59,7 @@ FORCE_FLAG_TO_STAGE: dict[str, str] = {
     "captions": "captions",
     "motion": "video",
     "video": "video",
+    "alignment": "voice",  # force re-alignment → re-run voice stage (incl. alignment)
     "bgm": "video",
     "review": "review",
     "publish": "publish",

@@ -14,6 +14,8 @@ from ytfactory.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.pacing.injector import PauseInjector
 from ytfactory.providers.tts.validator import AudioValidator, ValidationResult
 
+from .aligner import align as whisperx_align
+from .aligner import save_alignment
 from .artifacts import audio_directory
 from .models import VoiceArtifact
 from .repository import VoiceRepository
@@ -37,11 +39,16 @@ def _normalize_audio_attack(audio_path: Path) -> None:
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-i", str(audio_path),
-                "-af", "dynaudnorm=p=0.95:m=100",
-                "-codec:a", "libmp3lame",
-                "-q:a", "2",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(audio_path),
+                "-af",
+                "dynaudnorm=p=0.95:m=100",
+                "-codec:a",
+                "libmp3lame",
+                "-q:a",
+                "2",
                 str(tmp),
             ],
             check=True,
@@ -100,10 +107,7 @@ class VoicePipeline:
             debug.write_original(original_text)
 
             # Contemplative pacing is skipped for asset/brand scenes (short by design).
-            use_pacing = (
-                self._settings.tts_pacing_enabled
-                and scene_type != "asset"
-            )
+            use_pacing = self._settings.tts_pacing_enabled and scene_type != "asset"
 
             if not use_pacing:
                 # Standard path: optimizer runs on the full narration.
@@ -210,6 +214,26 @@ class VoicePipeline:
                 encoding="utf-8",
             )
 
+            # WhisperX forced alignment (optional — gives accurate word timestamps)
+            if self._settings.whisperx_enabled and output.exists():
+                alignment_output = output.with_suffix(".alignment.json")
+                if not alignment_output.exists():
+                    try:
+                        alignment = whisperx_align(
+                            original_text,
+                            output,
+                            device=self._settings.whisperx_device,
+                            language=language,
+                        )
+                        save_alignment(alignment, alignment_output)
+                    except Exception as exc:
+                        logger.warning(
+                            "WhisperX alignment failed for scene {} — "
+                            "subtitle timing will use TTS boundaries instead. Error: {}",
+                            scene["index"],
+                            exc,
+                        )
+
             # Collect debug metadata for project summary
             duration = (
                 validation.duration_seconds
@@ -228,7 +252,9 @@ class VoicePipeline:
                 "validation_passed": validation.passed if validation else True,
                 "validation_issues": validation.issues if validation else [],
                 "pacing_enabled": use_pacing,
-                "pacing_profile": self._settings.tts_pacing_profile if use_pacing else None,
+                "pacing_profile": self._settings.tts_pacing_profile
+                if use_pacing
+                else None,
             }
             debug.write_metadata(scene_meta)
             scenes_metadata.append(scene_meta)

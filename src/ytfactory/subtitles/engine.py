@@ -76,6 +76,7 @@ class SubtitleEngine:
         debug: bool = False,
         validate: bool = True,
         ass_theme=None,
+        segmentation_mode: str = "semantic",
     ) -> None:
         self._tail_extension = tail_extension_seconds
         self._segmenter = SubtitleSegmenter(
@@ -83,6 +84,7 @@ class SubtitleEngine:
             max_chars_per_line=max_chars_per_line,
             max_lines=max_lines,
             min_duration=min_duration,
+            mode=segmentation_mode,
         )
         self._timing = TimingEngine(
             min_duration=min_duration,
@@ -119,6 +121,7 @@ class SubtitleEngine:
 
         ass_theme = TM.from_settings(settings)
         fmt_str = getattr(settings, "subtitle_format", "ass")
+        seg_mode = getattr(settings, "subtitle_segmentation_mode", "semantic")
 
         return cls(
             max_cps=getattr(settings, "subtitle_max_cps", 18.0),
@@ -131,6 +134,7 @@ class SubtitleEngine:
             validate=getattr(settings, "subtitle_validate", True),
             subtitle_format=fmt_str,
             ass_theme=ass_theme,
+            segmentation_mode=seg_mode,
         )
 
     # ── Main API ──────────────────────────────────────────────────────────────

@@ -44,6 +44,11 @@ DEFAULT_MAX_LINES = 2
 DEFAULT_MIN_DURATION = 0.8  # seconds — minimum cue display time
 DEFAULT_MAX_DURATION = 7.0  # seconds — very long cues are hard to read
 
+# Semantic segmentation — pause thresholds (seconds)
+# A gap larger than this between consecutive words signals a natural breath/pause.
+PAUSE_BREAK_THRESHOLD_S = 0.18  # ≥180 ms gap → prefer break (clause-level)
+PAUSE_STRONG_THRESHOLD_S = 0.35  # ≥350 ms gap → treat as sentence boundary
+
 # ── Protected span patterns ────────────────────────────────────────────────────
 
 # Numbers with decimal or units (e.g. "3.5", "100m", "42%", "2,000")
@@ -189,9 +194,35 @@ class _PendingCue:
         self.words.clear()
 
 
+def _is_proper_noun_pair(word_a: str, word_b: str) -> bool:
+    """Return True if both words look like proper nouns (both start uppercase, no punctuation)."""
+    bare_a = word_a.rstrip(".,;:!?")
+    bare_b = word_b.rstrip(".,;:!?")
+    return (
+        len(bare_a) > 1
+        and len(bare_b) > 1
+        and bare_a[0].isupper()
+        and bare_b[0].isupper()
+        and bare_a.isalpha()
+        and bare_b.isalpha()
+    )
+
+
 class SubtitleSegmenter:
     """
     Convert word-level timing boundaries into semantically grouped subtitle cues.
+
+    Semantic priority order (highest to lowest):
+      1. Sentence completion  — break after . ! ? (unless abbreviation/number)
+      2. Clause completion    — break after , ; : when cue is long enough
+      3. Natural pause        — gap ≥ PAUSE_BREAK_THRESHOLD_S between words
+      4. Reading speed        — CPS would exceed max_cps
+      5. Character limits     — safety maximum (never the primary driver)
+
+    Additional constraints:
+      - Never split: proper noun pairs, numbers/measurements, quoted spans
+      - Avoid orphan words (trailing single-word lines)
+      - Balance two-line display
 
     Usage::
 
@@ -205,12 +236,14 @@ class SubtitleSegmenter:
         max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
         max_lines: int = DEFAULT_MAX_LINES,
         min_duration: float = DEFAULT_MIN_DURATION,
+        mode: str = "semantic",
     ) -> None:
         self._max_cps = max_cps
         self._max_chars = max_chars_per_line * max_lines
         self._max_chars_per_line = max_chars_per_line
         self._max_lines = max_lines
         self._min_duration = min_duration
+        self._mode = mode
         self._typo = SubtitleTypographer()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -224,7 +257,7 @@ class SubtitleSegmenter:
         Produce semantically grouped subtitle cues from word boundaries.
 
         Args:
-            boundaries: [{word, start, end}] from TTS provider.
+            boundaries: [{word, start, end}] from TTS provider or WhisperX alignment.
             narration:  Optional raw narration text — used for fallback only.
 
         Returns:
@@ -236,13 +269,13 @@ class SubtitleSegmenter:
         cues: list[SubtitleCue] = []
         pending = _PendingCue()
         in_quotes = False
+        semantic_mode = self._mode == "semantic"
 
         for i, boundary in enumerate(boundaries):
             word = boundary["word"]
+            next_boundary = boundaries[i + 1] if i + 1 < len(boundaries) else None
 
             # ── Quote tracking ────────────────────────────────────────────────
-            # Count quote marks to track open/close state.
-            # Simplified: a leading " enters quote mode; trailing " exits.
             if word.startswith('"') and not in_quotes:
                 in_quotes = True
             if word.endswith('"') and in_quotes:
@@ -254,15 +287,32 @@ class SubtitleSegmenter:
                 prev_bare = prev_word.rstrip(",;:.!?")
                 is_abbrev = prev_bare.lower() in _ABBREVIATIONS
 
+                # Priority 1: sentence end
                 sentence_end = (
                     prev_word.endswith((".", "!", "?"))
                     and not is_abbrev
                     and not _is_number_token(prev_word)
                     and not in_quotes
                 )
-                clause_end = prev_word.endswith((",", ";", ":")) and not in_quotes
 
-                # Would adding this word overflow?
+                # Priority 2: clause end (with minimum cue length guard)
+                clause_end = (
+                    prev_word.endswith((",", ";", ":"))
+                    and not in_quotes
+                    and len(pending.words) >= 3
+                )
+
+                # Priority 3: natural pause from timing (semantic mode only)
+                pause_gap = 0.0
+                if semantic_mode:
+                    prev_end = pending.words[-1]["end"]
+                    curr_start = boundary["start"]
+                    pause_gap = max(0.0, curr_start - prev_end)
+
+                strong_pause = semantic_mode and pause_gap >= PAUSE_STRONG_THRESHOLD_S
+                mild_pause = semantic_mode and pause_gap >= PAUSE_BREAK_THRESHOLD_S
+
+                # Priority 4: CPS / char overflow
                 trial_text = pending.text + " " + word
                 trial_chars = len(trial_text.replace(" ", ""))
                 trial_duration = boundary["end"] - pending.start
@@ -272,15 +322,26 @@ class SubtitleSegmenter:
                 overflow_cps = trial_cps > self._max_cps and len(pending.words) >= 3
 
                 force_break = overflow_chars or overflow_cps
-                prefer_break = clause_end and len(pending.words) >= 3
-                must_break = sentence_end
 
-                # Never break if we'd leave a trailing function word
+                # Aggregate decision (priority order respected)
+                must_break = sentence_end or strong_pause
+                prefer_break = clause_end or (mild_pause and len(pending.words) >= 3)
+
+                # Protected spans — never break inside proper noun pairs, numbers, quotes
+                in_proper_pair = (
+                    semantic_mode
+                    and next_boundary is not None
+                    and _is_proper_noun_pair(word, next_boundary["word"])
+                )
+                protected = in_quotes or in_proper_pair
+
+                # Avoid orphan: don't break if next word would stand alone
                 trailing_fn = word.lower().rstrip(".,;:?!") in _NO_TRAIL
 
                 should_break = (
                     (must_break or force_break or prefer_break)
                     and not trailing_fn
+                    and not protected
                     and len(pending.words) >= 2
                 )
 
