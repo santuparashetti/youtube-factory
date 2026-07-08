@@ -13,6 +13,9 @@ from ytfactory.images.models import (
 )
 from ytfactory.images.prompt_engine import _DEFAULT_NEGATIVE_PROMPT, _PROVIDERS_WITH_NEGATIVE_PROMPTS
 from ytfactory.images.repository import ImageRepository
+from ytfactory.images.review_config import ImageReviewConfig
+from ytfactory.images.review_engine import ImageReviewEngine, write_image_quality_summary
+from ytfactory.images.review_models import SceneReviewArtifact
 from ytfactory.providers.image.factory import get_image_provider
 
 
@@ -26,6 +29,22 @@ class ImagePipeline:
         self._uses_negative_prompts = (
             settings.image_provider.lower() in _PROVIDERS_WITH_NEGATIVE_PROMPTS
         )
+        self._review_config = ImageReviewConfig.from_settings(settings)
+        self._review_engine: ImageReviewEngine | None = self._build_review_engine()
+
+    def _build_review_engine(self) -> ImageReviewEngine | None:
+        """Build the review engine if image review is enabled."""
+        if not self._review_config.enabled:
+            return None
+        try:
+            from ytfactory.providers.vision.factory import get_vision_provider
+            vision = get_vision_provider(
+                self._review_config.provider,
+                local_model=self._review_config.local_model,
+            )
+            return ImageReviewEngine(self._review_config, vision, self._provider)
+        except Exception:
+            return None
 
     def run(
         self,
@@ -54,6 +73,7 @@ class ImagePipeline:
         )
 
         manifest = ImageManifest()
+        review_artifacts: list[SceneReviewArtifact] = []
 
         total = len(scenes)
 
@@ -135,6 +155,26 @@ class ImagePipeline:
                         f"{threshold} after {max_retries} retries"
                     )
 
+            # Vision review + auto-remediation (when enabled)
+            if self._review_engine is not None and output_path.exists():
+                scene_with_dims = {
+                    **scene,
+                    "width": self._settings.image_width,
+                    "height": self._settings.image_height,
+                }
+                review_artifact = self._review_engine.review_scene(
+                    scene=scene_with_dims,
+                    image_path=output_path,
+                    output_dir=output_dir,
+                )
+                review_artifacts.append(review_artifact)
+                status_tag = "PASS" if review_artifact.status == "PASS" else review_artifact.status
+                print(
+                    f"  ✦ Vision review: {status_tag} "
+                    f"(score={review_artifact.score:.0f}, "
+                    f"attempts={review_artifact.attempts})"
+                )
+
             manifest.images.append(
                 ImageArtifact(
                     scene_index=scene["index"],
@@ -143,6 +183,10 @@ class ImagePipeline:
                     path=output_path,
                 )
             )
+
+        # Write global image quality summary
+        if review_artifacts:
+            write_image_quality_summary(review_artifacts, output_dir)
 
         self._repository.save_manifest(
             output_dir,

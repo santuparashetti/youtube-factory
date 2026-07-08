@@ -394,6 +394,117 @@ docker exec youtube-factory ytfactory build <project-id>
 
 ---
 
+### 13. LOCAL_AI_MODEL_MANAGER (LAMM)
+**Spec:** `docs/plug-and-play-setup/PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM_UPDATED.md`  
+**New files:** `src/ytfactory/models/` package (6 modules), `config/models-registry.yaml`, `tests/test_local_ai_model_manager.py`  
+**Modified:** `src/ytfactory/bootstrap/model_bootstrap.py`
+
+#### Architecture
+LAMM is the **single authority** for all local AI model lifecycle. No feature pipeline may download or manage models directly.
+
+```
+src/ytfactory/models/
+├── __init__.py          # exports LocalAIModelManager, ModelStatus, Backend, ProvisionResult
+├── models.py            # ModelEntry, ModelState, ModelStatus, Backend, ProvisionResult dataclasses
+├── registry.py          # load_registry() — reads config/models-registry.yaml via PyYAML
+├── backend.py           # select_backend() — CUDA → MPS → CPU; describe_backend()
+├── manifest.py          # model-manifest.json read/write; get_state(), update_state()
+└── manager.py           # LocalAIModelManager: provision(), provision_all(), heal(), diagnostics()
+```
+
+#### Model Registry (`config/models-registry.yaml`)
+Three entries: `whisperx`, `silero_vad`, `minicpm_v2_6`. All have `auto_download: false` by default.
+- Lazy models (`whisperx`, `silero_vad`): no `hf_repo` — skip download entirely; return VERIFIED immediately
+- `minicpm_v2_6`: `hf_repo: "openbmb/MiniCPM-V-2_6"`, `min_disk_gb: 10`, requires torch/transformers/pillow
+
+#### `LocalAIModelManager.provision()` logic
+1. Check registry entry exists and is enabled
+2. Check `requires_packages` — if any missing: return MISSING (warning, not error)
+3. Check manifest — if VERIFIED and not force: return cached result
+4. Select backend (CUDA→MPS→CPU per entry's `backends` list)
+5. `has_repo = bool(entry.hf_repo)` — lazy models always route to `_verify_from_cache`
+6. If `has_repo and (should_download or force)`: `_download_and_verify()` via `snapshot_download`
+7. Otherwise: `_verify_from_cache()` — tries `try_to_load_from_cache()`; MISSING if not found
+
+#### Key Invariants
+- **Lazy models** (no `hf_repo`): `_verify_from_cache()` returns VERIFIED immediately — "downloads on first use"
+- **`force=True` on lazy model** routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError
+- `ProvisionResult.ok` = True when status is VERIFIED, DOWNLOADED, or SKIPPED
+- Model manifest: `models/model-manifest.json` at repo root (gitignored)
+- Bootstrap now delegates all model checks to LAMM; `minicpm_v2_6` is skipped when `image_review_enabled=false`
+- Test count: 30 new tests in `tests/test_local_ai_model_manager.py`
+
+---
+
+### 14. IMAGE_REVIEW_PIPELINE_V1
+**Spec:** `docs/video-quality-review/IMAGE_REVIEW_PIPELINE.md`  
+**New files:** `src/ytfactory/providers/vision/` package (5 modules), `src/ytfactory/images/review_config.py`, `src/ytfactory/images/review_engine.py`, `src/ytfactory/images/review_models.py`, `src/ytfactory/review/validation/rules/vision_review.py`, `tests/test_vision_provider.py`, `tests/test_image_review_engine.py`  
+**Modified:** `src/ytfactory/images/pipeline.py`, `src/ytfactory/config/settings.py`, `src/ytfactory/review/validation/runner.py`, `src/ytfactory/review/validation/config.py`
+
+#### Vision Provider Abstraction
+```
+src/ytfactory/providers/vision/
+├── __init__.py      # exports VisionProvider, VisionReviewResult, get_vision_provider
+├── base.py          # VisionProvider ABC + VISION_REVIEW_PROMPT (6-category checklist)
+├── models.py        # VisionReviewResult, VisionIssue, IssueSeverity
+├── mock.py          # MockVisionProvider — default PASS, configurable fail_scenes
+├── local.py         # LocalVisionProvider — lazy-loads via LAMM; MiniCPM-V 2.6 .chat() API
+└── factory.py       # get_vision_provider("mock" | "local", local_model=...) → VisionProvider
+```
+
+ReviewPipeline is **completely model-agnostic** — VisionReviewValidator reads pre-written JSON artifacts, never imports vision model code.
+
+#### `ImageReviewEngine.review_scene()` flow
+1. Technical QA: file size ≥1000 bytes + OpenCV Laplacian sharpness ≥10.0 (optional, skipped if cv2 absent)
+2. Vision provider review → `VisionReviewResult`
+3. Pass criteria: `score≥90, confidence≥80, 0 HIGH issues, ≤1 MEDIUM issue`
+4. PASS or SKIP/ERROR → stop
+5. `auto_remediate=False` → stop (accept FAIL)
+6. FAIL + more attempts remain → `_refine_prompt()` appends targeted corrections → `_regenerate()` → repeat
+
+#### Prompt Refinement Rules (never rewrites — only appends)
+| Issue category | Appended correction |
+|---|---|
+| anatomy/hand | "anatomically correct hands with exactly five fingers per hand" |
+| face | "natural facial expression, symmetric face, realistic eyes" |
+| artifact/watermark | "no watermarks, no text artifacts, no distortions" |
+| lighting | "correct lighting direction, realistic shadows and highlights" |
+| blur (medium) | "sharp focus, high detail, crisp edges" |
+| proportion (medium) | "correct body proportions, natural posture" |
+| (default) | "high quality, no artifacts, photorealistic, sharp focus" |
+
+#### Workspace Artifacts
+Per-scene (in `images/`): `image-review-NNN.json`, `image-remediation-NNN.json`, `image-review-prompt-NNN-A.txt` (when debug=true)
+Global: `images/image-quality-summary.json` — aggregates PASS/FAIL/SKIP/ERROR counts + pass_rate
+
+#### VisionReviewValidator (in ReviewPipeline)
+Reads `images/image-quality-summary.json` — never calls any model. Four rules:
+- `VIS_001` [warning]: summary file exists (SKIP all if absent)
+- `VIS_002` [critical]: no scene with status FAIL
+- `VIS_003` [medium]: all reviewed scenes above `vision_review_min_score` (default 90)
+- `VIS_004` [low]: overall pass_rate ≥ `vision_review_min_pass_rate` (default 0.8)
+
+#### Settings (all default to disabled/safe)
+```
+IMAGE_REVIEW_ENABLED=false          # master switch
+VISION_REVIEW_PROVIDER=local        # "local" | "mock"
+VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6
+IMAGE_REVIEW_MIN_SCORE=90
+IMAGE_REVIEW_CONFIDENCE=80
+IMAGE_REVIEW_MAX_ATTEMPTS=3
+IMAGE_REVIEW_AUTO_REMEDIATE=true
+IMAGE_REVIEW_DEBUG=false
+```
+
+#### Key Invariants
+- `image_review_enabled=false` (default) → `_build_review_engine()` returns None → no vision imports at runtime
+- Default local vision model is `minicpm_v2_6` via **config only** — never hardcoded in business logic
+- `_regenerate()` passes `seed=None` → new random seed each attempt
+- ValidationRunner now runs 11 validators (was 10) — added VisionReviewValidator
+- Test count: 20 new (test_vision_provider.py) + 26 new (test_image_review_engine.py) = 46 new tests
+
+---
+
 ## Image Prompt Engine Layers (order of application)
 
 1. Shot planning — `images/shot_planner.py`
@@ -420,6 +531,8 @@ docker exec youtube-factory ytfactory build <project-id>
 - Gemini providers (`llm/gemini.py`, `image/gemini.py`) now raise a clear `ValueError` if `GEMINI_API_KEY` is empty, with a message pointing to `.env` and CWD.
 - Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="gemini"`) → crash. Always run from repo root.
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
+- **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
+- `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
 
 ---
 
@@ -431,7 +544,7 @@ workspace/jobs/<project-id>/
 ├── research/         research.md, research.json, sources.json
 ├── script/           script.md
 ├── scenes/           scene-plan.json, scene-status.json
-├── images/           scene-001.png … manifest.json
+├── images/           scene-001.png … manifest.json, image-quality-summary.json, image-review-NNN.json, image-remediation-NNN.json
 ├── audio/            scene-001.mp3, .timing.json, .alignment.json
 ├── subtitles/        scene-001.srt, .ass
 ├── video/            scene-001.mp4 … final.mp4

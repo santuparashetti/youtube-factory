@@ -125,6 +125,12 @@ class ValidationRulesConfig:
     story_min_scenes: int = 3
     story_max_scenes: int = 50
 
+    # ── Vision Review ─────────────────────────────────────────────────────
+    # VIS_003: minimum score per scene (0–100)
+    vision_review_min_score: float = 90.0
+    # VIS_004: minimum overall pass rate (0.0–1.0)
+    vision_review_min_pass_rate: float = 0.8
+
     # ── Pass policy ───────────────────────────────────────────────────────
     fail_on_warnings: bool = False
 

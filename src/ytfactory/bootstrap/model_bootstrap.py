@@ -1,122 +1,121 @@
-"""Model Bootstrap — downloads required models on first run, caches permanently."""
+"""Model Bootstrap — delegates model lifecycle to the Local AI Model Manager.
+
+No download logic lives here. The LAMM is the single authority for all
+local AI model operations: discovery, download, checksum, caching, backend
+selection, self-healing, and manifest management.
+"""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from loguru import logger
 
 from .models import CheckResult, CheckStatus
 
-_MODEL_CACHE_FILE = "models/.model-cache.json"
-
 
 def bootstrap_models(base_dir: Path | None = None) -> list[CheckResult]:
-    """Ensure all required models are downloaded and cached. Idempotent."""
+    """Ensure all required models are ready. Idempotent.
+
+    Uses the Local AI Model Manager to provision every enabled model.
+    Models with auto_download=false are checked for presence only.
+    Vision models are provisioned when image_review_enabled=true.
+    """
     root = base_dir or Path.cwd()
     results: list[CheckResult] = []
-    cache = _load_cache(root)
 
-    results.extend(_check_whisperx(root, cache))
-    results.extend(_check_kokoro(root, cache))
+    results.extend(_check_lamm_available())
+    results.extend(_provision_via_lamm(root))
 
-    _save_cache(root, cache)
     return results
 
 
-def _load_cache(root: Path) -> dict:
-    cache_file = root / _MODEL_CACHE_FILE
-    if cache_file.exists():
-        try:
-            return json.loads(cache_file.read_text())
-        except Exception:
-            pass
-    return {}
-
-
-def _save_cache(root: Path, cache: dict) -> None:
-    cache_file = root / _MODEL_CACHE_FILE
+def _check_lamm_available() -> list[CheckResult]:
+    """Verify the Local AI Model Manager package is importable."""
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(cache, indent=2))
-    except OSError:
-        pass
-
-
-def _check_whisperx(root: Path, cache: dict) -> list[CheckResult]:
-    """Check/download WhisperX alignment model."""
-    try:
-        from ytfactory.config.settings import Settings
-        settings = Settings()
-        if not settings.whisperx_enabled:
-            return [CheckResult(
-                name="model:whisperx",
-                status=CheckStatus.SKIPPED,
-                message="WhisperX disabled (WHISPERX_ENABLED=false)",
-            )]
-    except Exception:
-        pass
-
-    try:
-        import importlib.util
-        if importlib.util.find_spec("whisperx") is None:
-            return [CheckResult(
-                name="model:whisperx",
-                status=CheckStatus.WARNING,
-                message="whisperx not installed — run: uv pip install whisperx",
-            )]
-    except Exception:
-        pass
-
-    # If already cached, skip
-    if cache.get("whisperx_wav2vec2"):
+        from ytfactory.models import LocalAIModelManager  # noqa: F401
         return [CheckResult(
-            name="model:whisperx",
+            name="model:lamm",
             status=CheckStatus.OK,
-            message="WhisperX wav2vec2 model cached",
+            message="Local AI Model Manager available",
         )]
-
-    # Mark as to-be-downloaded on first alignment run (lazy, not predownloaded)
-    logger.debug("WhisperX model will download on first alignment run")
-    return [CheckResult(
-        name="model:whisperx",
-        status=CheckStatus.OK,
-        message="WhisperX model: downloads on first use",
-    )]
-
-
-def _check_kokoro(root: Path, cache: dict) -> list[CheckResult]:
-    """Check Kokoro TTS model availability."""
-    try:
-        from ytfactory.config.settings import Settings
-        settings = Settings()
-        if settings.tts_provider != "kokoro":
-            return [CheckResult(
-                name="model:kokoro",
-                status=CheckStatus.SKIPPED,
-                message=f"Kokoro not active (TTS_PROVIDER={settings.tts_provider})",
-            )]
-    except Exception:
-        pass
-
-    try:
-        import importlib.util
-        if importlib.util.find_spec("kokoro") is None:
-            return [CheckResult(
-                name="model:kokoro",
-                status=CheckStatus.WARNING,
-                message="kokoro not installed — run: uv pip install kokoro soundfile",
-            )]
+    except ImportError as exc:
         return [CheckResult(
-            name="model:kokoro",
-            status=CheckStatus.OK,
-            message="Kokoro package installed — model downloads on first use (~300 MB)",
-        )]
-    except Exception as exc:
-        return [CheckResult(
-            name="model:kokoro",
+            name="model:lamm",
             status=CheckStatus.WARNING,
-            message="Cannot check Kokoro availability",
+            message="Local AI Model Manager import error",
             detail=str(exc),
         )]
+
+
+def _provision_via_lamm(root: Path) -> list[CheckResult]:
+    """Provision all models through the LAMM and map results to CheckResult."""
+    try:
+        from ytfactory.models import LocalAIModelManager, ModelStatus
+    except ImportError:
+        return []
+
+    # Determine if image review is enabled (affects vision model provisioning)
+    image_review_enabled = _is_image_review_enabled()
+
+    manager = LocalAIModelManager(base_dir=root)
+    results: list[CheckResult] = []
+
+    for model_name, entry in manager._registry.items():
+        if not entry.enabled:
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.SKIPPED,
+                message=f"Model '{model_name}' disabled in registry",
+            ))
+            continue
+
+        # Vision model only provisioned when image review is enabled
+        if model_name == "minicpm_v2_6" and not image_review_enabled:
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.SKIPPED,
+                message=f"Vision model '{model_name}' skipped (image_review_enabled=false)",
+            ))
+            continue
+
+        provision = manager.provision(model_name)
+
+        if provision.skipped or provision.status == ModelStatus.SKIPPED:
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.SKIPPED,
+                message=provision.message,
+            ))
+        elif provision.ok:
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.OK,
+                message=f"Model '{model_name}' ready (backend: {provision.backend})",
+                detail=provision.message,
+            ))
+        elif provision.status == ModelStatus.MISSING:
+            # Missing with auto_download=false is a warning, not an error
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.WARNING,
+                message=f"Model '{model_name}' not downloaded yet",
+                detail=provision.message,
+            ))
+        else:
+            results.append(CheckResult(
+                name=f"model:{model_name}",
+                status=CheckStatus.ERROR,
+                message=f"Model '{model_name}' provisioning failed",
+                detail=provision.error or provision.message,
+            ))
+
+    return results
+
+
+def _is_image_review_enabled() -> bool:
+    """Check whether image_review_enabled is set in the environment."""
+    try:
+        from ytfactory.config.settings import Settings
+        return Settings().image_review_enabled
+    except Exception:
+        return False

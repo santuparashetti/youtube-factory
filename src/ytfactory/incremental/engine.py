@@ -22,7 +22,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .change_detector import ChangeDetector
-from .deps import PIPELINE_STAGES, STAGE_OUTPUT_PATTERNS, downstream_stages
+from .deps import STAGE_OUTPUT_PATTERNS
 from .manifest import PipelineManifest
 from .models import ChangeReport, SceneState
 from .reporter import IncrementalReporter

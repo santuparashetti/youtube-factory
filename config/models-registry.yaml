@@ -1,0 +1,40 @@
+# YouTube Factory — Local AI Model Registry
+# Each model entry controls its lifecycle through the Local AI Model Manager.
+# Adding a model requires only configuration changes here — no code changes.
+
+models:
+  whisperx:
+    enabled: true
+    required: false
+    auto_download: false        # lazy: downloads on first alignment run
+    hf_repo: ""                 # resolved by whisperx internally
+    revision: null
+    description: "WhisperX forced alignment (wav2vec2)"
+    requires_packages:
+      - whisperx
+    backends: [cpu, cuda]
+
+  silero_vad:
+    enabled: true
+    required: false
+    auto_download: false        # lazy: loaded at first BGM VAD run
+    hf_repo: ""
+    revision: null
+    description: "Silero VAD (voice activity detection)"
+    requires_packages: []
+    backends: [cpu, cuda]
+
+  minicpm_v2_6:
+    enabled: true
+    required: false
+    auto_download: false        # opt-in: only downloaded when image_review_enabled=true
+    hf_repo: "openbmb/MiniCPM-V-2_6"
+    revision: null              # null = latest
+    description: "MiniCPM-V 2.6 — local vision model for image quality review"
+    requires_packages:
+      - torch
+      - transformers
+      - pillow
+    backends: [cuda, mps, cpu]
+    min_disk_gb: 10             # approximate disk requirement
+    warmup_on_download: false   # do not load into memory during bootstrap

@@ -380,6 +380,34 @@ class Settings(BaseSettings):
     subtitle_target_cps: float = 15.0
 
     # ------------------------------------------------------------------
+    # Image Review (Vision Quality Gate)
+    # ------------------------------------------------------------------
+
+    # Master enable — False = skip vision review (default; lightweight mode)
+    image_review_enabled: bool = False
+
+    # Vision provider: "local" (uses Local AI Model Manager) | "mock" (tests)
+    vision_review_provider: str = "local"
+
+    # Local model registry key (switchable via config only — no code changes needed)
+    vision_review_local_model: str = "minicpm_v2_6"
+
+    # Minimum vision score to accept a scene (0–100)
+    image_review_min_score: int = 90
+
+    # Minimum confidence for the score to count (0–100)
+    image_review_confidence: int = 80
+
+    # Maximum generation+review attempts per scene before accepting best result
+    image_review_max_attempts: int = 3
+
+    # Automatically append prompt improvements and regenerate on review FAIL
+    image_review_auto_remediate: bool = True
+
+    # Write per-attempt review prompt files for debugging
+    image_review_debug: bool = False
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 

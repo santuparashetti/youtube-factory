@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass, field
 
 from .config import THOUGHT_PROFILE_PAUSES
 from .models import ThoughtBlock, ThoughtPauseCategory
