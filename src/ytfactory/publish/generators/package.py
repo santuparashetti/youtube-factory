@@ -10,6 +10,7 @@ from ytfactory.publish.artifacts import (
     description_path,
     hashtags_path,
     keywords_path,
+    pinned_comment_path,
     publish_directory,
     thumbnail_path,
     title_path,
@@ -19,6 +20,7 @@ from ytfactory.publish.artifacts import (
 from ytfactory.publish.models import (
     ChapterEntry,
     DescriptionResult,
+    PinnedCommentResult,
     PublishingPackage,
     SEOResult,
     ThumbnailResult,
@@ -38,6 +40,7 @@ class UploadPackageGenerator:
         description: DescriptionResult,
         chapters: list[ChapterEntry],
         thumbnail: ThumbnailResult | None,
+        pinned_comment: PinnedCommentResult | None = None,
     ) -> PublishingPackage:
         errors: list[str] = []
         warnings: list[str] = []
@@ -59,6 +62,9 @@ class UploadPackageGenerator:
                 "No thumbnail generated (skip_thumbnail=True or provider error)"
             )
 
+        if pinned_comment and not pinned_comment.has_question:
+            warnings.append("Pinned comment does not contain a question — engagement may be lower")
+
         output_dir = publish_directory(project_id)
         package = PublishingPackage(
             project_id=project_id,
@@ -68,6 +74,7 @@ class UploadPackageGenerator:
             description=description,
             chapters=chapters,
             thumbnail=thumbnail,
+            pinned_comment=pinned_comment,
             output_dir=output_dir,
             validation_errors=errors,
             validation_warnings=warnings,
@@ -86,6 +93,7 @@ class UploadPackageGenerator:
             "description": package.description.to_dict(),
             "chapters": [c.to_dict() for c in package.chapters],
             "thumbnail": package.thumbnail.to_dict() if package.thumbnail else None,
+            "pinned_comment": package.pinned_comment.to_dict() if package.pinned_comment else None,
             "output_files": {
                 "title": str(title_path(project_id)),
                 "alternate_titles": str(alternate_titles_path(project_id)),
@@ -94,6 +102,7 @@ class UploadPackageGenerator:
                 "hashtags": str(hashtags_path(project_id)),
                 "youtube_tags": str(youtube_tags_path(project_id)),
                 "chapters": str(chapters_path(project_id)),
+                "pinned_comment": str(pinned_comment_path(project_id)),
                 "thumbnail": str(thumbnail_path(project_id))
                 if package.thumbnail
                 else None,

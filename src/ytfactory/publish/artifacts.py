@@ -53,5 +53,9 @@ def chapters_path(project_id: str) -> Path:
     return publish_directory(project_id) / "chapters.txt"
 
 
+def pinned_comment_path(project_id: str) -> Path:
+    return publish_directory(project_id) / "pinned-comment.txt"
+
+
 def youtube_metadata_path(project_id: str) -> Path:
     return publish_directory(project_id) / "youtube-metadata.json"

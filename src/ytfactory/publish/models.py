@@ -69,6 +69,22 @@ class SEOResult:
 
 
 @dataclass
+class PinnedCommentResult:
+    """Generated YouTube pinned comment."""
+
+    text: str
+    char_count: int
+    has_question: bool
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "char_count": self.char_count,
+            "has_question": self.has_question,
+        }
+
+
+@dataclass
 class DescriptionResult:
     """Generated YouTube description."""
 
@@ -115,6 +131,7 @@ class PublishingPackage:
     description: DescriptionResult
     chapters: list[ChapterEntry] = field(default_factory=list)
     thumbnail: ThumbnailResult | None = None
+    pinned_comment: PinnedCommentResult | None = None
 
     output_dir: Path = field(default_factory=lambda: Path("."))
     validation_errors: list[str] = field(default_factory=list)
@@ -135,4 +152,5 @@ class PublishingPackage:
             "description": self.description.to_dict(),
             "chapters": [c.to_dict() for c in self.chapters],
             "thumbnail": self.thumbnail.to_dict() if self.thumbnail else None,
+            "pinned_comment": self.pinned_comment.to_dict() if self.pinned_comment else None,
         }

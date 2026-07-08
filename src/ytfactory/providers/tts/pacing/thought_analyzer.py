@@ -167,15 +167,25 @@ def _new_block_trigger(sentence: str, current_block: list[str]) -> str | None:
     if first in _SHIFT_OPENERS and current_block:
         return "shift"
 
-    # 3 — Short conclusive statement (≤ 5 words, starts with a definitive phrase,
-    #     and contains at least one major concept word)
-    if len(words) <= 5:
-        toks = _tokens(s)
-        has_concept = bool(toks & _MAJOR_CONCEPTS)
-        if has_concept:
-            for starter in _CONCLUSIVE_STARTERS:
-                if s_low.startswith(starter):
-                    return "conclusive"
+    # 3 — Conclusive / reveal statement starting with a definitive phrase.
+    #     Short form (≤ 5 words): requires a major concept word.
+    #     Reveal form (any length): "It is / This is / That is / You are / We are /
+    #       Life is / Truth is" are answer patterns in spiritual writing that always
+    #       deserve a pause before them regardless of sentence length.
+    _REVEAL_STARTERS = (
+        "it is", "this is", "that is", "you are", "we are",
+        "life is", "truth is",
+    )
+    toks = _tokens(s)
+    has_concept = bool(toks & _MAJOR_CONCEPTS)
+    has_universal = bool(toks & _UNIVERSALS)
+    for starter in _REVEAL_STARTERS:
+        if s_low.startswith(starter) and current_block and (has_concept or has_universal):
+            return "reveal"
+    if len(words) <= 5 and has_concept:
+        for starter in _CONCLUSIVE_STARTERS:
+            if s_low.startswith(starter):
+                return "conclusive"
 
     # 4 — Very short standalone (≤ 4 words, contains a concept word,
     #     current block is substantial enough to stand alone)

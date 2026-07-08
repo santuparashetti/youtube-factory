@@ -18,6 +18,7 @@ from ytfactory.providers.llm.factory import get_llm_provider
 from ytfactory.publish.artifacts import publish_directory
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.generators.chapters import ChaptersGenerator
+from ytfactory.publish.generators.comment import PinnedCommentGenerator
 from ytfactory.publish.generators.description import DescriptionGenerator
 from ytfactory.publish.generators.package import UploadPackageGenerator
 from ytfactory.publish.generators.seo import SEOGenerator
@@ -103,16 +104,24 @@ class PublishPipeline:
             seo_keywords=seo.all_keywords,
         )
 
-        # ── 5. Thumbnail ───────────────────────────────────────────────────
-        print("  [5/6] Generating thumbnail…")
+        # ── 5. Pinned Comment ──────────────────────────────────────────────
+        print("  [5/7] Generating pinned comment…")
+        pinned_comment = PinnedCommentGenerator(self._llm, self._config).generate(
+            project_id=project_id,
+            project_title=project.title,
+            script_excerpt=script_excerpt,
+        )
+
+        # ── 6. Thumbnail ───────────────────────────────────────────────────
+        print("  [6/7] Generating thumbnail…")
         thumbnail = ThumbnailGenerator(self._image, self._config).generate(
             project_id=project_id,
             project_title=project.title,
             first_scene_visual_prompt=first_visual,
         )
 
-        # ── 6. Package ─────────────────────────────────────────────────────
-        print("  [6/6] Assembling youtube-metadata.json…")
+        # ── 7. Package ─────────────────────────────────────────────────────
+        print("  [7/7] Assembling youtube-metadata.json…")
         timestamp = datetime.now(tz=timezone.utc).isoformat()
         package = UploadPackageGenerator().generate(
             project_id=project_id,
@@ -122,6 +131,7 @@ class PublishPipeline:
             description=description,
             chapters=chapters,
             thumbnail=thumbnail,
+            pinned_comment=pinned_comment,
         )
 
         self._projects.update_stage(project_id, "publish", "completed")
@@ -132,6 +142,7 @@ class PublishPipeline:
         print(f"    Title   : {title.primary}")
         print(f"    Chapters: {len(chapters)}")
         print(f"    Tags    : {len(seo.youtube_tags)}")
+        print(f"    Comment : {pinned_comment.text[:80]}…")
         print(f"    Errors  : {len(package.validation_errors)}")
         print(f"    Warnings: {len(package.validation_warnings)}")
         print(f"    Output  : {package.output_dir}\n")

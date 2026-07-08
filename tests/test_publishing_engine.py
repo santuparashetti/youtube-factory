@@ -567,11 +567,14 @@ class TestPublishPipeline:
         })
         desc_json = '{"description": "Shivaji was a great king. Subscribe for more history content! 0:00 Intro"}'
 
+        comment_json = '{"comment": "Every one of us carries a silent force. What moment made you feel yours? Share below."}'
+
         llm = MagicMock()
         llm.generate.side_effect = [
             LLMResponse(text=title_json, model="mock"),
             LLMResponse(text=seo_json, model="mock"),
             LLMResponse(text=desc_json, model="mock"),
+            LLMResponse(text=comment_json, model="mock"),
         ]
 
         from ytfactory.publish.pipeline import PublishPipeline
@@ -595,6 +598,7 @@ class TestPublishPipeline:
         assert (pub_dir / "youtube-tags.txt").exists()
         assert (pub_dir / "chapters.txt").exists()
         assert (pub_dir / "description.md").exists()
+        assert (pub_dir / "pinned-comment.txt").exists()
         assert (pub_dir / "youtube-metadata.json").exists()
 
         assert package.title.primary == "Shivaji the Great"
@@ -612,6 +616,7 @@ class TestPublishPipeline:
             LLMResponse(text='{"primary": "T", "alternatives": ["A","B","C","D","E"]}', model="mock"),
             LLMResponse(text='{"primary_keywords":[],"secondary_keywords":[],"long_tail_keywords":[],"hashtags":[],"youtube_tags":[]}', model="mock"),
             LLMResponse(text='{"description": "hello. Subscribe!"}', model="mock"),
+            LLMResponse(text='{"comment": "What part of this hit you the hardest?"}', model="mock"),
         ]
 
         from ytfactory.publish.pipeline import PublishPipeline

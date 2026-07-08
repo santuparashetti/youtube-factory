@@ -66,8 +66,8 @@ THOUGHT_PROFILE_PAUSES: dict[str, ThoughtPauseRanges] = {
     ),
     "spiritual": ThoughtPauseRanges(
         small=PauseRange(800, 1200),
-        realization=PauseRange(1500, 2500),
-        insight=PauseRange(2500, 4000),
+        realization=PauseRange(1200, 1800),
+        insight=PauseRange(1800, 2500),
     ),
     "meditation": ThoughtPauseRanges(
         small=PauseRange(1200, 1800),

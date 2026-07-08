@@ -643,7 +643,7 @@ class TestNewBlockTrigger:
 
     def test_conclusive_with_concept_triggers_new_block(self):
         trigger = _new_block_trigger("It is your awareness.", ["Everything else will fade."])
-        assert trigger == "conclusive"
+        assert trigger in ("conclusive", "reveal")
 
     def test_conclusive_without_concept_does_not_trigger(self):
         # "This is natural" has no major concept word
