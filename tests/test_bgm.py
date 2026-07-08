@@ -598,9 +598,21 @@ class TestBGMMixerV2Filter:
         assert "agate" not in fc
 
     def test_agate_hold_matches_phrase_gap(self):
+        import re
+        from ytfactory.bgm.mixer import _ffmpeg_agate_has_hold
         mixer = self._mixer(vad_enabled=True, phrase_gap_ms=400)
         fc = mixer._build_filter(60.0, 56.0)
-        assert "hold=0.400" in fc
+        # Extract agate section only (between 'agate=' and '[nar_sc]')
+        agate_match = re.search(r"agate=([^;]+)\[nar_sc\]", fc)
+        assert agate_match, "agate filter not found in V2 filter"
+        agate_params = agate_match.group(1)
+        if _ffmpeg_agate_has_hold():
+            assert "hold=0.400" in agate_params
+        else:
+            # FFmpeg < 5.x: hold not supported; agate params must NOT contain hold=
+            # (Note: "threshold=" contains "hold" as substring — check agate params)
+            assert ":hold=" not in agate_params
+            assert "threshold=" in agate_params  # agate still present, just without hold
 
     def test_v2_filter_still_contains_sidechaincompress(self):
         mixer = self._mixer(vad_enabled=True)

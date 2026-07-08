@@ -1,0 +1,47 @@
+# Exclude large and sensitive files from Docker build context
+
+# Runtime data — volumes handle these
+workspace/
+cache/
+models/
+logs/
+temp/
+assets/
+
+# Secrets
+.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+dist/
+*.egg-info/
+
+# VCS
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artefacts
+test_gemini_image.py
+test_hf_image.py
+tmp/
+
+# Documentation (not needed in image)
+docs/
+
+# Bootstrap artefacts written at runtime
+bootstrap-manifest.json
+environment-report.json

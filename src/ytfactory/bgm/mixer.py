@@ -36,12 +36,37 @@ from __future__ import annotations
 
 import json
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
 
 from .config import BGMConfig
 from .models import BGMMixResult, BGMTrack
+
+
+@lru_cache(maxsize=1)
+def _ffmpeg_agate_has_hold() -> bool:
+    """Return True if the installed FFmpeg agate filter supports the 'hold' option.
+
+    The hold option was added in FFmpeg 5.x.  Ubuntu 22.04 ships 4.4.2 which
+    does not have it, so the V2 agate path must omit hold on older installs.
+
+    Detection: grep for '^  hold ' in the filter help output (the options table
+    uses two leading spaces + option name + spaces; 'threshold' contains 'hold'
+    as a substring so a plain 'in' check is a false positive).
+    """
+    import re
+
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-h", "filter=agate"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # Options table format: "  hold            <type>  ..."
+        return bool(re.search(r"^\s+hold\s", r.stdout, re.MULTILINE))
+    except Exception:
+        return False
 
 
 class BGMMixer:
@@ -133,7 +158,9 @@ class BGMMixer:
             )
         except subprocess.CalledProcessError as exc:
             err = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else str(exc)
-            logger.error("BGM mix failed: {}", err[:500])
+            # Log the tail — FFmpeg always writes the version header first,
+            # so the first ~500 chars are never the actual error.
+            logger.error("BGM mix failed: {}", err[-800:])
             return BGMMixResult(
                 track=track,
                 video_duration=video_duration,
@@ -159,6 +186,21 @@ class BGMMixer:
 
         # ── Narration sidechain label — V1 or V2 depending on vad_enabled ────
         if cfg.vad_enabled:
+            agate_has_hold = _ffmpeg_agate_has_hold()
+            if not agate_has_hold:
+                # FFmpeg < 5.x: hold not available; use agate without it.
+                # Phrase grouping is absent but ducking still works correctly.
+                logger.debug(
+                    "BGM: agate 'hold' not supported by this FFmpeg — "
+                    "using agate without hold (slight inter-word pumping possible)"
+                )
+            agate_params = (
+                f"threshold={cfg.duck_threshold:.4f}:"
+                + (f"hold={phrase_gap_s:.3f}:" if agate_has_hold else "")
+                + "attack=0.015:"
+                "release=0.350:"
+                "range=0.01"
+            )
             nar_split = (
                 # Split narration: one copy for sidechain gating, one for the mix
                 f"[0:a]"
@@ -166,16 +208,8 @@ class BGMMixer:
                 f"asplit=2"
                 f"[nar_raw][nar_mix];"
 
-                # Phrase-grouping gate on sidechain — hold keeps gate open across
-                # inter-word gaps ≤ phrase_gap_ms so music stays ducked per phrase.
-                f"[nar_raw]"
-                f"agate="
-                f"threshold={cfg.duck_threshold:.4f}:"
-                f"hold={phrase_gap_s:.3f}:"
-                f"attack=0.015:"
-                f"release=0.350:"
-                f"range=0.01"
-                f"[nar_sc];"
+                # Phrase-grouping gate on sidechain.
+                f"[nar_raw]agate={agate_params}[nar_sc];"
             )
         else:
             nar_split = (

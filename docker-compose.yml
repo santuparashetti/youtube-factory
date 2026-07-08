@@ -1,0 +1,85 @@
+# YouTube Factory — Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   docker compose up -d                    # start (CPU)
+#   docker compose --profile gpu up -d      # start (NVIDIA GPU)
+#   docker exec youtube-factory ytfactory setup
+#   docker exec youtube-factory ytfactory doctor
+#   docker exec youtube-factory ytfactory build <project-id>
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  youtube-factory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: youtube-factory:latest
+    container_name: youtube-factory
+    restart: unless-stopped
+
+    # .env file is bind-mounted so API keys are never baked into the image
+    env_file:
+      - .env
+
+    # Named volumes persist across image rebuilds
+    volumes:
+      - workspace:/app/workspace
+      - cache:/app/cache
+      - models:/app/models
+      - logs:/app/logs
+      # Optional: mount local music library
+      # - ./music:/app/workspace/music:ro
+
+    # Keep the container running for exec-based usage
+    command: ["python", "-c", "import time; time.sleep(1e9)"]
+
+    # Resource limits (adjust for your hardware)
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  # ── GPU variant ──────────────────────────────────────────────────────────
+  youtube-factory-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: youtube-factory:latest
+    container_name: youtube-factory
+    restart: unless-stopped
+    profiles:
+      - gpu
+
+    env_file:
+      - .env
+
+    environment:
+      - WHISPERX_DEVICE=cuda
+
+    volumes:
+      - workspace:/app/workspace
+      - cache:/app/cache
+      - models:/app/models
+      - logs:/app/logs
+
+    command: ["python", "-c", "import time; time.sleep(1e9)"]
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  workspace:
+    name: ytfactory_workspace
+  cache:
+    name: ytfactory_cache
+  models:
+    name: ytfactory_models
+  logs:
+    name: ytfactory_logs

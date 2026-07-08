@@ -11,7 +11,7 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 1677 passing (as of 2026-07-09)  
+**Test count:** 1711 passing (as of 2026-07-09)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
 
 ---
@@ -331,9 +331,66 @@ BGM_005–007 SKIP when `bgm-debug/speech_timeline.json` absent.
 - Existing `.env` overrides (`BGM_VOLUME=0.24`, `BGM_DUCK_THRESHOLD=0.02`, `BGM_DUCK_RATIO=6.2`) still take precedence over the new code defaults.
 - `vad_enabled=False` in `BGMConfig` restores the V1 filter (no agate). Default is `True`.
 - `BGMMixer.mix()` gains optional `project_dir: Path | None = None` — existing callers passing 3 args are unaffected.
+- **FFmpeg 4.x compatibility (`_ffmpeg_agate_has_hold()`):** The `hold` option in `agate` was added in FFmpeg 5.x. Ubuntu 22.04 ships 4.4.2 which lacks it. `_ffmpeg_agate_has_hold()` (cached probe, `re.search(r"^\s+hold\s", r.stdout, re.MULTILINE)`) detects support at runtime; filter is built without `hold` on FFmpeg 4.x — ducking still works but inter-word phrase bridging is absent. **Gotcha:** `"threshold="` contains `"hold"` as a substring (`t-h-r-e-s-[h-o-l-d]=`) so a plain `"hold" in stdout` is a false positive — must match as standalone option with the regex.
+- **Error log tail:** `err[-800:]` not `err[:500]` — FFmpeg always writes its version header first; the first 500 chars never contain the actual error.
 
 #### Incremental build
 Already handled — `"bgm": "video"` in `incremental/deps.py` invalidates only the video stage when BGM settings change.
+
+---
+
+### 12. PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM
+**Spec:** `docs/plug-and-play-setup/PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM_FINAL.md`  
+**New files:** `src/ytfactory/bootstrap/` package (8 modules), `Dockerfile`, `docker-compose.yml`, `.env.example`, `.dockerignore`, `tests/test_bootstrap.py`  
+**Modified:** `doctor/pipeline.py`, `doctor/cli.py`, `doctor/models.py`, `cli/main.py`, `.gitignore`
+
+#### Bootstrap Package (`src/ytfactory/bootstrap/`)
+- `engine.py` — `BootstrapEngine`: orchestrates setup/doctor/validate/repair/version_info
+- `workspace.py` — creates all required dirs; idempotent
+- `config_validator.py` — reads `.env` directly (not via Settings) so tests using tmp dirs work; checks LLM/search/image provider keys
+- `provider_validator.py` — API key presence + TCP reachability check for each provider
+- `env_checker.py` — Python version, FFmpeg/ffprobe, Git, Torch, fonts
+- `healer.py` — SelfHealingEngine: missing dirs, permissions, broken symlinks
+- `model_bootstrap.py` — WhisperX and Kokoro model readiness checks; lazy download on first use
+- `version_manager.py` — `bootstrap-manifest.json` read/write; `BOOTSTRAP_VERSION="1.0.0"`
+- `report.py` — writes `environment-report.json`
+- `models.py` — `CheckStatus`, `CheckResult`, `BootstrapResult`; WARNING is non-blocking (`success` = no ERRORs)
+
+#### New CLI Commands
+All idempotent and safe to repeat:
+```bash
+ytfactory setup [--force]     # full first-run bootstrap + manifest
+ytfactory doctor              # health check (no mutations)
+ytfactory validate            # config + provider only (lightweight)
+ytfactory repair              # self-healing only
+ytfactory clean [--logs] [--cache]  # temp dir cleanup
+ytfactory reset [--yes] [--workspace]  # clear manifest + report
+ytfactory update              # force re-validate + update manifest
+ytfactory version             # print versions + manifest state
+```
+
+#### Docker Infrastructure
+- **`Dockerfile`** — multi-stage (base → builder → production); Python 3.11-slim + uv + FFmpeg + espeak-ng + fonts
+- **`docker-compose.yml`** — two services (cpu default, gpu with `--profile gpu`); 4 named volumes: `ytfactory_workspace`, `ytfactory_cache`, `ytfactory_models`, `ytfactory_logs`
+- **`.env.example`** — complete template for all API keys + provider settings
+- **`.dockerignore`** — excludes workspace, models, cache, .env from build context
+
+#### Quick Start (fresh machine)
+```bash
+git clone <repo> && cd youtube-factory
+cp .env.example .env  # fill in API keys
+docker compose up -d
+docker exec youtube-factory ytfactory setup
+docker exec youtube-factory ytfactory doctor
+docker exec youtube-factory ytfactory build <project-id>
+```
+
+#### Key Invariants
+- `BootstrapResult.success` = True when no ERRORs (WARNINGs are non-blocking)
+- `validate_config` reads `base_dir/.env` directly via `_load_dotenv_values()` — not via Settings — so tests with temp dirs work correctly
+- Bootstrap manifest file: `bootstrap-manifest.json` (gitignored); re-run with `--force` to refresh
+- New runtime directories created by setup (`cache/`, `models/`, `logs/`, `temp/`) are gitignored
+- Test count: 1711 (1677 existing + 34 new bootstrap tests)
 
 ---
 
