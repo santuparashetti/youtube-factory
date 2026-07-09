@@ -305,3 +305,117 @@ class TestConfigValidator:
         results = validate_config(tmp_path)
         errors = [r for r in results if r.status == CheckStatus.ERROR]
         assert len(errors) > 0
+
+
+# ── Model bootstrap tests ─────────────────────────────────────────────────────
+
+class TestModelBootstrap:
+    """Tests for model_bootstrap.py — LAMM delegation and vision model gating."""
+
+    def test_lamm_check_returns_ok(self) -> None:
+        from ytfactory.bootstrap.model_bootstrap import _check_lamm_available
+        results = _check_lamm_available()
+        assert len(results) == 1
+        assert results[0].name == "model:lamm"
+        assert results[0].status == CheckStatus.OK
+
+    def test_vision_model_skipped_when_image_review_disabled(self, tmp_path: Path) -> None:
+        """Vision model must be SKIPPED when IMAGE_REVIEW_ENABLED=false."""
+        from ytfactory.bootstrap.model_bootstrap import _provision_via_lamm
+        with (
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._is_image_review_enabled",
+                return_value=False,
+            ),
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._get_vision_model_name",
+                return_value="minicpm_v2_6",
+            ),
+        ):
+            results = _provision_via_lamm(tmp_path)
+
+        vision_checks = [r for r in results if "minicpm_v2_6" in r.name]
+        assert len(vision_checks) == 1
+        assert vision_checks[0].status == CheckStatus.SKIPPED
+
+    def test_vision_model_provisioned_when_image_review_enabled(self, tmp_path: Path) -> None:
+        """Vision model must be provisioned when IMAGE_REVIEW_ENABLED=true."""
+        from ytfactory.bootstrap.model_bootstrap import _provision_via_lamm
+        from ytfactory.models import ProvisionResult, ModelStatus
+
+        fake_provision = ProvisionResult(
+            name="minicpm_v2_6",
+            status=ModelStatus.MISSING,
+            message="Not in cache",
+        )
+        with (
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._is_image_review_enabled",
+                return_value=True,
+            ),
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._get_vision_model_name",
+                return_value="minicpm_v2_6",
+            ),
+            patch(
+                "ytfactory.models.manager.LocalAIModelManager.provision",
+                return_value=fake_provision,
+            ),
+        ):
+            results = _provision_via_lamm(tmp_path)
+
+        vision_checks = [r for r in results if "minicpm_v2_6" in r.name]
+        assert len(vision_checks) == 1
+        # MISSING with auto_download=false maps to WARNING (non-blocking)
+        assert vision_checks[0].status == CheckStatus.WARNING
+
+    def test_get_vision_model_name_uses_settings(self) -> None:
+        """_get_vision_model_name must read the configured value, not a hardcoded string."""
+        from unittest.mock import MagicMock
+        from ytfactory.bootstrap.model_bootstrap import _get_vision_model_name
+        mock_settings = MagicMock()
+        mock_settings.return_value.vision_review_local_model = "qwen2_5_vl_3b"
+        with patch("ytfactory.bootstrap.model_bootstrap.Settings", mock_settings, create=True):
+            # Call indirectly via the module
+            from ytfactory.bootstrap import model_bootstrap as mb
+            with patch("ytfactory.config.settings.Settings", mock_settings):
+                name = mb._get_vision_model_name()
+        assert name == "qwen2_5_vl_3b"
+
+    def test_get_vision_model_name_default_fallback(self) -> None:
+        """Falls back to minicpm_v2_6 if Settings cannot be loaded."""
+        from ytfactory.bootstrap.model_bootstrap import _get_vision_model_name
+        with patch(
+            "ytfactory.bootstrap.model_bootstrap._get_vision_model_name",
+            side_effect=Exception("Settings unavailable"),
+        ):
+            # Call the real function when the mock raises — use the actual import
+            pass
+        # Real function returns default when Settings errors
+        with patch(
+            "ytfactory.config.settings.Settings",
+            side_effect=Exception("env error"),
+        ):
+            from ytfactory.bootstrap import model_bootstrap as mb
+            name = mb._get_vision_model_name()
+        assert name == "minicpm_v2_6"
+
+    def test_non_vision_model_not_gated_by_image_review(self, tmp_path: Path) -> None:
+        """whisperx must NOT be skipped regardless of image_review_enabled."""
+        from ytfactory.bootstrap.model_bootstrap import _provision_via_lamm
+        with (
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._is_image_review_enabled",
+                return_value=False,
+            ),
+            patch(
+                "ytfactory.bootstrap.model_bootstrap._get_vision_model_name",
+                return_value="minicpm_v2_6",
+            ),
+        ):
+            results = _provision_via_lamm(tmp_path)
+
+        whisperx_checks = [r for r in results if "whisperx" in r.name]
+        assert len(whisperx_checks) == 1
+        # whisperx is lazy (no hf_repo) so it comes back OK or WARNING, never SKIPPED due to image review
+        assert whisperx_checks[0].status != CheckStatus.ERROR

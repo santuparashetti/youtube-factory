@@ -434,6 +434,15 @@ BGM_FADE_OUT_SECONDS=4.0
 
 # ── Pacing ───────────────────────────────────────────────────────────────────
 TTS_PACING_PROFILE=spiritual    # normal | documentary | spiritual | meditation
+
+# ── Image Review (Vision Quality Gate — optional, requires ~10 GB disk) ──────
+IMAGE_REVIEW_ENABLED=false
+VISION_REVIEW_PROVIDER=local
+VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6
+IMAGE_REVIEW_MIN_SCORE=90
+IMAGE_REVIEW_CONFIDENCE=80
+IMAGE_REVIEW_MAX_ATTEMPTS=3
+IMAGE_REVIEW_AUTO_REMEDIATE=true
 ```
 
 ---
@@ -443,9 +452,9 @@ TTS_PACING_PROFILE=spiritual    # normal | documentary | spiritual | meditation
 ```
 youtube-factory/
 ├── .env                        ← your API keys (gitignored)
-├── brand_config.yaml           ← channel branding
 ├── config/
-│   └── brand_config.yaml       ← same brand config (canonical location)
+│   ├── brand_config.yaml       ← channel branding (canonical location)
+│   └── models-registry.yaml    ← LAMM model registry
 ├── src/ytfactory/              ← source code
 ├── workspace/
 │   ├── jobs/                   ← project outputs (gitignored)
@@ -459,10 +468,61 @@ youtube-factory/
 ├── base_scripts/               ← reference scripts for inspiration
 ├── samples/                    ← example scripts for testing
 ├── cache/                      ← HTTP/model cache (gitignored)
-├── models/                     ← downloaded AI models (gitignored)
+├── models/                     ← downloaded AI models + manifest (gitignored)
 ├── logs/                       ← application logs (gitignored)
 └── bootstrap-manifest.json     ← written by ytfactory setup (gitignored)
 ```
+
+---
+
+## Step 12 — Local AI Model Manager (LAMM)
+
+The Local AI Model Manager is the single authority for all local AI model lifecycle.
+No feature pipeline downloads or manages models directly.
+
+**Model registry:** `config/models-registry.yaml` — defines every local model:
+
+| Model | Used by | Auto-download |
+|---|---|---|
+| `whisperx` | Subtitle alignment | Lazy (downloads on first use) |
+| `silero_vad` | BGM VAD analysis | Lazy (downloads on first use) |
+| `minicpm_v2_6` | Image quality review | Opt-in (requires `IMAGE_REVIEW_ENABLED=true`) |
+
+The model manifest (`models/model-manifest.json`) persists download state across runs.
+
+Run `ytfactory setup` after enabling a new model — LAMM provisions it automatically.
+
+---
+
+## Step 13 — Image Review Pipeline (Optional)
+
+Enables per-scene AI vision quality review using MiniCPM-V 2.6 (~10 GB disk).
+
+**Disk requirement:** ~10 GB free space for the vision model.
+
+**Enable it in `.env`:**
+```bash
+IMAGE_REVIEW_ENABLED=true
+VISION_REVIEW_PROVIDER=local
+VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6   # switch to any registry key for future models
+IMAGE_REVIEW_MIN_SCORE=90
+IMAGE_REVIEW_CONFIDENCE=80
+IMAGE_REVIEW_MAX_ATTEMPTS=3
+IMAGE_REVIEW_AUTO_REMEDIATE=true
+```
+
+Then run setup to trigger model download:
+```bash
+uv run ytfactory setup
+```
+
+**What it does per scene:**
+1. Technical QA (file size + sharpness check)
+2. Vision model review against 6 quality categories
+3. On FAIL: appends targeted prompt corrections and regenerates with a new seed
+4. Up to `IMAGE_REVIEW_MAX_ATTEMPTS` attempts before accepting best result
+
+**To switch to a future vision model** — edit `config/models-registry.yaml` to add the new model, then set `VISION_REVIEW_LOCAL_MODEL=new_model_key`. No code changes needed.
 
 ---
 
@@ -565,6 +625,15 @@ sudo apt update && sudo apt install ffmpeg
 ```
 
 > Note: If the error message shows only the FFmpeg version banner and no clear error text, check `/home/<user>/.local/share/ytfactory/` logs — the full error is in the last 800 chars of FFmpeg stderr, not the first.
+
+### Image review fails / vision model not found
+```bash
+# Ensure IMAGE_REVIEW_ENABLED=true in .env, then re-run setup to trigger download
+uv run ytfactory setup
+```
+- The model downloads ~10 GB to `~/.cache/huggingface/` on first use.
+- Requires `torch` and `transformers`: `uv pip install torch transformers pillow`
+- Check model status: model-manifest.json under `models/`
 
 ### `ytfactory setup` reports errors
 - Fix each error one by one (they are self-explanatory).

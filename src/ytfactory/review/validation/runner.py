@@ -1,7 +1,7 @@
-"""ValidationRunner — orchestrates all 8 category validators.
+"""ValidationRunner — orchestrates all 11 category validators.
 
 Catches exceptions from individual validators so a single broken rule
-cannot prevent the other 7 categories from running.
+cannot prevent the other categories from running.
 """
 
 from __future__ import annotations

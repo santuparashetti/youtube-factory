@@ -395,12 +395,84 @@ Renders all scene clips (image + audio + subtitles → `.mp4`) and concatenates 
 ytfactory render PROJECT_ID
 ```
 
+### `ytfactory setup`
+
+First-run bootstrap: creates workspace, validates config and providers, provisions required models. Idempotent — safe to run multiple times.
+
+```bash
+ytfactory setup [--force]
+```
+
+| Flag | Description |
+|---|---|
+| `--force` | Re-run all checks even if already bootstrapped |
+
+Expected output: `✓ Setup complete — environment ready`
+
 ### `ytfactory doctor`
 
-Checks API keys, provider connectivity, FFmpeg availability, and workspace permissions.
+Full health check without mutations. Checks environment, config, providers, and model states.
 
 ```bash
 ytfactory doctor
+```
+
+### `ytfactory validate`
+
+Lightweight config and provider check only (no workspace mutation, no model checks).
+
+```bash
+ytfactory validate
+```
+
+### `ytfactory repair`
+
+Self-healing: recreates missing directories, fixes permissions, repairs broken symlinks.
+
+```bash
+ytfactory repair
+```
+
+### `ytfactory clean`
+
+Deletes temporary files. Never touches `workspace/jobs/` or `models/`.
+
+```bash
+ytfactory clean [--logs] [--cache]
+```
+
+| Flag | Description |
+|---|---|
+| `--logs` | Also clean `logs/` directory |
+| `--cache` | Also clean `cache/` directory |
+
+### `ytfactory reset`
+
+Removes bootstrap manifest and environment report. Re-run `ytfactory setup` after this.
+
+```bash
+ytfactory reset [--yes] [--workspace]
+```
+
+| Flag | Description |
+|---|---|
+| `--yes`, `-y` | Skip confirmation prompt |
+| `--workspace` | **DESTRUCTIVE** — also deletes `workspace/jobs/` |
+
+### `ytfactory update`
+
+Re-validates environment after code or dependency updates. Force re-runs full setup.
+
+```bash
+ytfactory update
+```
+
+### `ytfactory version`
+
+Prints version info and bootstrap manifest state.
+
+```bash
+ytfactory version
 ```
 
 ---
@@ -496,6 +568,21 @@ These environment variables in `.env` apply globally to every run.
 | `cinematic` | Full emotion-aware (8 types) | Emotion-pair transitions | Color grade + vignette | Production quality |
 | `premium` | Full emotion-aware, wider range | Emotion-pair transitions + longer fades | Color grade + vignette + film grain | Maximum quality |
 
+### Image Review (Vision Quality Gate)
+
+| Key | Default | Description |
+|---|---|---|
+| `IMAGE_REVIEW_ENABLED` | `false` | Enable per-scene AI vision quality review |
+| `VISION_REVIEW_PROVIDER` | `local` | Vision provider: `local` or `mock` |
+| `VISION_REVIEW_LOCAL_MODEL` | `minicpm_v2_6` | Registry key of the local vision model |
+| `IMAGE_REVIEW_MIN_SCORE` | `90` | Minimum vision score to accept a scene (0–100) |
+| `IMAGE_REVIEW_CONFIDENCE` | `80` | Minimum confidence to trust the score (0–100) |
+| `IMAGE_REVIEW_MAX_ATTEMPTS` | `3` | Max generation + review cycles per scene |
+| `IMAGE_REVIEW_AUTO_REMEDIATE` | `true` | Refine prompt and regenerate on FAIL |
+| `IMAGE_REVIEW_DEBUG` | `false` | Write per-attempt prompt files to `images/` |
+
+Enabling image review requires `torch`, `transformers`, `pillow` and ~10 GB disk for the MiniCPM-V 2.6 model. Run `ytfactory setup` after enabling — the Local AI Model Manager provisions the model automatically.
+
 ---
 
 ## Workspace Layout
@@ -515,9 +602,12 @@ workspace/jobs/PROJECT_ID/
 │   ├── scene-plan.json       # Scene plan (narration, visual prompts, durations)
 │   └── scene-status.json     # Per-scene approval states (Draft/Approved/Locked…)
 ├── images/
-│   ├── scene-001.png         # Generated or manually placed images
-│   ├── IMAGE_PROMPTS.md      # Visual prompts (--no-images mode)
-│   └── manifest.json
+│   ├── scene-001.png              # Generated or manually placed images
+│   ├── IMAGE_PROMPTS.md           # Visual prompts (--no-images mode)
+│   ├── manifest.json
+│   ├── image-quality-summary.json # Vision review summary (when IMAGE_REVIEW_ENABLED=true)
+│   ├── image-review-NNN.json      # Per-scene vision review result
+│   └── image-remediation-NNN.json # Per-scene remediation history
 ├── audio/
 │   └── scene-001.mp3         # TTS narration audio
 ├── subtitles/

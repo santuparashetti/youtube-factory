@@ -44,7 +44,8 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy project source
 COPY src/ src/
 COPY pyproject.toml ./
-COPY brand_config.yaml* ./
+# config/ contains brand_config.yaml and models-registry.yaml — both required at runtime
+COPY config/ config/
 
 # Install the project itself (editable install in the existing venv)
 RUN /app/.venv/bin/pip install -e . --no-deps --quiet

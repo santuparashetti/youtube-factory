@@ -56,6 +56,7 @@ def _provision_via_lamm(root: Path) -> list[CheckResult]:
 
     # Determine if image review is enabled (affects vision model provisioning)
     image_review_enabled = _is_image_review_enabled()
+    vision_model_name = _get_vision_model_name()
 
     manager = LocalAIModelManager(base_dir=root)
     results: list[CheckResult] = []
@@ -70,7 +71,7 @@ def _provision_via_lamm(root: Path) -> list[CheckResult]:
             continue
 
         # Vision model only provisioned when image review is enabled
-        if model_name == "minicpm_v2_6" and not image_review_enabled:
+        if model_name == vision_model_name and not image_review_enabled:
             results.append(CheckResult(
                 name=f"model:{model_name}",
                 status=CheckStatus.SKIPPED,
@@ -119,3 +120,12 @@ def _is_image_review_enabled() -> bool:
         return Settings().image_review_enabled
     except Exception:
         return False
+
+
+def _get_vision_model_name() -> str:
+    """Return the configured vision model registry key."""
+    try:
+        from ytfactory.config.settings import Settings
+        return Settings().vision_review_local_model
+    except Exception:
+        return "minicpm_v2_6"

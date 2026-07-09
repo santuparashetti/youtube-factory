@@ -11,7 +11,7 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 1711 passing (as of 2026-07-09)  
+**Test count:** 1793 passing (as of 2026-07-09)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
 
 ---
@@ -533,6 +533,9 @@ IMAGE_REVIEW_DEBUG=false
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
 - **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
 - `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
+- **Dockerfile uses `COPY config/ config/`** — `models-registry.yaml` and `brand_config.yaml` are baked in at `/app/config/`. Never use `COPY brand_config.yaml*` from root (that file doesn't exist; `config/` is the canonical location).
+- **`model_bootstrap.py` uses `_get_vision_model_name()`** to look up the configured vision model key from Settings — not hardcoded `"minicpm_v2_6"`.
+- **ValidationRunner runs 11 validators** (Sections: script, narration, subtitle, image, human, motion, audio, rendering, story, bgm, vision_review).
 
 ---
 
