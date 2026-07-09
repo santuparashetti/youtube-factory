@@ -16,6 +16,7 @@ PIPELINE_STAGES: list[str] = [
     "voice",
     "captions",
     "video",
+    "cta",
     "review",
     "publish",
 ]
@@ -31,7 +32,8 @@ STAGE_DEPENDENCIES: dict[str, list[str]] = {
     "voice": ["scenes"],
     "captions": ["voice"],
     "video": ["images", "voice", "captions"],
-    "review": ["video"],
+    "cta": ["video"],
+    "review": ["cta"],
     "publish": ["review"],
 }
 
@@ -42,9 +44,14 @@ STAGE_OUTPUT_PATTERNS: dict[str, list[str]] = {
     "script": ["script/script.md"],
     "scenes": ["scenes/scene-plan.json"],
     "images": ["images/scene-*.png"],
-    "voice": ["audio/scene-*.mp3", "audio/scene-*.timing.json", "audio/scene-*.alignment.json"],
+    "voice": [
+        "audio/scene-*.mp3",
+        "audio/scene-*.timing.json",
+        "audio/scene-*.alignment.json",
+    ],
     "captions": ["subtitles/scene-*.srt", "subtitles/scene-*.ass"],
     "video": ["video/scene-*.mp4", "video/final.mp4"],
+    "cta": ["cta/cta-timing.json"],
     "review": ["review/review-report.md"],
     "publish": ["publish/youtube-metadata.json"],
 }
@@ -61,6 +68,7 @@ FORCE_FLAG_TO_STAGE: dict[str, str] = {
     "video": "video",
     "alignment": "voice",  # force re-alignment → re-run voice stage (incl. alignment)
     "bgm": "video",
+    "cta": "cta",
     "review": "review",
     "publish": "publish",
 }

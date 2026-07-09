@@ -20,7 +20,7 @@ cta:
 signature:
   enabled: true
   template: |
-    Clear mind..
+    Clear mind.
     Meaningful life.
 
 voice:
@@ -34,3 +34,29 @@ branding:
   max_opening_seconds: 10
   asset_path: "assets/branding/atma-theory-brand.png"
   asset_animation: "slow_zoom"
+  # Channel-level branding — overrides CTA template defaults (per template precedence rule)
+  accent_color: "#2EC5E8"
+  font: "Arial"
+  logo: ""
+
+# CTA Overlay Engine V2 — visual call-to-action overlay.
+# Distinct from the narrated `cta:` text block above.
+# Template precedence: branding.accent_color / branding.font always win
+# over template defaults unless the template property is locked: true.
+cta_overlay:
+  enabled: false           # set to true to enable per-video CTA overlay
+  template: atma           # glass | minimal | atma | premium
+  timing_mode: contextual  # contextual (insight-tier pauses) | fixed
+  fallback_timing: 65%     # fallback position if no safe pause found
+  duration: 6s             # target duration for full CTA
+  min_pause_ms_for_full_cta: 3000   # below this threshold → compact variant
+  animation: smooth_fade
+  show_like: true
+  show_subscribe: true
+  show_bell: true
+  sound: meditation_chime  # used if assets/cta/sounds/<name>.mp3 exists
+  max_placement_search_pct: 90      # stop searching past 90% of video
+  insight_tier_min_ms: 1800         # pauses ≥ this are insight-tier for CTA
+  fade_in_seconds: 0.8
+  fade_out_seconds: 0.8
+  bgm_secondary_duck_db: 4.0       # dB reduction on BGM at CTA timestamp

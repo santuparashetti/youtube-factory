@@ -13,6 +13,8 @@ models:
     requires_packages:
       - whisperx
     backends: [cpu, cuda]
+    runtime: lazy
+    capabilities: []
 
   silero_vad:
     enabled: true
@@ -23,6 +25,39 @@ models:
     description: "Silero VAD (voice activity detection)"
     requires_packages: []
     backends: [cpu, cuda]
+    runtime: lazy
+    capabilities: []
+
+  qwen2_5_vl_3b:
+    enabled: true
+    required: false
+    auto_download: true               # downloaded automatically via ytfactory setup
+    hf_repo: "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF"
+    revision: null                    # null = latest
+    description: "Qwen2.5-VL-3B-Instruct Q4_K_M — GGUF multimodal vision model for image review"
+    requires_packages:
+      - llama_cpp
+      - PIL
+    backends: [cuda, mps, cpu]
+    min_disk_gb: 3                    # ~2.2 GB text model + ~1 GB mmproj
+    warmup_on_download: false
+    runtime: llama_cpp
+    capabilities:
+      - image_review
+    bundle:
+      auto_validate: true
+      chat_format: Qwen25VLChatHandler  # class name in llama_cpp.llama_chat_format
+      artifacts:
+        text_model:
+          file: "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+          revision: null
+          checksum: null              # verify by presence + non-zero size
+        vision_projector:
+          file: "mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf"
+          revision: null
+          checksum: null
+          compatible_with:
+            - Qwen2.5-VL-3B-Instruct
 
   minicpm_v2_6:
     enabled: true
@@ -38,3 +73,14 @@ models:
     backends: [cuda, mps, cpu]
     min_disk_gb: 10             # approximate disk requirement
     warmup_on_download: false   # do not load into memory during bootstrap
+    runtime: transformers
+    capabilities:
+      - image_review
+      - structured_json
+    bundle:
+      auto_validate: false
+      artifacts:
+        text_model:
+          file: "."             # whole HF snapshot
+          revision: null
+          checksum: null        # no pinned checksum — verify by presence

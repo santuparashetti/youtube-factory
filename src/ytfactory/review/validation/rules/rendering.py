@@ -24,9 +24,13 @@ def _clip_duration_seconds(clip: Path) -> float:
     try:
         result = subprocess.run(
             [
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 str(clip),
             ],
             capture_output=True,
@@ -63,15 +67,13 @@ def _detect_unexpected_black_frames(
             [
                 "ffmpeg",
                 "-nostdin",
-                "-i", str(clip),
+                "-i",
+                str(clip),
                 "-vf",
-                (
-                    f"blackdetect=d={min_duration:.4f}"
-                    f":pic_th={pic_th:.4f}"
-                    ":pix_th=0.10"
-                ),
+                (f"blackdetect=d={min_duration:.4f}:pic_th={pic_th:.4f}:pix_th=0.10"),
                 "-an",
-                "-f", "null",
+                "-f",
+                "null",
                 "-",
             ],
             capture_output=True,
@@ -85,9 +87,7 @@ def _detect_unexpected_black_frames(
         return []
 
     unexpected: list[dict] = []
-    pattern = re.compile(
-        r"black_start:(\S+)\s+black_end:(\S+)\s+black_duration:(\S+)"
-    )
+    pattern = re.compile(r"black_start:(\S+)\s+black_end:(\S+)\s+black_duration:(\S+)")
     for line in stderr.splitlines():
         m = pattern.search(line)
         if not m:
@@ -121,7 +121,12 @@ class RenderingValidator(BaseValidator):
 
         if not scenes:
             for rule_id in (
-                "REND_001", "REND_002", "REND_003", "REND_004", "REND_005", "REND_006"
+                "REND_001",
+                "REND_002",
+                "REND_003",
+                "REND_004",
+                "REND_005",
+                "REND_006",
             ):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))

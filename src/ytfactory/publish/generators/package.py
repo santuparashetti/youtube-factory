@@ -63,7 +63,9 @@ class UploadPackageGenerator:
             )
 
         if pinned_comment and not pinned_comment.has_question:
-            warnings.append("Pinned comment does not contain a question — engagement may be lower")
+            warnings.append(
+                "Pinned comment does not contain a question — engagement may be lower"
+            )
 
         output_dir = publish_directory(project_id)
         package = PublishingPackage(
@@ -93,7 +95,9 @@ class UploadPackageGenerator:
             "description": package.description.to_dict(),
             "chapters": [c.to_dict() for c in package.chapters],
             "thumbnail": package.thumbnail.to_dict() if package.thumbnail else None,
-            "pinned_comment": package.pinned_comment.to_dict() if package.pinned_comment else None,
+            "pinned_comment": package.pinned_comment.to_dict()
+            if package.pinned_comment
+            else None,
             "output_files": {
                 "title": str(title_path(project_id)),
                 "alternate_titles": str(alternate_titles_path(project_id)),

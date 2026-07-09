@@ -10,7 +10,7 @@ class SceneReviewArtifact:
     """Written to workspace/jobs/<id>/images/image-review.json per scene."""
 
     scene_index: int
-    status: str                       # PASS | FAIL | SKIP | ERROR
+    status: str  # PASS | FAIL | SKIP | ERROR
     score: float = 0.0
     confidence: float = 0.0
     issues: list[dict] = field(default_factory=list)

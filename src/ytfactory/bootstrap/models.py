@@ -25,7 +25,11 @@ class CheckResult:
 
     @property
     def ok(self) -> bool:
-        return self.status in (CheckStatus.OK, CheckStatus.REPAIRED, CheckStatus.SKIPPED)
+        return self.status in (
+            CheckStatus.OK,
+            CheckStatus.REPAIRED,
+            CheckStatus.SKIPPED,
+        )
 
 
 @dataclass

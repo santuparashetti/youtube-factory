@@ -30,28 +30,34 @@ def bootstrap_workspace(base_dir: Path | None = None) -> list[CheckResult]:
     for rel in _REQUIRED_DIRS:
         target = root / rel
         if target.exists():
-            results.append(CheckResult(
-                name=f"dir:{rel}",
-                status=CheckStatus.OK,
-                message=f"{rel}/ exists",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"dir:{rel}",
+                    status=CheckStatus.OK,
+                    message=f"{rel}/ exists",
+                )
+            )
         else:
             try:
                 target.mkdir(parents=True, exist_ok=True)
                 logger.info("Created directory: {}", rel)
-                results.append(CheckResult(
-                    name=f"dir:{rel}",
-                    status=CheckStatus.REPAIRED,
-                    message=f"{rel}/ created",
-                    repaired=True,
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"dir:{rel}",
+                        status=CheckStatus.REPAIRED,
+                        message=f"{rel}/ created",
+                        repaired=True,
+                    )
+                )
             except OSError as exc:
-                results.append(CheckResult(
-                    name=f"dir:{rel}",
-                    status=CheckStatus.ERROR,
-                    message=f"Cannot create {rel}/",
-                    detail=str(exc),
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"dir:{rel}",
+                        status=CheckStatus.ERROR,
+                        message=f"Cannot create {rel}/",
+                        detail=str(exc),
+                    )
+                )
 
     # Ensure workspace/.gitkeep exists so git tracks the dir
     gitkeep = root / "workspace" / ".gitkeep"
@@ -72,23 +78,29 @@ def validate_workspace(base_dir: Path | None = None) -> list[CheckResult]:
     for rel in _REQUIRED_DIRS:
         target = root / rel
         if not target.exists():
-            results.append(CheckResult(
-                name=f"dir:{rel}",
-                status=CheckStatus.ERROR,
-                message=f"Missing directory: {rel}/",
-                detail="Run 'ytfactory setup' to create it.",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"dir:{rel}",
+                    status=CheckStatus.ERROR,
+                    message=f"Missing directory: {rel}/",
+                    detail="Run 'ytfactory setup' to create it.",
+                )
+            )
         elif not os.access(target, os.W_OK):
-            results.append(CheckResult(
-                name=f"dir:{rel}",
-                status=CheckStatus.ERROR,
-                message=f"Not writable: {rel}/",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"dir:{rel}",
+                    status=CheckStatus.ERROR,
+                    message=f"Not writable: {rel}/",
+                )
+            )
         else:
-            results.append(CheckResult(
-                name=f"dir:{rel}",
-                status=CheckStatus.OK,
-                message=f"{rel}/ OK",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"dir:{rel}",
+                    status=CheckStatus.OK,
+                    message=f"{rel}/ OK",
+                )
+            )
 
     return results

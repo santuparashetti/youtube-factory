@@ -68,7 +68,9 @@ class IncrementalReporter:
         out.parent.mkdir(parents=True, exist_ok=True)
 
         if not plan_path.exists():
-            out.write_text("# Scene Review Report\n\nNo scene plan found.\n", encoding="utf-8")
+            out.write_text(
+                "# Scene Review Report\n\nNo scene plan found.\n", encoding="utf-8"
+            )
             return out
 
         scenes = json.loads(plan_path.read_text(encoding="utf-8")).get("scenes", [])

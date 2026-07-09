@@ -101,7 +101,21 @@ class LocalVisionProvider(VisionProvider):
             import torch  # type: ignore[import-not-found]  # noqa: F401
             from transformers import AutoModel, AutoTokenizer  # type: ignore[import-not-found]
         except ImportError:
-            logger.debug("torch/transformers not installed — local vision provider unavailable")
+            logger.debug(
+                "torch/transformers not installed — local vision provider unavailable"
+            )
+            return None, None, Backend.CPU
+
+        # Capability contract: ensure model declares image_review before loading
+        missing_caps = self._manager.validate_capabilities(
+            self._model_name, ["image_review"]
+        )
+        if missing_caps:
+            logger.warning(
+                "Model '{}' missing required capabilities: {} — skipping local vision review",
+                self._model_name,
+                ", ".join(f"MISSING_CAPABILITY({c})" for c in missing_caps),
+            )
             return None, None, Backend.CPU
 
         # Provision via LAMM
@@ -109,7 +123,9 @@ class LocalVisionProvider(VisionProvider):
         if result.status not in (ModelStatus.VERIFIED, ModelStatus.DOWNLOADED):
             logger.debug(
                 "Model '{}' not ready (status={}): {}",
-                self._model_name, result.status, result.message,
+                self._model_name,
+                result.status,
+                result.message,
             )
             return None, None, Backend.CPU
 
@@ -120,7 +136,9 @@ class LocalVisionProvider(VisionProvider):
             from transformers import AutoModel, AutoTokenizer  # type: ignore[import-not-found]
 
             hf_repo = self._manager._registry[self._model_name].hf_repo
-            logger.info("Loading local vision model '{}' on {}", self._model_name, backend.value)
+            logger.info(
+                "Loading local vision model '{}' on {}", self._model_name, backend.value
+            )
 
             dtype = torch.bfloat16 if backend != Backend.CPU else torch.float32
 
@@ -132,15 +150,19 @@ class LocalVisionProvider(VisionProvider):
                 low_cpu_mem_usage=True,
             )
 
-            device = "cuda" if backend == Backend.CUDA else (
-                "mps" if backend == Backend.MPS else "cpu"
+            device = (
+                "cuda"
+                if backend == Backend.CUDA
+                else ("mps" if backend == Backend.MPS else "cpu")
             )
             model = model.to(device).eval()  # type: ignore[union-attr]
 
             self._model = model
             self._tokenizer = tokenizer
             self._backend = backend
-            logger.info("Local vision model '{}' loaded on {}", self._model_name, device)
+            logger.info(
+                "Local vision model '{}' loaded on {}", self._model_name, device
+            )
             return model, tokenizer, backend
 
         except Exception as exc:
@@ -194,20 +216,24 @@ class LocalVisionProvider(VisionProvider):
         try:
             data = json.loads(match.group())
         except json.JSONDecodeError as exc:
-            return VisionReviewResult.error_result(f"JSON parse error: {exc} — {raw[:200]}")
+            return VisionReviewResult.error_result(
+                f"JSON parse error: {exc} — {raw[:200]}"
+            )
 
         issues: list[VisionIssue] = []
-        for item in (data.get("issues") or []):
+        for item in data.get("issues") or []:
             try:
                 severity = IssueSeverity(item.get("severity", "MEDIUM"))
             except ValueError:
                 severity = IssueSeverity.MEDIUM
-            issues.append(VisionIssue(
-                category=str(item.get("category", "unknown")),
-                description=str(item.get("description", "")),
-                severity=severity,
-                location=str(item.get("location", "")),
-            ))
+            issues.append(
+                VisionIssue(
+                    category=str(item.get("category", "unknown")),
+                    description=str(item.get("description", "")),
+                    severity=severity,
+                    location=str(item.get("location", "")),
+                )
+            )
 
         status = str(data.get("status", "FAIL")).upper()
         if status not in ("PASS", "FAIL", "SKIP", "ERROR"):

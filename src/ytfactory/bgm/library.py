@@ -53,7 +53,8 @@ class BGMLibrary:
         flat = self._scan_dir(self._base, "")
         keyword = category.replace("_", " ")
         keyword_tracks = [
-            t for t in flat
+            t
+            for t in flat
             if keyword in t.path.stem.lower() or category in t.path.stem.lower()
         ]
         if keyword_tracks:

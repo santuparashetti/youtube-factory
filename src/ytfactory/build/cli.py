@@ -23,6 +23,7 @@ def build(
     force_subtitles: bool = typer.Option(False, "--force-subtitles", help="Force caption regeneration"),
     force_video: bool = typer.Option(False, "--force-video", help="Force video render"),
     force_bgm: bool = typer.Option(False, "--force-bgm", help="Force BGM re-mix (implies --force-video)"),
+    force_cta: bool = typer.Option(False, "--force-cta", help="Force CTA overlay re-render + downstream"),
     force_publish: bool = typer.Option(False, "--force-publish", help="Force publish package regeneration"),
     scene: Optional[int] = typer.Option(None, "--scene", help="Only process this scene index"),
     force_scene: Optional[int] = typer.Option(None, "--force-scene", help="Force-regenerate one specific scene"),
@@ -71,7 +72,7 @@ def build(
     """
     incremental = resume or reuse_assets or any([
         force_images, force_narration, force_subtitles, force_video, force_bgm,
-        force_publish, scene is not None, force_scene is not None,
+        force_cta, force_publish, scene is not None, force_scene is not None,
     ])
 
     if incremental:
@@ -87,6 +88,8 @@ def build(
             force_stages.add(FORCE_FLAG_TO_STAGE["video"])
         if force_bgm:
             force_stages.add(FORCE_FLAG_TO_STAGE["bgm"])
+        if force_cta:
+            force_stages.add(FORCE_FLAG_TO_STAGE["cta"])
         if force_publish:
             force_stages.add(FORCE_FLAG_TO_STAGE["publish"])
 

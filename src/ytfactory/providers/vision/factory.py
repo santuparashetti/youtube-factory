@@ -26,10 +26,24 @@ def get_vision_provider(
     match provider_name.lower():
         case "mock":
             from .mock import MockVisionProvider
+
             return MockVisionProvider()
 
         case "local":
+            from ytfactory.models import LocalAIModelManager
+            from ytfactory.models.models import BundleRuntime
+
+            manager = LocalAIModelManager(base_dir)
+            entry = manager._registry.get(local_model)
+            runtime = entry.runtime if entry is not None else BundleRuntime.TRANSFORMERS
+
+            if runtime == BundleRuntime.LLAMA_CPP:
+                from .llama_cpp_provider import LlamaCppVisionProvider
+
+                return LlamaCppVisionProvider(model_name=local_model, base_dir=base_dir)
+
             from .local import LocalVisionProvider
+
             return LocalVisionProvider(model_name=local_model, base_dir=base_dir)
 
         case _:

@@ -59,8 +59,10 @@ class VideoStats:
         raw = subprocess.run(
             [
                 "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_streams",
                 "-show_format",
                 str(path),
@@ -128,13 +130,17 @@ class ComparisonReport:
     def bitrate_reduction_pct(self) -> float:
         if self.original.overall_bitrate_kbps == 0:
             return 0.0
-        return 100.0 * (
-            self.original.overall_bitrate_kbps - self.optimised.overall_bitrate_kbps
-        ) / self.original.overall_bitrate_kbps
+        return (
+            100.0
+            * (self.original.overall_bitrate_kbps - self.optimised.overall_bitrate_kbps)
+            / self.original.overall_bitrate_kbps
+        )
 
     @property
     def duration_match(self) -> bool:
-        return abs(self.original.duration_seconds - self.optimised.duration_seconds) < 0.5
+        return (
+            abs(self.original.duration_seconds - self.optimised.duration_seconds) < 0.5
+        )
 
     @property
     def resolution_match(self) -> bool:

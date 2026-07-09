@@ -58,7 +58,6 @@ def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> f
     return fallback
 
 
-
 def _bgm_config_from_settings(settings: Settings):
     """Build a BGMConfig from application Settings."""
     from ytfactory.bgm.config import BGMConfig
@@ -125,7 +124,12 @@ def _apply_bgm(
     settings: Settings,
     project_dir: Path,
 ) -> None:
-    """Mix BGM into *tmp* and write *output_path*, or rename when BGM is off."""
+    """Mix BGM into *tmp* and write *output_path*, or rename when BGM is off.
+
+    Any exception from the BGM mixer is logged and treated as a non-fatal
+    fallback: tmp is renamed to output_path without music rather than leaving
+    no final.mp4 at all.
+    """
     if settings.bgm_enabled:
         from ytfactory.bgm.library import BGMLibrary
         from ytfactory.bgm.mixer import BGMMixer
@@ -135,10 +139,29 @@ def _apply_bgm(
         track = BGMLibrary(config).find_track(category)
         if track:
             logger.info("BGM composition: {} ({})", track.title, category)
-            result = BGMMixer(config).mix(tmp, track, output_path, project_dir=project_dir)
+            try:
+                result = BGMMixer(config).mix(
+                    tmp, track, output_path, project_dir=project_dir
+                )
+            except Exception as exc:
+                logger.error(
+                    "BGM mixing raised an exception — falling back to no-music render: {}",
+                    exc,
+                )
+                tmp.rename(output_path)
+                return
             tmp.unlink(missing_ok=True)
             if not result.success:
-                raise RuntimeError(f"BGM mixing failed: {result.error[:300]}")
+                logger.error(
+                    "BGM mixing failed — falling back to no-music render: {}",
+                    result.error[:300],
+                )
+                # tmp already deleted; output_path may be absent or partial
+                if not output_path.exists():
+                    # FFmpeg wrote nothing — we lost the raw render; nothing to rename
+                    raise RuntimeError(
+                        f"BGM mixing failed and raw render is gone: {result.error[:300]}"
+                    )
             return
         logger.warning(
             "BGM enabled but no tracks found for category '{}' — composing without music",
@@ -167,7 +190,9 @@ def compose_continuous_video(
     if not scene_plan_path.exists():
         raise FileNotFoundError(f"Scene plan not found: {scene_plan_path}")
 
-    scenes: list[dict] = json.loads(scene_plan_path.read_text(encoding="utf-8"))["scenes"]
+    scenes: list[dict] = json.loads(scene_plan_path.read_text(encoding="utf-8"))[
+        "scenes"
+    ]
     profile = settings.render_profile
     scenes = MotionPlanner().plan(scenes, profile=profile)
     scenes = TransitionPlanner().plan(scenes, profile=profile)
@@ -178,7 +203,11 @@ def compose_continuous_video(
         index = scene["index"]
         audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
         timing = project_dir / "audio" / f"scene-{index:03d}.timing.json"
-        durations.append(_actual_audio_duration(audio, timing, float(scene.get("duration_seconds", 10))))
+        durations.append(
+            _actual_audio_duration(
+                audio, timing, float(scene.get("duration_seconds", 10))
+            )
+        )
 
     renderer = FFmpegRenderer()
     output_path = output_dir / "final.mp4"

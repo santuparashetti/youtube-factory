@@ -3,8 +3,10 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from ytfactory.benchmark.cli import benchmark_app
 from ytfactory.build.cli import build
 from ytfactory.captions.cli import generate_captions
+from ytfactory.cta.cli import overlay_cta
 from ytfactory.create.cli import create
 from ytfactory.doctor.cli import doctor
 from ytfactory.images.cli import generate_images
@@ -30,7 +32,9 @@ app.command(name="doctor")(doctor)
 
 @app.command(name="setup")
 def setup(
-    force: bool = typer.Option(False, "--force", help="Re-run even if already bootstrapped"),
+    force: bool = typer.Option(
+        False, "--force", help="Re-run even if already bootstrapped"
+    ),
 ) -> None:
     """First-run bootstrap: workspace, config, providers, models. Idempotent."""
     from ytfactory.bootstrap.engine import BootstrapEngine
@@ -63,14 +67,18 @@ def setup(
             _console.print(f"  ↻ {r}")
 
     if result.errors:
-        _console.print(f"\n[red]✗ Setup completed with {len(result.errors)} error(s)[/red]")
+        _console.print(
+            f"\n[red]✗ Setup completed with {len(result.errors)} error(s)[/red]"
+        )
         for e in result.errors:
             _console.print(f"  ✗ {e.name}: {e.message}")
             if e.detail:
                 _console.print(f"    {e.detail}")
         raise typer.Exit(1)
     elif result.warnings:
-        _console.print(f"\n[yellow]⚠ Setup complete — {len(result.warnings)} warning(s)[/yellow]")
+        _console.print(
+            f"\n[yellow]⚠ Setup complete — {len(result.warnings)} warning(s)[/yellow]"
+        )
     else:
         _console.print("\n[green]✓ Setup complete — environment ready[/green]")
 
@@ -85,8 +93,20 @@ def validate() -> None:
     result = engine.validate()
 
     for check in result.checks:
-        icon = {"ok": "✓", "warning": "⚠", "error": "✗", "repaired": "↻", "skipped": "−"}.get(check.status.value, "?")
-        color = {"ok": "green", "warning": "yellow", "error": "red", "repaired": "cyan", "skipped": "dim"}.get(check.status.value, "white")
+        icon = {
+            "ok": "✓",
+            "warning": "⚠",
+            "error": "✗",
+            "repaired": "↻",
+            "skipped": "−",
+        }.get(check.status.value, "?")
+        color = {
+            "ok": "green",
+            "warning": "yellow",
+            "error": "red",
+            "repaired": "cyan",
+            "skipped": "dim",
+        }.get(check.status.value, "white")
         _console.print(f"  [{color}]{icon}[/{color}] {check.name}: {check.message}")
         if check.detail:
             _console.print(f"    [dim]{check.detail}[/dim]")
@@ -124,7 +144,9 @@ def repair() -> None:
     if result.repairs:
         _console.print(f"\n[cyan]Repaired {len(result.repairs)} issue(s)[/cyan]")
     if result.errors:
-        _console.print(f"\n[red]✗ {len(result.errors)} issue(s) could not be auto-repaired — manual intervention needed[/red]")
+        _console.print(
+            f"\n[red]✗ {len(result.errors)} issue(s) could not be auto-repaired — manual intervention needed[/red]"
+        )
         raise typer.Exit(1)
 
 
@@ -132,7 +154,9 @@ def repair() -> None:
 def clean(
     temp: bool = typer.Option(True, "--temp/--no-temp", help="Clean temp/ directory"),
     logs: bool = typer.Option(False, "--logs", help="Also clean logs/ directory"),
-    cache: bool = typer.Option(False, "--cache", help="Also clean cache/ directory (keeps models)"),
+    cache: bool = typer.Option(
+        False, "--cache", help="Also clean cache/ directory (keeps models)"
+    ),
 ) -> None:
     """Clean temporary files. Safe — never touches workspace/jobs or models."""
     import shutil
@@ -166,7 +190,9 @@ def clean(
 @app.command(name="reset")
 def reset(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
-    workspace: bool = typer.Option(False, "--workspace", help="Also delete workspace/jobs (DESTRUCTIVE)"),
+    workspace: bool = typer.Option(
+        False, "--workspace", help="Also delete workspace/jobs (DESTRUCTIVE)"
+    ),
 ) -> None:
     """Reset bootstrap state. Re-run 'ytfactory setup' after this."""
     import shutil
@@ -218,7 +244,9 @@ def update() -> None:
     if result.success:
         _console.print("[green]✓ Environment re-validated and manifest updated[/green]")
     else:
-        _console.print(f"[red]✗ Re-validation found {len(result.errors)} error(s)[/red]")
+        _console.print(
+            f"[red]✗ Re-validation found {len(result.errors)} error(s)[/red]"
+        )
         raise typer.Exit(1)
 
 
@@ -233,7 +261,9 @@ def version() -> None:
     current = info["current"]
     manifest = info["manifest"]
 
-    _console.print(f"\n[bold]YouTube Factory[/bold]  v{current.get('project_version', '?')}")
+    _console.print(
+        f"\n[bold]YouTube Factory[/bold]  v{current.get('project_version', '?')}"
+    )
     _console.print(f"  Python:   {current.get('python_version', '?')}")
     _console.print(f"  FFmpeg:   {current.get('ffmpeg_version', '?')[:60]}")
     _console.print(f"  Torch:    {current.get('torch_version', '?')}")
@@ -245,11 +275,17 @@ def version() -> None:
         _console.print(f"  TTS:      {providers.get('tts', '?')}")
 
     if manifest:
-        _console.print(f"\n  Bootstrap: v{manifest.get('bootstrap_version', '?')} "
-                      f"({'current' if info['manifest_current'] else 'outdated'})")
-        _console.print(f"  Validated: {manifest.get('validated_at', '?')[:19].replace('T', ' ')}")
+        _console.print(
+            f"\n  Bootstrap: v{manifest.get('bootstrap_version', '?')} "
+            f"({'current' if info['manifest_current'] else 'outdated'})"
+        )
+        _console.print(
+            f"  Validated: {manifest.get('validated_at', '?')[:19].replace('T', ' ')}"
+        )
     else:
         _console.print("\n  [dim]No bootstrap manifest — run 'ytfactory setup'[/dim]")
+
+
 app.command(name="create")(create)
 app.command(name="research")(research)
 app.command(name="import-script")(import_script)
@@ -259,11 +295,13 @@ app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="render")(render)
 app.command(name="compare-video")(compare_video)
+app.command(name="overlay-cta")(overlay_cta)
 app.command(name="review")(review)
 app.command(name="remediate")(remediate)
 app.command(name="publish")(publish)
 app.command(name="build")(build)
 app.add_typer(scene_app, name="scene")
+app.add_typer(benchmark_app, name="benchmark")
 
 
 @app.command(name="mix-bgm")
@@ -329,23 +367,39 @@ def run(
     ),
     # ── Incremental / resume flags ────────────────────────────────────────────
     resume: bool = typer.Option(
-        False, "--resume", help="Skip stages whose outputs are unchanged (incremental mode)"
+        False,
+        "--resume",
+        help="Skip stages whose outputs are unchanged (incremental mode)",
     ),
     reuse_assets: bool = typer.Option(
         False, "--reuse-assets", help="Alias for --resume"
     ),
-    force_images: bool = typer.Option(False, "--force-images", help="Force image regeneration"),
-    force_narration: bool = typer.Option(False, "--force-narration", help="Force voice regeneration"),
-    force_subtitles: bool = typer.Option(False, "--force-subtitles", help="Force caption regeneration"),
-    force_motion: bool = typer.Option(False, "--force-motion", help="Force motion/video regeneration"),
+    force_images: bool = typer.Option(
+        False, "--force-images", help="Force image regeneration"
+    ),
+    force_narration: bool = typer.Option(
+        False, "--force-narration", help="Force voice regeneration"
+    ),
+    force_subtitles: bool = typer.Option(
+        False, "--force-subtitles", help="Force caption regeneration"
+    ),
+    force_motion: bool = typer.Option(
+        False, "--force-motion", help="Force motion/video regeneration"
+    ),
     force_video: bool = typer.Option(False, "--force-video", help="Force video render"),
-    force_bgm: bool = typer.Option(False, "--force-bgm", help="Force BGM re-mix (implies --force-video)"),
-    force_publish: bool = typer.Option(False, "--force-publish", help="Force publish package regeneration"),
+    force_bgm: bool = typer.Option(
+        False, "--force-bgm", help="Force BGM re-mix (implies --force-video)"
+    ),
+    force_publish: bool = typer.Option(
+        False, "--force-publish", help="Force publish package regeneration"
+    ),
     scene: Optional[int] = typer.Option(
         None, "--scene", help="Only process this scene index"
     ),
     force_scene: Optional[int] = typer.Option(
-        None, "--force-scene", help="Force-regenerate one specific scene (overrides locked state)"
+        None,
+        "--force-scene",
+        help="Force-regenerate one specific scene (overrides locked state)",
     ),
 ):
     """Run the full agentic video production pipeline.

@@ -50,7 +50,9 @@ class VisionReviewValidator(BaseValidator):
                 return results
             else:
                 results.append(
-                    self._pass("VIS_001", "Image quality summary present", summary_path.name)
+                    self._pass(
+                        "VIS_001", "Image quality summary present", summary_path.name
+                    )
                 )
 
         # Load summary
@@ -96,7 +98,8 @@ class VisionReviewValidator(BaseValidator):
         if self._config.is_enabled("VIS_003"):
             min_score = self._config.threshold_for("VIS_003", 90.0)
             low_score = [
-                s for s in scene_details
+                s
+                for s in scene_details
                 if (s.get("status") or "").upper() not in ("SKIP", "ERROR")
                 and s.get("score", 100) < min_score
             ]

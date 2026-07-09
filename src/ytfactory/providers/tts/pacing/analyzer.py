@@ -28,41 +28,124 @@ from .models import PauseCategory, SentenceAnalysis
 
 # Core concepts that carry philosophical / spiritual weight.
 # A sentence containing these words is more likely to need contemplative space.
-_MAJOR_CONCEPTS: frozenset[str] = frozenset({
-    # inner states
-    "peace", "joy", "happiness", "bliss", "contentment", "serenity",
-    "stillness", "silence", "calm", "clarity",
-    # suffering / desire
-    "suffering", "desire", "attachment", "craving", "longing", "fear",
-    "anger", "pain", "grief", "sorrow",
-    # identity / consciousness
-    "self", "ego", "mind", "soul", "consciousness", "awareness",
-    "identity", "being", "existence",
-    # liberation / truth
-    "truth", "freedom", "liberation", "enlightenment", "awakening",
-    "realization", "understanding", "wisdom", "knowledge",
-    # time / reality
-    "moment", "present", "now", "time", "life", "death", "reality",
-    "illusion", "maya", "karma", "eternity", "infinite", "eternal",
-    # metaphysical
-    "void", "emptiness", "nothingness", "universe", "energy", "spirit",
-    "divine", "sacred", "power", "force", "nature",
-    # relationships
-    "love", "compassion", "acceptance", "surrender", "control",
-    "connection", "belonging",
-    # growth
-    "purpose", "meaning", "change", "growth", "healing", "path", "journey",
-    # body
-    "body", "breath", "thought", "emotion", "feeling",
-})
+_MAJOR_CONCEPTS: frozenset[str] = frozenset(
+    {
+        # inner states
+        "peace",
+        "joy",
+        "happiness",
+        "bliss",
+        "contentment",
+        "serenity",
+        "stillness",
+        "silence",
+        "calm",
+        "clarity",
+        # suffering / desire
+        "suffering",
+        "desire",
+        "attachment",
+        "craving",
+        "longing",
+        "fear",
+        "anger",
+        "pain",
+        "grief",
+        "sorrow",
+        # identity / consciousness
+        "self",
+        "ego",
+        "mind",
+        "soul",
+        "consciousness",
+        "awareness",
+        "identity",
+        "being",
+        "existence",
+        # liberation / truth
+        "truth",
+        "freedom",
+        "liberation",
+        "enlightenment",
+        "awakening",
+        "realization",
+        "understanding",
+        "wisdom",
+        "knowledge",
+        # time / reality
+        "moment",
+        "present",
+        "now",
+        "time",
+        "life",
+        "death",
+        "reality",
+        "illusion",
+        "maya",
+        "karma",
+        "eternity",
+        "infinite",
+        "eternal",
+        # metaphysical
+        "void",
+        "emptiness",
+        "nothingness",
+        "universe",
+        "energy",
+        "spirit",
+        "divine",
+        "sacred",
+        "power",
+        "force",
+        "nature",
+        # relationships
+        "love",
+        "compassion",
+        "acceptance",
+        "surrender",
+        "control",
+        "connection",
+        "belonging",
+        # growth
+        "purpose",
+        "meaning",
+        "change",
+        "growth",
+        "healing",
+        "path",
+        "journey",
+        # body
+        "body",
+        "breath",
+        "thought",
+        "emotion",
+        "feeling",
+    }
+)
 
 # Universal/absolute quantifiers that elevate a statement to a general truth.
-_UNIVERSALS: frozenset[str] = frozenset({
-    "always", "never", "nothing", "everything", "everyone",
-    "all", "every", "forever", "nowhere", "everywhere",
-    "only", "simply", "merely", "truly", "purely",
-    "completely", "entirely", "absolutely",
-})
+_UNIVERSALS: frozenset[str] = frozenset(
+    {
+        "always",
+        "never",
+        "nothing",
+        "everything",
+        "everyone",
+        "all",
+        "every",
+        "forever",
+        "nowhere",
+        "everywhere",
+        "only",
+        "simply",
+        "merely",
+        "truly",
+        "purely",
+        "completely",
+        "entirely",
+        "absolutely",
+    }
+)
 
 # Negation patterns common in philosophical speech ("cannot find", "is not real").
 _NEGATION_RE = re.compile(
@@ -81,6 +164,7 @@ _QUESTION_RE = re.compile(r"\?\s*$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _split_sentences(text: str) -> list[str]:
     """Split narration into individual sentences, normalising line breaks first."""
@@ -157,6 +241,7 @@ def _sample(pause_range: PauseRange, rng: random.Random | None = None) -> int:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 class SentenceAnalyzer:
     """Analyzes narration sentences and assigns contemplative pause durations.
 
@@ -206,13 +291,15 @@ class SentenceAnalyzer:
                 category = PauseCategory.LONG
                 pause_ms = _sample(pauses.long, rng)
 
-            results.append(SentenceAnalysis(
-                text=sentence,
-                score=score,
-                pause_category=category,
-                pause_ms=pause_ms,
-                triggers=triggers,
-            ))
+            results.append(
+                SentenceAnalysis(
+                    text=sentence,
+                    score=score,
+                    pause_category=category,
+                    pause_ms=pause_ms,
+                    triggers=triggers,
+                )
+            )
 
         # Pass 2 — pre-concept supplement
         # If the NEXT sentence opens with a major concept, add extra breathing room
@@ -222,7 +309,10 @@ class SentenceAnalyzer:
             if not next_words:
                 continue
             next_first = next_words[0].lower().strip(".,!?;:\"'()")
-            if next_first in _MAJOR_CONCEPTS and results[i].pause_category != PauseCategory.NONE:
+            if (
+                next_first in _MAJOR_CONCEPTS
+                and results[i].pause_category != PauseCategory.NONE
+            ):
                 extra = _sample(pauses.concept_pre, rng)
                 results[i].pause_ms += extra
                 results[i].triggers.append(f"pre-concept({next_first},+{extra}ms)")

@@ -23,6 +23,7 @@ from ytfactory.review.validation.rules.rendering import RenderingValidator
 from ytfactory.review.validation.rules.script import ScriptValidator
 from ytfactory.review.validation.rules.story import StoryValidator
 from ytfactory.review.validation.rules.subtitle import SubtitleValidator
+from ytfactory.review.validation.rules.cta import CTAValidator
 from ytfactory.review.validation.rules.vision_review import VisionReviewValidator
 
 
@@ -64,6 +65,7 @@ class ValidationRunner:
             StoryValidator(self._config),
             BGMValidator(self._config),
             VisionReviewValidator(self._config),
+            CTAValidator(self._config),
         ]
 
         all_results: list[ValidationResult] = []

@@ -435,4 +435,4 @@ class TestImagePipelineReviewDisabled:
                 from ytfactory.images.review_config import ImageReviewConfig
                 mock_cfg.return_value = ImageReviewConfig(enabled=False)
                 pipeline = ImagePipeline(mock_settings)
-                assert pipeline._review_engine is None
+                assert pipeline._orchestrator is None

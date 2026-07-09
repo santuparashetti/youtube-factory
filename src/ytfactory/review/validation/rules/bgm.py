@@ -29,7 +29,9 @@ from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
 
 
-def _run_volumedetect(path: Path, start: float = 0.0, duration: float | None = None) -> dict[str, float]:
+def _run_volumedetect(
+    path: Path, start: float = 0.0, duration: float | None = None
+) -> dict[str, float]:
     """Run FFmpeg volumedetect on *path* and return mean/max dBFS values.
 
     Returns an empty dict on error.
@@ -69,9 +71,16 @@ class BGMValidator(BaseValidator):
         # Skip all BGM rules when BGM is disabled
         bgm_enabled = context.get("bgm_enabled", False)
         rule_ids = (
-            "BGM_001", "BGM_002", "BGM_003", "BGM_004",
-            "BGM_005", "BGM_006", "BGM_007",
-            "BGM_008", "BGM_009", "BGM_010",
+            "BGM_001",
+            "BGM_002",
+            "BGM_003",
+            "BGM_004",
+            "BGM_005",
+            "BGM_006",
+            "BGM_007",
+            "BGM_008",
+            "BGM_009",
+            "BGM_010",
         )
 
         if not bgm_enabled:
@@ -86,7 +95,9 @@ class BGMValidator(BaseValidator):
             for rule_id in rule_ids:
                 if self._config.is_enabled(rule_id):
                     results.append(
-                        self._skip(rule_id, "final.mp4 not found — video stage incomplete")
+                        self._skip(
+                            rule_id, "final.mp4 not found — video stage incomplete"
+                        )
                     )
             return results
 
@@ -94,7 +105,9 @@ class BGMValidator(BaseValidator):
         if self._config.is_enabled("BGM_001"):
             fade_in_check = _run_volumedetect(final_video, start=0.0, duration=3.0)
             mean_db = fade_in_check.get("mean", None)
-            threshold = self._config.threshold_for("BGM_001", self._config.bgm_intro_min_db)
+            threshold = self._config.threshold_for(
+                "BGM_001", self._config.bgm_intro_min_db
+            )
 
             if mean_db is None:
                 results.append(
@@ -126,7 +139,9 @@ class BGMValidator(BaseValidator):
         if self._config.is_enabled("BGM_002"):
             full_mix = _run_volumedetect(final_video)
             max_db = full_mix.get("max", None)
-            clip_threshold = self._config.threshold_for("BGM_002", self._config.bgm_clip_threshold_db)
+            clip_threshold = self._config.threshold_for(
+                "BGM_002", self._config.bgm_clip_threshold_db
+            )
 
             if max_db is None:
                 results.append(self._skip("BGM_002", "volumedetect failed"))
@@ -157,7 +172,9 @@ class BGMValidator(BaseValidator):
         if self._config.is_enabled("BGM_003"):
             full_mix = _run_volumedetect(final_video)
             mean_db = full_mix.get("mean", None)
-            low_limit = self._config.threshold_for("BGM_003", self._config.bgm_loudness_low_db)
+            low_limit = self._config.threshold_for(
+                "BGM_003", self._config.bgm_loudness_low_db
+            )
             high_limit = -10.0  # hard upper bound
 
             if mean_db is None:
@@ -206,7 +223,9 @@ class BGMValidator(BaseValidator):
 
             intro_mean = intro_vol.get("mean")
             body_mean = body_vol.get("mean")
-            dominance_threshold = self._config.threshold_for("BGM_004", self._config.bgm_dominance_threshold_db)
+            dominance_threshold = self._config.threshold_for(
+                "BGM_004", self._config.bgm_dominance_threshold_db
+            )
 
             if intro_mean is None or body_mean is None:
                 results.append(self._skip("BGM_004", "volumedetect failed"))
@@ -244,7 +263,9 @@ class BGMValidator(BaseValidator):
         # ── BGM_007: Long silence recovery — BGM restores after long pause ───
         if self._config.is_enabled("BGM_007"):
             long_silence_ms = context.get("bgm_long_silence_ms", 2500)
-            results.append(self._check_silence_recovery(final_video, project_dir, long_silence_ms))
+            results.append(
+                self._check_silence_recovery(final_video, project_dir, long_silence_ms)
+            )
 
         # ── BGM_008: No pumping — short pauses bridged, stable during narration ─
         if self._config.is_enabled("BGM_008"):
@@ -268,7 +289,9 @@ class BGMValidator(BaseValidator):
         """BGM_005: BGM volume during speech should be ≤50% of BGM intro volume."""
         timeline_path = project_dir / "bgm-debug" / "speech_timeline.json"
         if not timeline_path.exists():
-            return self._skip("BGM_005", "bgm-debug/speech_timeline.json absent — VAD not run")
+            return self._skip(
+                "BGM_005", "bgm-debug/speech_timeline.json absent — VAD not run"
+            )
 
         try:
             timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
@@ -286,7 +309,9 @@ class BGMValidator(BaseValidator):
             return self._skip("BGM_005", "First speech segment too short to sample")
 
         mid = (first["start"] + first["end"]) / 2
-        speech_vol = _run_volumedetect(final_video, start=max(0.0, mid - 0.25), duration=0.5)
+        speech_vol = _run_volumedetect(
+            final_video, start=max(0.0, mid - 0.25), duration=0.5
+        )
         intro_vol = _run_volumedetect(final_video, start=0.0, duration=3.0)
 
         speech_mean = speech_vol.get("mean")
@@ -358,7 +383,9 @@ class BGMValidator(BaseValidator):
         """BGM_007: BGM volume recovers during a long-silence window."""
         timeline_path = project_dir / "bgm-debug" / "speech_timeline.json"
         if not timeline_path.exists():
-            return self._skip("BGM_007", "bgm-debug/speech_timeline.json absent — VAD not run")
+            return self._skip(
+                "BGM_007", "bgm-debug/speech_timeline.json absent — VAD not run"
+            )
 
         try:
             timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
@@ -387,7 +414,9 @@ class BGMValidator(BaseValidator):
         if w_dur < 0.5:
             return self._skip("BGM_007", "Long silence window too short to sample")
 
-        silence_vol = _run_volumedetect(final_video, start=w_start, duration=min(2.0, w_dur))
+        silence_vol = _run_volumedetect(
+            final_video, start=w_start, duration=min(2.0, w_dur)
+        )
         intro_vol = _run_volumedetect(final_video, start=0.0, duration=3.0)
 
         silence_mean = silence_vol.get("mean")
@@ -415,7 +444,6 @@ class BGMValidator(BaseValidator):
             silence_mean_db=silence_mean,
             intro_mean_db=intro_mean,
         )
-
 
     # ── V3 rule helpers ───────────────────────────────────────────────────────
 
@@ -498,7 +526,8 @@ class BGMValidator(BaseValidator):
         if abrupt:
             return self._warn(
                 "BGM_009",
-                "Transition timing may produce abrupt gain changes: " + "; ".join(abrupt),
+                "Transition timing may produce abrupt gain changes: "
+                + "; ".join(abrupt),
                 f"attack={attack_ms} ms, release={release_ms} ms",
                 "medium",
                 duck_attack_ms=attack_ms,
@@ -547,7 +576,9 @@ class BGMValidator(BaseValidator):
             if seg_dur < 0.5:
                 continue
             mid = (seg["start"] + seg["end"]) / 2
-            vol = _run_volumedetect(final_video, start=max(0.0, mid - 0.25), duration=0.5)
+            vol = _run_volumedetect(
+                final_video, start=max(0.0, mid - 0.25), duration=0.5
+            )
             m = vol.get("mean")
             if m is not None:
                 body_means.append(m)
@@ -585,8 +616,19 @@ def _probe_duration(path: Path) -> float:
 
     try:
         r = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)],
-            capture_output=True, text=True, check=True, timeout=30,
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         )
         return float(json.loads(r.stdout)["format"]["duration"])
     except Exception:

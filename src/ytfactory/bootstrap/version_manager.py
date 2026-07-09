@@ -57,6 +57,7 @@ def is_manifest_current(manifest: dict[str, Any]) -> bool:
 def _get_project_version() -> str:
     try:
         from importlib.metadata import version
+
         return version("youtube-factory")
     except Exception:
         return "0.1.0"
@@ -66,7 +67,9 @@ def _get_ffmpeg_version() -> str:
     try:
         r = subprocess.run(
             ["ffmpeg", "-version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         first_line = r.stdout.splitlines()[0] if r.stdout else ""
         return first_line[:80]
@@ -77,6 +80,7 @@ def _get_ffmpeg_version() -> str:
 def _get_torch_version() -> str:
     try:
         import torch  # type: ignore[import]
+
         return torch.__version__
     except ImportError:
         return "not installed"
@@ -85,6 +89,7 @@ def _get_torch_version() -> str:
 def _get_provider_info() -> dict[str, str]:
     try:
         from ytfactory.config.settings import Settings
+
         s = Settings()
         return {
             "llm": s.llm_provider,

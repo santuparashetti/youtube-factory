@@ -49,16 +49,22 @@ class DoctorPipeline:
         # Show manifest info
         manifest = load_manifest(self._base_dir)
         if manifest:
-            console.print(f"\n[dim]Bootstrap manifest: v{manifest.get('bootstrap_version', '?')} "
-                         f"(validated {manifest.get('validated_at', '?')[:10]})[/dim]")
+            console.print(
+                f"\n[dim]Bootstrap manifest: v{manifest.get('bootstrap_version', '?')} "
+                f"(validated {manifest.get('validated_at', '?')[:10]})[/dim]"
+            )
 
         # Summary
         errors = result.errors
         warnings = result.warnings
         if errors:
-            console.print(f"\n[red]✗ {len(errors)} error(s) found — run 'ytfactory repair' or 'ytfactory setup'[/red]")
+            console.print(
+                f"\n[red]✗ {len(errors)} error(s) found — run 'ytfactory repair' or 'ytfactory setup'[/red]"
+            )
         elif warnings:
-            console.print(f"\n[yellow]⚠ {len(warnings)} warning(s) — system may work with reduced functionality[/yellow]")
+            console.print(
+                f"\n[yellow]⚠ {len(warnings)} warning(s) — system may work with reduced functionality[/yellow]"
+            )
         else:
             console.print("\n[green]✓ All checks passed — system healthy[/green]")
 

@@ -54,40 +54,125 @@ from .models import ThoughtBlock, ThoughtPauseCategory
 # Keyword sets (same vocabulary as SentenceAnalyzer for consistency)
 # ---------------------------------------------------------------------------
 
-_MAJOR_CONCEPTS: frozenset[str] = frozenset({
-    # inner states
-    "peace", "joy", "happiness", "bliss", "contentment", "serenity",
-    "stillness", "silence", "calm", "clarity",
-    # suffering / desire
-    "suffering", "desire", "attachment", "craving", "longing", "fear",
-    "anger", "pain", "grief", "sorrow",
-    # identity / consciousness
-    "self", "ego", "mind", "soul", "consciousness", "awareness",
-    "identity", "being", "existence",
-    # liberation / truth
-    "truth", "freedom", "free", "liberation", "enlightenment", "awakening",
-    "realization", "understanding", "wisdom", "knowledge",
-    # time / reality
-    "moment", "present", "now", "time", "life", "death", "reality",
-    "illusion", "maya", "karma", "eternity", "infinite", "eternal",
-    # metaphysical
-    "void", "emptiness", "nothingness", "universe", "energy", "spirit",
-    "divine", "sacred", "power", "force", "nature", "light", "darkness",
-    # relationships
-    "love", "compassion", "acceptance", "surrender", "control",
-    "connection", "belonging",
-    # growth
-    "purpose", "meaning", "change", "growth", "healing", "path", "journey",
-    # body
-    "body", "breath", "thought", "emotion", "feeling",
-})
+_MAJOR_CONCEPTS: frozenset[str] = frozenset(
+    {
+        # inner states
+        "peace",
+        "joy",
+        "happiness",
+        "bliss",
+        "contentment",
+        "serenity",
+        "stillness",
+        "silence",
+        "calm",
+        "clarity",
+        # suffering / desire
+        "suffering",
+        "desire",
+        "attachment",
+        "craving",
+        "longing",
+        "fear",
+        "anger",
+        "pain",
+        "grief",
+        "sorrow",
+        # identity / consciousness
+        "self",
+        "ego",
+        "mind",
+        "soul",
+        "consciousness",
+        "awareness",
+        "identity",
+        "being",
+        "existence",
+        # liberation / truth
+        "truth",
+        "freedom",
+        "free",
+        "liberation",
+        "enlightenment",
+        "awakening",
+        "realization",
+        "understanding",
+        "wisdom",
+        "knowledge",
+        # time / reality
+        "moment",
+        "present",
+        "now",
+        "time",
+        "life",
+        "death",
+        "reality",
+        "illusion",
+        "maya",
+        "karma",
+        "eternity",
+        "infinite",
+        "eternal",
+        # metaphysical
+        "void",
+        "emptiness",
+        "nothingness",
+        "universe",
+        "energy",
+        "spirit",
+        "divine",
+        "sacred",
+        "power",
+        "force",
+        "nature",
+        "light",
+        "darkness",
+        # relationships
+        "love",
+        "compassion",
+        "acceptance",
+        "surrender",
+        "control",
+        "connection",
+        "belonging",
+        # growth
+        "purpose",
+        "meaning",
+        "change",
+        "growth",
+        "healing",
+        "path",
+        "journey",
+        # body
+        "body",
+        "breath",
+        "thought",
+        "emotion",
+        "feeling",
+    }
+)
 
-_UNIVERSALS: frozenset[str] = frozenset({
-    "always", "never", "nothing", "everything", "everyone",
-    "all", "every", "forever", "nowhere", "everywhere",
-    "simply", "merely", "truly", "purely",
-    "completely", "entirely", "absolutely",
-})
+_UNIVERSALS: frozenset[str] = frozenset(
+    {
+        "always",
+        "never",
+        "nothing",
+        "everything",
+        "everyone",
+        "all",
+        "every",
+        "forever",
+        "nowhere",
+        "everywhere",
+        "simply",
+        "merely",
+        "truly",
+        "purely",
+        "completely",
+        "entirely",
+        "absolutely",
+    }
+)
 
 _NEGATION_RE = re.compile(
     r"\b(cannot|can't|will not|won't|does not|doesn't|do not|don't|"
@@ -117,24 +202,54 @@ def _split_sentences(text: str) -> list[str]:
 # Block-boundary triggers
 # ---------------------------------------------------------------------------
 
-_CONTRAST_OPENERS: frozenset[str] = frozenset({
-    "but", "yet", "however", "still", "although", "though",
-    "nevertheless", "nonetheless",
-})
+_CONTRAST_OPENERS: frozenset[str] = frozenset(
+    {
+        "but",
+        "yet",
+        "however",
+        "still",
+        "although",
+        "though",
+        "nevertheless",
+        "nonetheless",
+    }
+)
 
 _CONTRAST_PHRASES = ("and yet", "even so", "but then", "and so")
 
-_SHIFT_OPENERS: frozenset[str] = frozenset({
-    "now", "remember", "consider", "notice", "understand",
-    "realize", "look", "ask", "think", "feel", "know",
-    "instead", "therefore", "thus",
-})
+_SHIFT_OPENERS: frozenset[str] = frozenset(
+    {
+        "now",
+        "remember",
+        "consider",
+        "notice",
+        "understand",
+        "realize",
+        "look",
+        "ask",
+        "think",
+        "feel",
+        "know",
+        "instead",
+        "therefore",
+        "thus",
+    }
+)
 
 # Short definitive starters that signal a standalone concluding thought.
 _CONCLUSIVE_STARTERS = (
-    "it is", "this is", "that is", "you are", "we are",
-    "there is", "there are", "life is", "truth is",
-    "what remains", "what stays", "all that",
+    "it is",
+    "this is",
+    "that is",
+    "you are",
+    "we are",
+    "there is",
+    "there are",
+    "life is",
+    "truth is",
+    "what remains",
+    "what stays",
+    "all that",
 )
 
 
@@ -172,14 +287,23 @@ def _new_block_trigger(sentence: str, current_block: list[str]) -> str | None:
     #       Life is / Truth is" are answer patterns in spiritual writing that always
     #       deserve a pause before them regardless of sentence length.
     _REVEAL_STARTERS = (
-        "it is", "this is", "that is", "you are", "we are",
-        "life is", "truth is",
+        "it is",
+        "this is",
+        "that is",
+        "you are",
+        "we are",
+        "life is",
+        "truth is",
     )
     toks = _tokens(s)
     has_concept = bool(toks & _MAJOR_CONCEPTS)
     has_universal = bool(toks & _UNIVERSALS)
     for starter in _REVEAL_STARTERS:
-        if s_low.startswith(starter) and current_block and (has_concept or has_universal):
+        if (
+            s_low.startswith(starter)
+            and current_block
+            and (has_concept or has_universal)
+        ):
             return "reveal"
     if len(words) <= 5 and has_concept:
         for starter in _CONCLUSIVE_STARTERS:
@@ -201,6 +325,7 @@ def _new_block_trigger(sentence: str, current_block: list[str]) -> str | None:
 # ---------------------------------------------------------------------------
 # Block scoring
 # ---------------------------------------------------------------------------
+
 
 def _score_block(sentences: list[str]) -> tuple[ThoughtPauseCategory, list[str]]:
     """Score a thought block for how much contemplative silence it deserves."""
@@ -260,6 +385,7 @@ def _score_block(sentences: list[str]) -> tuple[ThoughtPauseCategory, list[str]]
 # Public API
 # ---------------------------------------------------------------------------
 
+
 class ThoughtAnalyzer:
     """Splits narration into semantic thought blocks with contemplative silence.
 
@@ -292,7 +418,9 @@ class ThoughtAnalyzer:
             return []
 
         groups = self._group(sentences)
-        ranges = THOUGHT_PROFILE_PAUSES.get(profile, THOUGHT_PROFILE_PAUSES["spiritual"])
+        ranges = THOUGHT_PROFILE_PAUSES.get(
+            profile, THOUGHT_PROFILE_PAUSES["spiritual"]
+        )
         rng = rng or random
 
         blocks: list[ThoughtBlock] = []
@@ -308,13 +436,15 @@ class ThoughtAnalyzer:
                 pause_range = getattr(ranges, category.value)
                 pause_ms = rng.randint(pause_range.min_ms, pause_range.max_ms)
 
-            blocks.append(ThoughtBlock(
-                sentences=group,
-                text=text,
-                pause_ms=pause_ms,
-                pause_category=category,
-                triggers=triggers,
-            ))
+            blocks.append(
+                ThoughtBlock(
+                    sentences=group,
+                    text=text,
+                    pause_ms=pause_ms,
+                    pause_category=category,
+                    triggers=triggers,
+                )
+            )
 
         return blocks
 

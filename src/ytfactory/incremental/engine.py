@@ -72,7 +72,9 @@ class IncrementalBuildEngine:
         Returns:
             ChangeReport with the set of stages that need to re-run.
         """
-        return self._detector.detect(force_stages=force_stages, scene_filter=scene_filter)
+        return self._detector.detect(
+            force_stages=force_stages, scene_filter=scene_filter
+        )
 
     def needs_run(self, stage: str, report: ChangeReport) -> bool:
         """True when a stage must run (is in the invalidated set)."""

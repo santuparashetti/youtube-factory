@@ -56,6 +56,10 @@ class BrandingPlacementConfig:
     max_opening_seconds: int = 10
     asset_path: str = "assets/branding/atma-theory-brand.png"
     asset_animation: str = "slow_zoom"
+    # Channel-level brand identity — override CTA template defaults
+    accent_color: str = "#2EC5E8"
+    font: str = "Arial"
+    logo: str = ""
 
 
 @dataclass
@@ -162,6 +166,9 @@ def _parse_placement(raw: object) -> BrandingPlacementConfig:
         max_opening_seconds=int(raw.get("max_opening_seconds", 10)),
         asset_path=str(raw.get("asset_path", "assets/branding/atma-theory-brand.png")),
         asset_animation=str(raw.get("asset_animation", "slow_zoom")),
+        accent_color=str(raw.get("accent_color", "#2EC5E8")),
+        font=str(raw.get("font", "Arial")),
+        logo=str(raw.get("logo", "")),
     )
 
 

@@ -51,12 +51,14 @@ from ytfactory.shared.constants import WORKSPACE_DIR
 # ---------------------------------------------------------------------------
 
 # These providers support native negative_prompt API parameters.
-_PROVIDERS_WITH_NEGATIVE_PROMPTS: frozenset[str] = frozenset({
-    "huggingface",
-    "a1111",
-    "automatic1111",
-    "sd-webui",
-})
+_PROVIDERS_WITH_NEGATIVE_PROMPTS: frozenset[str] = frozenset(
+    {
+        "huggingface",
+        "a1111",
+        "automatic1111",
+        "sd-webui",
+    }
+)
 
 # Anatomy reinforcement appended to positive prompts for providers that do NOT
 # support negative prompts (e.g. Pollinations, Gemini).
@@ -199,9 +201,16 @@ class ImagePromptEngineV4:
 
         # Banned opening phrases
         _BANNED_OPENERS = (
-            "a figure ", "a person ", "a silhouette ", "a traveler ",
-            "a man ", "a woman ", "a bird ",
-            "the camera ", "we see ", "there is a ",
+            "a figure ",
+            "a person ",
+            "a silhouette ",
+            "a traveler ",
+            "a man ",
+            "a woman ",
+            "a bird ",
+            "the camera ",
+            "we see ",
+            "there is a ",
         )
         for opener in _BANNED_OPENERS:
             if p_lower.startswith(opener):
@@ -228,7 +237,13 @@ class ImagePromptEngineV4:
                 )
 
         # Style markers
-        _STYLE_MARKERS = ("photorealistic", "documentary", "cinematic", "no text", "no watermark")
+        _STYLE_MARKERS = (
+            "photorealistic",
+            "documentary",
+            "cinematic",
+            "no text",
+            "no watermark",
+        )
         if not any(m in p_lower for m in _STYLE_MARKERS):
             issues.append(
                 f"Scene {scene_index}: missing style marker — "
@@ -236,7 +251,9 @@ class ImagePromptEngineV4:
             )
 
         # Human quality markers
-        if detect_human_presence(prompt) and not has_human_quality_reinforcement(prompt):
+        if detect_human_presence(prompt) and not has_human_quality_reinforcement(
+            prompt
+        ):
             issues.append(
                 f"Scene {scene_index}: human detected but missing quality markers — "
                 "add: highly detailed face, natural facial expression, realistic eyes, "
@@ -345,9 +362,7 @@ class ImagePromptEngineV4:
         # V5 checks
         if report.ai_cliches_detected:
             for cliche, scene_list in report.ai_cliches_detected.items():
-                failures.append(
-                    f"[ai_cliche] '{cliche}' found in scenes: {scene_list}"
-                )
+                failures.append(f"[ai_cliche] '{cliche}' found in scenes: {scene_list}")
 
         if report.unsafe_compositions_detected:
             for comp, scene_list in report.unsafe_compositions_detected.items():

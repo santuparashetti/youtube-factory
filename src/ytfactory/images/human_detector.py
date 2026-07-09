@@ -26,34 +26,64 @@ from pathlib import Path
 # must not match "man" or "human").
 # NOTE: "human" is intentionally excluded because the anatomy reinforcement
 # phrase "natural human anatomy" would otherwise cause false positives.
-_HUMAN_INDICATORS: frozenset[str] = frozenset({
-    # Demographic
-    "man", "woman", "person", "people", "child", "children",
-    "boy", "girl", "elder", "baby",
-    # Occupational / role
-    "monk", "warrior", "farmer", "leader", "soldier", "scholar",
-    "ruler", "priest", "guru", "sage", "philosopher",
-    "king", "queen", "emperor", "mother", "father",
-    "villager", "peasant", "merchant", "artisan",
-    # Physical — "face" and "portrait" appear as standalone words in prompts
-    "face", "portrait",
-    # Social
-    "crowd", "audience",
-})
+_HUMAN_INDICATORS: frozenset[str] = frozenset(
+    {
+        # Demographic
+        "man",
+        "woman",
+        "person",
+        "people",
+        "child",
+        "children",
+        "boy",
+        "girl",
+        "elder",
+        "baby",
+        # Occupational / role
+        "monk",
+        "warrior",
+        "farmer",
+        "leader",
+        "soldier",
+        "scholar",
+        "ruler",
+        "priest",
+        "guru",
+        "sage",
+        "philosopher",
+        "king",
+        "queen",
+        "emperor",
+        "mother",
+        "father",
+        "villager",
+        "peasant",
+        "merchant",
+        "artisan",
+        # Physical — "face" and "portrait" appear as standalone words in prompts
+        "face",
+        "portrait",
+        # Social
+        "crowd",
+        "audience",
+    }
+)
 
 # Exact sub-phrases from _HUMAN_QUALITY_PHRASE.  Chosen so none is a substring
 # of another, which prevents over-counting (e.g. "facial expression" vs
 # "natural facial expression").
 # `has_human_quality_reinforcement()` requires ≥ 2 of these to return True.
-_HUMAN_QUALITY_MARKERS: frozenset[str] = frozenset({
-    "highly detailed human face",
-    "natural facial expression",
-    "realistic eyes",
-    "authentic skin texture",
-    "natural posture",
-    "seamless integration with the environment",
-    "documentary-quality realism",
-})
+_HUMAN_QUALITY_MARKERS: frozenset[str] = frozenset(
+    {
+        "highly detailed human face",
+        "natural facial expression",
+        "realistic eyes",
+        "authentic skin texture",
+        "natural posture",
+        "seamless integration with the environment",
+        "documentary-quality realism",
+    }
+)
 
 # Phrase appended to the positive prompt for every human scene.
 _HUMAN_QUALITY_PHRASE = (
@@ -64,13 +94,15 @@ _HUMAN_QUALITY_PHRASE = (
 
 # Shot types (lower-case, must match values in shot_planner.SHOT_TYPES) that
 # represent wide-angle framings where the Subject Dominance Rule applies.
-_WIDE_SHOT_TYPES: frozenset[str] = frozenset({
-    "wide shot",
-    "establishing shot",
-    "drone",
-    "wide cinematic",
-    "high angle",
-})
+_WIDE_SHOT_TYPES: frozenset[str] = frozenset(
+    {
+        "wide shot",
+        "establishing shot",
+        "drone",
+        "wide cinematic",
+        "high angle",
+    }
+)
 
 # Phrase appended when a human appears in a wide-angle shot.
 _SUBJECT_DOMINANCE_PHRASE = (

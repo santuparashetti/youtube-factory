@@ -122,10 +122,15 @@ class TestVisionProviderFactory:
         provider = get_vision_provider("mock")
         assert isinstance(provider, MockVisionProvider)
 
-    def test_returns_local_provider(self) -> None:
+    def test_returns_local_provider_for_transformers_model(self) -> None:
         from ytfactory.providers.vision.local import LocalVisionProvider
         provider = get_vision_provider("local", local_model="minicpm_v2_6")
         assert isinstance(provider, LocalVisionProvider)
+
+    def test_returns_llama_cpp_provider_for_gguf_model(self) -> None:
+        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        provider = get_vision_provider("local", local_model="qwen2_5_vl_3b")
+        assert isinstance(provider, LlamaCppVisionProvider)
 
     def test_invalid_provider_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported"):
@@ -220,3 +225,132 @@ class TestLocalVisionProviderParsing:
         result = provider._parse_response(raw)
         assert len(result.high_severity_issues) == 1
         assert len(result.medium_severity_issues) == 1
+
+
+# ── LlamaCppVisionProvider JSON parsing tests ──────────────────────────────────
+
+class TestLlamaCppVisionProviderParsing:
+    """Unit tests for _parse_response — same JSON contract as LocalVisionProvider."""
+
+    def _provider(self) -> "LlamaCppVisionProvider":
+        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        return LlamaCppVisionProvider(model_name="qwen2_5_vl_3b")
+
+    def test_parse_valid_json_pass(self) -> None:
+        provider = self._provider()
+        raw = json.dumps({
+            "status": "PASS",
+            "score": 91,
+            "confidence": 88,
+            "issues": [],
+            "recommend_regeneration": False,
+        })
+        result = provider._parse_response(raw)
+        assert result.status == "PASS"
+        assert result.score == 91.0
+        assert result.confidence == 88.0
+
+    def test_parse_valid_json_fail_with_issues(self) -> None:
+        provider = self._provider()
+        raw = json.dumps({
+            "status": "FAIL",
+            "score": 50,
+            "confidence": 75,
+            "issues": [
+                {"category": "anatomy", "description": "extra finger", "severity": "HIGH", "location": "hand"},
+            ],
+            "recommend_regeneration": True,
+        })
+        result = provider._parse_response(raw)
+        assert result.status == "FAIL"
+        assert len(result.issues) == 1
+        assert result.issues[0].severity == IssueSeverity.HIGH
+
+    def test_parse_markdown_fenced_json(self) -> None:
+        from ytfactory.providers.vision.models import IssueSeverity as _IS
+        provider = self._provider()
+        raw = '```json\n{"status": "PASS", "score": 93, "confidence": 90, "issues": [], "recommend_regeneration": false}\n```'
+        result = provider._parse_response(raw)
+        assert result.status == "PASS"
+        assert result.score == 93.0
+
+    def test_parse_no_json_returns_error(self) -> None:
+        provider = self._provider()
+        result = provider._parse_response("No JSON at all.")
+        assert result.status == "ERROR"
+        assert "No JSON" in result.error
+
+    def test_parse_malformed_json_returns_error(self) -> None:
+        provider = self._provider()
+        result = provider._parse_response("{invalid json}")
+        assert result.status == "ERROR"
+
+    def test_parse_unknown_severity_defaults_medium(self) -> None:
+        provider = self._provider()
+        raw = json.dumps({
+            "status": "FAIL",
+            "score": 55,
+            "confidence": 70,
+            "issues": [{"category": "face", "description": "issue", "severity": "UNKNOWN"}],
+            "recommend_regeneration": True,
+        })
+        result = provider._parse_response(raw)
+        assert result.issues[0].severity == IssueSeverity.MEDIUM
+
+    def test_parse_shares_same_contract_as_local_provider(self) -> None:
+        """Qwen and MiniCPM providers accept the same JSON schema."""
+        from ytfactory.providers.vision.local import LocalVisionProvider
+
+        raw = json.dumps({
+            "status": "FAIL",
+            "score": 62,
+            "confidence": 78,
+            "issues": [
+                {"category": "environment", "description": "floating rock", "severity": "MEDIUM"},
+                {"category": "lighting", "description": "broken shadow", "severity": "HIGH"},
+            ],
+            "recommend_regeneration": True,
+        })
+
+        qwen_result = self._provider()._parse_response(raw)
+        minicpm_result = LocalVisionProvider(model_name="minicpm_v2_6")._parse_response(raw)
+
+        assert qwen_result.status == minicpm_result.status
+        assert qwen_result.score == minicpm_result.score
+        assert len(qwen_result.issues) == len(minicpm_result.issues)
+
+
+# ── LlamaCppVisionProvider model loading (no live model) ──────────────────────
+
+class TestLlamaCppVisionProviderLoading:
+    def test_skips_when_model_not_provisioned(self, tmp_path: Path) -> None:
+        """Provider returns skipped result when model is not in LAMM cache."""
+        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+
+        provider = LlamaCppVisionProvider(model_name="qwen2_5_vl_3b", base_dir=tmp_path)
+        dummy = tmp_path / "img.png"
+        dummy.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        # Patch provision to return MISSING so model isn't loaded
+        from unittest.mock import patch, MagicMock
+        from ytfactory.models.models import ModelStatus, ProvisionResult
+
+        missing = ProvisionResult(
+            name="qwen2_5_vl_3b",
+            status=ModelStatus.MISSING,
+            message="not in cache",
+        )
+        with patch.object(provider._manager, "provision", return_value=missing):
+            result = provider.review(dummy, "test prompt")
+
+        assert result.status == "SKIP"
+
+    def test_error_when_image_missing(self, tmp_path: Path) -> None:
+        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+
+        provider = LlamaCppVisionProvider(model_name="qwen2_5_vl_3b", base_dir=tmp_path)
+        missing_image = tmp_path / "nonexistent.png"
+
+        result = provider.review(missing_image, "test prompt")
+        assert result.status == "ERROR"
+        assert "not found" in result.error.lower()

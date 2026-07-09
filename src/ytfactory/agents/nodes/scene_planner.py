@@ -113,6 +113,12 @@ def _split_script_to_scenes(
     return scenes
 
 
+def _normalise_closing(text: str) -> str:
+    """Lowercase, collapse repeated dots, strip trailing punctuation."""
+    import re as _re
+    return _re.sub(r"\.{2,}", ".", text.lower().strip()).rstrip(".")
+
+
 def _is_closing_scene(narration: str) -> bool:
     """
     Return True if this narration belongs to the channel's closing section.
@@ -122,17 +128,21 @@ def _is_closing_scene(narration: str) -> bool:
       - _CLOSING_TRIGGERS — built at module load from the default brand config
       - The current brand config — catches runtime config reloads and
         multi-channel scenarios where config/brand_config.yaml was swapped
+
+    Text is normalised (lowercase, collapsed repeated dots) before comparison
+    so a config typo like "Clear mind.." still matches "Clear mind.".
     """
-    low = narration.lower().strip().rstrip(".")
+    low = _normalise_closing(narration)
 
     for trigger in _CLOSING_TRIGGERS:
-        if trigger in low or low in trigger:
+        t = _normalise_closing(trigger)
+        if t in low or low in t:
             return True
 
     cfg = get_brand_config()
     for text in (cfg.closing.text(), cfg.signature.text(), cfg.cta.text()):
         if text:
-            trigger = text.lower().strip().rstrip(".")
+            trigger = _normalise_closing(text)
             if trigger and (trigger in low or low in trigger):
                 return True
 

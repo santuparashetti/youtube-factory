@@ -38,23 +38,41 @@ from dataclasses import dataclass, field
 
 _VIOLATION_PHRASES: tuple[str, ...] = (
     # Explicit nudity
-    "nude", "nudity", "naked", "unclothed", "undressed", "no clothing",
-    "no clothes", "no shirt", "without clothes", "without clothing",
+    "nude",
+    "nudity",
+    "naked",
+    "unclothed",
+    "undressed",
+    "no clothing",
+    "no clothes",
+    "no shirt",
+    "without clothes",
+    "without clothing",
     # Bare torso / chest
-    "shirtless", "bare-chested", "bare chested", "bare chest",
-    "bare torso", "bare upper body", "bare upper-body",
+    "shirtless",
+    "bare-chested",
+    "bare chested",
+    "bare chest",
+    "bare torso",
+    "bare upper body",
+    "bare upper-body",
     "topless",
     # Sexualisation
-    "skimpy", "revealing clothing", "revealing outfit", "revealing attire",
-    "sensual attire", "seductive clothing", "provocative clothing",
-    "sensationalized", "sexualized",
+    "skimpy",
+    "revealing clothing",
+    "revealing outfit",
+    "revealing attire",
+    "sensual attire",
+    "seductive clothing",
+    "provocative clothing",
+    "sensationalized",
+    "sexualized",
     "body exposure",
 )
 
 # Compiled for fast matching — phrase or whole-word pattern.
 _VIOLATION_RE: list[re.Pattern] = [
-    re.compile(r"\b" + re.escape(v) + r"\b", re.IGNORECASE)
-    for v in _VIOLATION_PHRASES
+    re.compile(r"\b" + re.escape(v) + r"\b", re.IGNORECASE) for v in _VIOLATION_PHRASES
 ]
 
 
@@ -64,25 +82,32 @@ _VIOLATION_RE: list[re.Pattern] = [
 
 _AUTHENTIC_EXCEPTION_TERMS: tuple[str, ...] = (
     # Hindu / Vedic ascetics
-    "sadhu", "sadhus",
-    "naga sadhu", "naga sadhus",
-    "hindu monk", "hindu monks",
+    "sadhu",
+    "sadhus",
+    "naga sadhu",
+    "naga sadhus",
+    "hindu monk",
+    "hindu monks",
     "ancient sadhu",
     # Jain monks (Digambara tradition — sky-clad)
-    "jain monk", "jain monks",
+    "jain monk",
+    "jain monks",
     "digambara",
     # Buddhist monks (robes — not bare, but partial traditional dress)
-    "buddhist monk", "buddhist monks",
+    "buddhist monk",
+    "buddhist monks",
     "theravada monk",
     "zen monk",
     # Ancient ascetics and yogis
-    "ancient ascetic", "ancient ascetics",
+    "ancient ascetic",
+    "ancient ascetics",
     "vedic ascetic",
-    "yogi", "yogis",
+    "yogi",
+    "yogis",
     "ancient yogi",
     # Historical / indigenous
     "indigenous traditional",
-    "ancient warrior" ,  # historical battle context
+    "ancient warrior",  # historical battle context
     "traditional indigenous",
     # Ayurvedic / historical medical
     "ancient bath",
@@ -111,48 +136,149 @@ _EXCEPTION_MARKER = "cultural dignity"
 
 _CONTEXT_CLOTHING: list[tuple[tuple[str, ...], str]] = [
     # Ancient / historical Indian
-    (("sadhu", "ashram", "vedic", "ancient india", "ancient indian",
-      "mahabharata", "ramayana", "gita", "brahmin", "vedantic",
-      "rishikesh", "varanasi ghat", "river ghat"),
-     "simple traditional dhoti and angavastram, modest historical Indian attire"),
+    (
+        (
+            "sadhu",
+            "ashram",
+            "vedic",
+            "ancient india",
+            "ancient indian",
+            "mahabharata",
+            "ramayana",
+            "gita",
+            "brahmin",
+            "vedantic",
+            "rishikesh",
+            "varanasi ghat",
+            "river ghat",
+        ),
+        "simple traditional dhoti and angavastram, modest historical Indian attire",
+    ),
     # Spiritual / temple / meditation (modern)
-    (("temple", "meditation", "spiritual", "mandir", "puja", "prayer",
-      "bhakti", "devotee", "pilgrim"),
-     "simple modest traditional attire — kurta, dhoti, or regional devotional dress"),
+    (
+        (
+            "temple",
+            "meditation",
+            "spiritual",
+            "mandir",
+            "puja",
+            "prayer",
+            "bhakti",
+            "devotee",
+            "pilgrim",
+        ),
+        "simple modest traditional attire — kurta, dhoti, or regional devotional dress",
+    ),
     # Yoga / wellness (modern)
-    (("yoga", "yogi", "pranayama", "breathing exercise", "mindfulness"),
-     "simple modest yoga attire — loose cotton trousers and fitted top"),
+    (
+        ("yoga", "yogi", "pranayama", "breathing exercise", "mindfulness"),
+        "simple modest yoga attire — loose cotton trousers and fitted top",
+    ),
     # Office / professional
-    (("office", "boardroom", "meeting room", "corporate", "desk", "laptop",
-      "conference", "workspace", "cubicle", "professional"),
-     "professional office attire — shirt, blazer, or formal business clothing"),
+    (
+        (
+            "office",
+            "boardroom",
+            "meeting room",
+            "corporate",
+            "desk",
+            "laptop",
+            "conference",
+            "workspace",
+            "cubicle",
+            "professional",
+        ),
+        "professional office attire — shirt, blazer, or formal business clothing",
+    ),
     # Home / domestic
-    (("home", "apartment", "kitchen", "living room", "bedroom", "house",
-      "dining room", "sofa", "couch"),
-     "casual everyday home clothing — t-shirt, jeans, or comfortable casual wear"),
+    (
+        (
+            "home",
+            "apartment",
+            "kitchen",
+            "living room",
+            "bedroom",
+            "house",
+            "dining room",
+            "sofa",
+            "couch",
+        ),
+        "casual everyday home clothing — t-shirt, jeans, or comfortable casual wear",
+    ),
     # Park / outdoor casual
-    (("park", "garden", "trail", "hiking", "beach walk", "street",
-      "market", "café", "coffee shop"),
-     "casual everyday outdoor clothing — t-shirt, jacket, or hoodie"),
+    (
+        (
+            "park",
+            "garden",
+            "trail",
+            "hiking",
+            "beach walk",
+            "street",
+            "market",
+            "café",
+            "coffee shop",
+        ),
+        "casual everyday outdoor clothing — t-shirt, jacket, or hoodie",
+    ),
     # Historical India (Mughal, medieval)
-    (("mughal", "sultan", "maharaja", "rajput", "medieval india",
-      "durbar", "court scene"),
-     "historically accurate Mughal-era or Rajput court attire — jama, angarkha, or period robes"),
+    (
+        (
+            "mughal",
+            "sultan",
+            "maharaja",
+            "rajput",
+            "medieval india",
+            "durbar",
+            "court scene",
+        ),
+        "historically accurate Mughal-era or Rajput court attire — jama, angarkha, or period robes",
+    ),
     # Ancient Greek
-    (("greek", "athens", "agora", "socrates", "plato", "aristotle",
-      "greece", "hellenistic"),
-     "authentic ancient Greek attire — draped chiton and himation"),
+    (
+        (
+            "greek",
+            "athens",
+            "agora",
+            "socrates",
+            "plato",
+            "aristotle",
+            "greece",
+            "hellenistic",
+        ),
+        "authentic ancient Greek attire — draped chiton and himation",
+    ),
     # Buddhist / East Asian
-    (("buddhist", "buddha", "monastery", "zen", "daoist", "tao",
-      "bamboo grove", "japanese temple", "chinese temple"),
-     "traditional Buddhist monk's robes — grey or saffron"),
+    (
+        (
+            "buddhist",
+            "buddha",
+            "monastery",
+            "zen",
+            "daoist",
+            "tao",
+            "bamboo grove",
+            "japanese temple",
+            "chinese temple",
+        ),
+        "traditional Buddhist monk's robes — grey or saffron",
+    ),
     # Medieval / historical Europe
-    (("medieval", "castle", "feudal", "knight", "monk medieval",
-      "monastery medieval"),
-     "period-accurate medieval attire — wool tunic, cloak, or period clothing"),
+    (
+        (
+            "medieval",
+            "castle",
+            "feudal",
+            "knight",
+            "monk medieval",
+            "monastery medieval",
+        ),
+        "period-accurate medieval attire — wool tunic, cloak, or period clothing",
+    ),
     # Sub-Saharan African
-    (("african village", "savannah village", "tribal", "traditional african"),
-     "authentic traditional regional African attire and textiles"),
+    (
+        ("african village", "savannah village", "tribal", "traditional african"),
+        "authentic traditional regional African attire and textiles",
+    ),
 ]
 
 # Fallback clothing phrase when no context keyword matches.
@@ -173,6 +299,7 @@ _CLOTHING_NEGATIVE_TERMS = (
 
 # ── Result dataclass ──────────────────────────────────────────────────────────
 
+
 @dataclass
 class ClothingPolicyResult:
     """Outcome of applying the clothing policy to one prompt."""
@@ -188,6 +315,7 @@ class ClothingPolicyResult:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def detect_violation(prompt: str) -> list[str]:
     """Return list of violation terms found in *prompt* (empty = clean)."""
@@ -208,11 +336,13 @@ def is_authentic_exception(prompt: str) -> bool:
 
 def infer_clothing(scene: dict) -> str:
     """Infer appropriate clothing from scene title, narration, and visual_prompt."""
-    combined = " ".join([
-        scene.get("title", ""),
-        scene.get("narration", ""),
-        scene.get("visual_prompt", ""),
-    ]).lower()
+    combined = " ".join(
+        [
+            scene.get("title", ""),
+            scene.get("narration", ""),
+            scene.get("visual_prompt", ""),
+        ]
+    ).lower()
 
     for keywords, clothing in _CONTEXT_CLOTHING:
         if any(kw in combined for kw in keywords):
@@ -226,7 +356,9 @@ def get_negative_clothing_terms() -> str:
     return _CLOTHING_NEGATIVE_TERMS
 
 
-def apply_clothing_policy(prompt: str, scene: dict | None = None) -> ClothingPolicyResult:
+def apply_clothing_policy(
+    prompt: str, scene: dict | None = None
+) -> ClothingPolicyResult:
     """
     Apply the clothing & cultural authenticity policy to one visual prompt.
 
@@ -297,13 +429,45 @@ def apply_clothing_policy(prompt: str, scene: dict | None = None) -> ClothingPol
 
 # Keywords that indicate clothing is already described in the prompt.
 _CLOTHING_INDICATORS: tuple[str, ...] = (
-    "shirt", "kurta", "dhoti", "robe", "attire", "clothing", "dress",
-    "jacket", "sweater", "hoodie", "suit", "blazer", "tunic", "gown",
-    "cloak", "sari", "saree", "salwar", "jeans", "trouser", "pants",
-    "coat", "uniform", "turban", "armour", "armor", "angavastram",
-    "chiton", "himation", "jama", "angarkha", "traditional wear",
-    "traditional dress", "traditional attire", "period attire",
-    "traditional clothing", "modest attire", "casual wear", "everyday wear",
+    "shirt",
+    "kurta",
+    "dhoti",
+    "robe",
+    "attire",
+    "clothing",
+    "dress",
+    "jacket",
+    "sweater",
+    "hoodie",
+    "suit",
+    "blazer",
+    "tunic",
+    "gown",
+    "cloak",
+    "sari",
+    "saree",
+    "salwar",
+    "jeans",
+    "trouser",
+    "pants",
+    "coat",
+    "uniform",
+    "turban",
+    "armour",
+    "armor",
+    "angavastram",
+    "chiton",
+    "himation",
+    "jama",
+    "angarkha",
+    "traditional wear",
+    "traditional dress",
+    "traditional attire",
+    "period attire",
+    "traditional clothing",
+    "modest attire",
+    "casual wear",
+    "everyday wear",
 )
 
 

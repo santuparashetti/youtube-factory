@@ -433,10 +433,24 @@ BGM_ENABLED=true
 BGM_CATEGORY=auto               # auto | spiritual | meditation | cinematic_ambient | ...
 BGM_LIBRARY_PATH=workspace/music
 BGM_VOLUME=0.24
+BGM_DUCK_FLOOR=0.04             # minimum BGM level during narration
 BGM_DUCK_THRESHOLD=0.02
 BGM_DUCK_RATIO=6.2
+BGM_DUCK_ATTACK_MS=180          # V3 cinematic attack
+BGM_DUCK_RELEASE_MS=1800        # V3 hold — prevents pumping
 BGM_FADE_IN_SECONDS=3.0
 BGM_FADE_OUT_SECONDS=4.0
+BGM_VAD_ENABLED=true
+BGM_RANDOM_TRACK=true
+
+# ── BGM V3: Adaptive State-Machine Mixing ────────────────────────────────────
+BGM_ADAPTIVE_MIXING=true
+BGM_HOLD_AFTER_SPEECH_MS=2200      # hold music ducked after speech ends
+BGM_LONG_SILENCE_THRESHOLD_MS=2500 # silence longer than this raises music
+BGM_LONG_SILENCE_MS=2500           # review rule threshold (backward compat alias)
+BGM_NARRATION_LEVEL_LUFS=-30.0     # target narration LUFS
+BGM_MUSIC_LEVEL_LUFS=-17.0         # target music LUFS during silence
+BGM_TRANSITION_CURVE=ease_in_out
 
 # ── Pacing ───────────────────────────────────────────────────────────────────
 TTS_PACING_PROFILE=spiritual    # normal | documentary | spiritual | meditation
@@ -554,6 +568,8 @@ ytfactory generate-images <id>
 ytfactory generate-voice <id>
 ytfactory generate-captions <id>
 ytfactory render <id>
+ytfactory mix-bgm <id>          # apply background music (after render)
+ytfactory overlay-cta <id>      # visual CTA overlay (after BGM)
 ytfactory review <id>
 ytfactory remediate <id>
 ytfactory publish <id>
@@ -565,6 +581,10 @@ ytfactory build <id>
 ytfactory build <id> --resume
 ytfactory build <id> --force-images         # redo images + downstream
 ytfactory build <id> --force-narration      # redo voice + downstream
+ytfactory build <id> --force-cta            # redo CTA overlay + downstream
+
+# BGM (apply/remix background music on an already-rendered video)
+ytfactory mix-bgm <id>
 
 # Scene management
 ytfactory scene list <id>

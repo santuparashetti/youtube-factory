@@ -23,19 +23,85 @@ from .emotion import Emotion, classify_scene, split_sentences
 _EMPHASIS_VOCAB: frozenset[str] = frozenset(
     {
         # philosophical / spiritual
-        "desire", "truth", "love", "death", "life", "soul", "god", "faith",
-        "hope", "fear", "freedom", "power", "choice", "change", "purpose",
-        "meaning", "karma", "dharma", "peace", "war", "justice", "wisdom",
-        "mind", "ego", "self", "time", "silence", "courage", "pain", "joy",
-        "sacrifice", "devotion", "consciousness", "awareness", "liberation",
-        "surrender", "compassion", "forgiveness", "anger", "grief", "rage",
-        "bliss", "suffering", "enlightenment", "duty", "honor", "pride",
-        "shame", "guilt", "rebellion", "resistance", "submission", "empire",
+        "desire",
+        "truth",
+        "love",
+        "death",
+        "life",
+        "soul",
+        "god",
+        "faith",
+        "hope",
+        "fear",
+        "freedom",
+        "power",
+        "choice",
+        "change",
+        "purpose",
+        "meaning",
+        "karma",
+        "dharma",
+        "peace",
+        "war",
+        "justice",
+        "wisdom",
+        "mind",
+        "ego",
+        "self",
+        "time",
+        "silence",
+        "courage",
+        "pain",
+        "joy",
+        "sacrifice",
+        "devotion",
+        "consciousness",
+        "awareness",
+        "liberation",
+        "surrender",
+        "compassion",
+        "forgiveness",
+        "anger",
+        "grief",
+        "rage",
+        "bliss",
+        "suffering",
+        "enlightenment",
+        "duty",
+        "honor",
+        "pride",
+        "shame",
+        "guilt",
+        "rebellion",
+        "resistance",
+        "submission",
+        "empire",
         # documentary / narrative
-        "discovery", "revolution", "crisis", "victory", "defeat", "legacy",
-        "secret", "mystery", "transformation", "betrayal", "rise", "fall",
-        "collapse", "birth", "end", "beginning", "glory", "ruin", "hunger",
-        "thirst", "search", "quest", "journey", "return", "exile",
+        "discovery",
+        "revolution",
+        "crisis",
+        "victory",
+        "defeat",
+        "legacy",
+        "secret",
+        "mystery",
+        "transformation",
+        "betrayal",
+        "rise",
+        "fall",
+        "collapse",
+        "birth",
+        "end",
+        "beginning",
+        "glory",
+        "ruin",
+        "hunger",
+        "thirst",
+        "search",
+        "quest",
+        "journey",
+        "return",
+        "exile",
     }
 )
 
@@ -267,7 +333,9 @@ def _extract_topic_words(keywords: list[str] | None) -> frozenset[str]:
     return frozenset(words)
 
 
-def _apply_keyword_emphasis(phrases: list[str], topic_words: frozenset[str]) -> list[str]:
+def _apply_keyword_emphasis(
+    phrases: list[str], topic_words: frozenset[str]
+) -> list[str]:
     """
     Capitalise single-word key phrases so Edge TTS gives them extra stress.
 
@@ -286,7 +354,7 @@ def _apply_keyword_emphasis(phrases: list[str], topic_words: frozenset[str]) -> 
             word_lower = words[0].lower()
             if word_lower in _EMPHASIS_VOCAB or word_lower in topic_words:
                 # Preserve trailing punctuation; capitalise the word itself
-                suffix = core[len(bare):]
+                suffix = core[len(bare) :]
                 result.append(bare.upper() + suffix)
                 continue
         result.append(phrase)

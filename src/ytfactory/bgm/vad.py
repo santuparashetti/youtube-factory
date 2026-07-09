@@ -80,11 +80,11 @@ class PauseType(str, Enum):
     All other types keep music ducked (NARRATION_ACTIVE state).
     """
 
-    BREATH = "breath"             # < 200 ms — between words, micro-pause
-    COMMA = "comma"               # 200–500 ms — comma or short clause break
-    DRAMATIC_PAUSE = "dramatic_pause"   # 500–1500 ms — intentional emphasis
-    SENTENCE_PAUSE = "sentence_pause"   # 1500–long_silence_ms — sentence boundary
-    LONG_SILENCE = "long_silence"       # > long_silence_threshold_ms — raise music
+    BREATH = "breath"  # < 200 ms — between words, micro-pause
+    COMMA = "comma"  # 200–500 ms — comma or short clause break
+    DRAMATIC_PAUSE = "dramatic_pause"  # 500–1500 ms — intentional emphasis
+    SENTENCE_PAUSE = "sentence_pause"  # 1500–long_silence_ms — sentence boundary
+    LONG_SILENCE = "long_silence"  # > long_silence_threshold_ms — raise music
 
 
 @dataclass
@@ -92,7 +92,7 @@ class PauseEvent:
     """A classified gap between two consecutive speech segments."""
 
     start: float  # seconds — end of previous segment
-    end: float    # seconds — start of next segment
+    end: float  # seconds — start of next segment
     pause_type: PauseType
     duration: float  # seconds
 
@@ -105,7 +105,9 @@ class PauseEvent:
         }
 
 
-def classify_pause(gap_seconds: float, long_silence_threshold_ms: int = 2500) -> PauseType:
+def classify_pause(
+    gap_seconds: float, long_silence_threshold_ms: int = 2500
+) -> PauseType:
     """Return the PauseType for a gap of *gap_seconds* seconds.
 
     Thresholds (all in seconds):
@@ -327,7 +329,15 @@ def detect_speech(
 def _probe_duration(path: Path) -> float:
     try:
         r = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)],
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                str(path),
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -344,11 +354,16 @@ def _run_silencedetect(
 ) -> list[tuple[float, float]]:
     """Return list of (start_s, end_s) silence intervals via ffmpeg silencedetect."""
     cmd = [
-        "ffmpeg", "-nostdin",
-        "-i", str(path),
+        "ffmpeg",
+        "-nostdin",
+        "-i",
+        str(path),
         "-vn",
-        "-af", f"silencedetect=n={threshold_db}dB:d=0.10",
-        "-f", "null", "-",
+        "-af",
+        f"silencedetect=n={threshold_db}dB:d=0.10",
+        "-f",
+        "null",
+        "-",
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -413,9 +428,16 @@ def _group_phrases(
 def _volumedetect_mean(path: Path) -> float:
     """Return mean volume in dBFS, or -20.0 as a safe default."""
     cmd = [
-        "ffmpeg", "-nostdin",
-        "-i", str(path),
-        "-vn", "-af", "volumedetect", "-f", "null", "-",
+        "ffmpeg",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-vn",
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

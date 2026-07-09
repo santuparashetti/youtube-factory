@@ -11,12 +11,16 @@ from ytfactory.images.models import (
     ImageGenerationResult,
     ImageManifest,
 )
-from ytfactory.images.prompt_engine import _DEFAULT_NEGATIVE_PROMPT, _PROVIDERS_WITH_NEGATIVE_PROMPTS
+from ytfactory.images.prompt_engine import (
+    _DEFAULT_NEGATIVE_PROMPT,
+    _PROVIDERS_WITH_NEGATIVE_PROMPTS,
+)
 from ytfactory.images.repository import ImageRepository
 from ytfactory.images.review_config import ImageReviewConfig
-from ytfactory.images.review_engine import ImageReviewEngine, write_image_quality_summary
+from ytfactory.images.review_engine import write_image_quality_summary
 from ytfactory.images.review_models import SceneReviewArtifact
 from ytfactory.providers.image.factory import get_image_provider
+from ytfactory.workflow.image_remediation_orchestrator import ImageRemediationOrchestrator
 
 
 class ImagePipeline:
@@ -30,19 +34,20 @@ class ImagePipeline:
             settings.image_provider.lower() in _PROVIDERS_WITH_NEGATIVE_PROMPTS
         )
         self._review_config = ImageReviewConfig.from_settings(settings)
-        self._review_engine: ImageReviewEngine | None = self._build_review_engine()
+        self._orchestrator: ImageRemediationOrchestrator | None = self._build_orchestrator()
 
-    def _build_review_engine(self) -> ImageReviewEngine | None:
-        """Build the review engine if image review is enabled."""
+    def _build_orchestrator(self) -> ImageRemediationOrchestrator | None:
+        """Build the remediation orchestrator if image review is enabled."""
         if not self._review_config.enabled:
             return None
         try:
             from ytfactory.providers.vision.factory import get_vision_provider
+
             vision = get_vision_provider(
                 self._review_config.provider,
                 local_model=self._review_config.local_model,
             )
-            return ImageReviewEngine(self._review_config, vision, self._provider)
+            return ImageRemediationOrchestrator(self._review_config, vision, self._provider)
         except Exception:
             return None
 
@@ -135,7 +140,10 @@ class ImagePipeline:
 
             # Human quality validation: regenerate if sharpness is below threshold
             prompt_text = scene.get("visual_prompt", "")
-            if detect_human_presence(prompt_text) and self._settings.image_human_max_retries > 0:
+            if (
+                detect_human_presence(prompt_text)
+                and self._settings.image_human_max_retries > 0
+            ):
                 sharpness = compute_sharpness(output_path)
                 threshold = self._settings.image_human_min_sharpness
                 max_retries = self._settings.image_human_max_retries
@@ -156,19 +164,23 @@ class ImagePipeline:
                     )
 
             # Vision review + auto-remediation (when enabled)
-            if self._review_engine is not None and output_path.exists():
+            if self._orchestrator is not None and output_path.exists():
                 scene_with_dims = {
                     **scene,
                     "width": self._settings.image_width,
                     "height": self._settings.image_height,
                 }
-                review_artifact = self._review_engine.review_scene(
+                review_artifact = self._orchestrator.review_scene(
                     scene=scene_with_dims,
                     image_path=output_path,
                     output_dir=output_dir,
                 )
                 review_artifacts.append(review_artifact)
-                status_tag = "PASS" if review_artifact.status == "PASS" else review_artifact.status
+                status_tag = (
+                    "PASS"
+                    if review_artifact.status == "PASS"
+                    else review_artifact.status
+                )
                 print(
                     f"  ✦ Vision review: {status_tag} "
                     f"(score={review_artifact.score:.0f}, "

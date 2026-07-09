@@ -103,7 +103,9 @@ def scene_approve(
     """Approve a scene for final rendering."""
     ws = _workspace(project_id)
     if ws.is_locked(scene):
-        console.print(f"[magenta]Scene {scene:03d} is locked — already approved + locked.[/magenta]")
+        console.print(
+            f"[magenta]Scene {scene:03d} is locked — already approved + locked.[/magenta]"
+        )
         raise typer.Exit()
     ws.set_state(scene, SceneState.APPROVED)
     console.print(f"[green]✓ Scene {scene:03d} approved.[/green]")
@@ -118,7 +120,9 @@ def scene_reject(
     """Mark a scene as Needs Revision."""
     ws = _workspace(project_id)
     if ws.is_locked(scene):
-        console.print(f"[red]Scene {scene:03d} is locked — cannot reject a locked scene.[/red]")
+        console.print(
+            f"[red]Scene {scene:03d} is locked — cannot reject a locked scene.[/red]"
+        )
         raise typer.Exit(1)
     ws.set_state(scene, SceneState.NEEDS_REVISION, notes=notes)
     console.print(f"[yellow]⚠ Scene {scene:03d} marked Needs Revision.[/yellow]")

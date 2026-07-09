@@ -29,7 +29,9 @@ def video_concatenator_node(state: VideoState) -> dict:
     scene_plan = state.get("scene_plan", [])
 
     if not scene_plan:
-        console.print("[yellow]⚠  No scene plan found — cannot compose final video[/yellow]")
+        console.print(
+            "[yellow]⚠  No scene plan found — cannot compose final video[/yellow]"
+        )
         return {"stage_errors": ["No scene plan found for composition"]}
 
     settings = Settings()

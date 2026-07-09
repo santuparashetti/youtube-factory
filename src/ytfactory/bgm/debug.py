@@ -44,11 +44,15 @@ class BGMDebugWriter:
         """
         self._out.mkdir(parents=True, exist_ok=True)
 
-        classifier = PauseClassifier(long_silence_threshold_ms=long_silence_threshold_ms)
+        classifier = PauseClassifier(
+            long_silence_threshold_ms=long_silence_threshold_ms
+        )
         pause_events = classifier.classify(timeline)
 
         self._write_json("speech_timeline.json", timeline.to_dict())
-        self._write_json("ducking_events.json", self._build_ducking_events(timeline, pause_events))
+        self._write_json(
+            "ducking_events.json", self._build_ducking_events(timeline, pause_events)
+        )
         self._write_json("mix_profile.json", mix_profile)
         (self._out / "ffmpeg_filter.txt").write_text(ffmpeg_filter, encoding="utf-8")
         self._write_audio_levels(timeline, pause_events)
@@ -74,7 +78,11 @@ class BGMDebugWriter:
         events: list[dict] = []
         for seg in timeline.segments:
             events.append(
-                {"time": round(seg.start, 3), "state": "duck", "energy": round(seg.energy, 3)}
+                {
+                    "time": round(seg.start, 3),
+                    "state": "duck",
+                    "energy": round(seg.energy, 3),
+                }
             )
             events.append({"time": round(seg.end, 3), "state": "restore"})
         # Annotate events with pause type where available
@@ -177,7 +185,9 @@ class BGMDebugWriter:
         pause_counts: dict[str, int] = {}
         long_silences: list[dict] = []
         for pe in pause_events:
-            pause_counts[pe.pause_type.value] = pause_counts.get(pe.pause_type.value, 0) + 1
+            pause_counts[pe.pause_type.value] = (
+                pause_counts.get(pe.pause_type.value, 0) + 1
+            )
             if pe.pause_type == PauseType.LONG_SILENCE:
                 long_silences.append(pe.to_dict())
 
@@ -190,7 +200,9 @@ class BGMDebugWriter:
             "hold_after_speech_ms": mix_profile.get("hold_after_speech_ms", 2200),
             "duck_attack_ms": mix_profile.get("duck_attack_ms", 180),
             "duck_release_ms": mix_profile.get("duck_release_ms", 1800),
-            "long_silence_threshold_ms": mix_profile.get("long_silence_threshold_ms", 2500),
+            "long_silence_threshold_ms": mix_profile.get(
+                "long_silence_threshold_ms", 2500
+            ),
             "speech_ratio": round(speech_ratio, 3),
             "segment_count": len(timeline.segments),
             "pause_classifications": pause_counts,
@@ -200,7 +212,9 @@ class BGMDebugWriter:
             "quality_notes": self._quality_notes(pause_events, speech_ratio),
         }
 
-    def _quality_notes(self, pause_events: list[PauseEvent], speech_ratio: float) -> list[str]:
+    def _quality_notes(
+        self, pause_events: list[PauseEvent], speech_ratio: float
+    ) -> list[str]:
         notes: list[str] = []
         breath_count = sum(1 for p in pause_events if p.pause_type == PauseType.BREATH)
         comma_count = sum(1 for p in pause_events if p.pause_type == PauseType.COMMA)
@@ -228,7 +242,9 @@ class BGMDebugWriter:
         rows: list[list[str]] = [["time_s", "event", "bgm_state", "pause_type"]]
         for i, seg in enumerate(timeline.segments):
             rows.append([f"{seg.start:.3f}", "speech_start", "ducked", ""])
-            pause_type = pause_events[i].pause_type.value if i < len(pause_events) else ""
+            pause_type = (
+                pause_events[i].pause_type.value if i < len(pause_events) else ""
+            )
             rows.append([f"{seg.end:.3f}", "speech_end", "restoring", pause_type])
         path = self._out / "audio_levels.csv"
         with path.open("w", newline="", encoding="utf-8") as f:

@@ -9,6 +9,7 @@ from ytfactory.incremental.deps import FORCE_FLAG_TO_STAGE
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 from ytfactory.captions.pipeline import CaptionPipeline
+from ytfactory.cta.pipeline import CTAPipeline
 from ytfactory.images.pipeline import ImagePipeline
 from ytfactory.publish.pipeline import PublishPipeline
 from ytfactory.review.pipeline import ReviewPipeline
@@ -32,6 +33,7 @@ class BuildPipeline:
         self.voice = VoicePipeline(settings)
         self.captions = CaptionPipeline()
         self.video = VideoPipeline()
+        self.cta = CTAPipeline()
         self.review = ReviewPipeline()
         self.publish = PublishPipeline(settings=settings)
 
@@ -52,6 +54,7 @@ class BuildPipeline:
         self.voice.run(project_id)
         self.captions.run(project_id)
         self.video.run(project_id)
+        self.cta.run(project_id)
 
         review_report = self.review.run(project_id)
 
@@ -155,6 +158,11 @@ class BuildPipeline:
             self.video.run(project_id)
             engine.record_stage_outputs("video")
 
+        # cta overlay (runs after video; rebuilds only CTA + final render when changed)
+        if _should_run("cta"):
+            self.cta.run(project_id)
+            engine.record_stage_outputs("cta")
+
         # review
         if _should_run("review"):
             review_report = self.review.run(project_id)
@@ -180,7 +188,7 @@ class BuildPipeline:
             engine.print_debug_report(report, reused, rebuilt)
         else:
             console.print(Rule("[bold green]Incremental Build Complete[/bold green]"))
-            for stage in ["scenes", "images", "voice", "captions", "video", "review", "publish"]:
+            for stage in ["scenes", "images", "voice", "captions", "video", "cta", "review", "publish"]:
                 label = stage.title()
                 if stage in rebuilt:
                     console.print(f"  [yellow]⚠[/yellow]  {label} rebuilt")

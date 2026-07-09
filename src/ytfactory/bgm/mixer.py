@@ -61,7 +61,9 @@ def _ffmpeg_agate_has_hold() -> bool:
     try:
         r = subprocess.run(
             ["ffmpeg", "-h", "filter=agate"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         # Options table format: "  hold            <type>  ..."
         return bool(re.search(r"^\s+hold\s", r.stdout, re.MULTILINE))
@@ -161,22 +163,37 @@ class BGMMixer:
                 logger.warning("BGM debug write failed (non-fatal): {}", exc)
 
         cmd: list[str] = [
-            "ffmpeg", "-y",
+            "ffmpeg",
+            "-y",
             # Video (with narration)
-            "-i", str(video_path),
+            "-i",
+            str(video_path),
             # BGM — looped indefinitely at the input level so atrim can cut it
-            "-stream_loop", "-1",
-            "-i", str(track.path),
-            "-filter_complex", filter_complex,
-            "-map", "0:v",
-            "-map", "[audio_out]",
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", cfg.audio_bitrate,
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(track.path),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "0:v",
+            "-map",
+            "[audio_out]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            cfg.audio_bitrate,
             str(output_path),
         ]
 
-        logger.info("BGM mix: {} → {} (track: {})", video_path.name, output_path.name, track.title)
+        logger.info(
+            "BGM mix: {} → {} (track: {})",
+            video_path.name,
+            output_path.name,
+            track.title,
+        )
 
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=600)
@@ -190,7 +207,9 @@ class BGMMixer:
                 mix_command=cmd,
             )
         except subprocess.CalledProcessError as exc:
-            err = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else str(exc)
+            err = (
+                exc.stderr.decode("utf-8", errors="replace") if exc.stderr else str(exc)
+            )
             # Log the tail — FFmpeg always writes the version header first,
             # so the first ~500 chars are never the actual error.
             logger.error("BGM mix failed: {}", err[-800:])
@@ -275,20 +294,15 @@ class BGMMixer:
             f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
             f"asplit=2"
             f"[bgm_floor_raw][bgm_main_raw];"
-
             # ── Path A: floor — always-on at duck_floor volume ────────────────
             f"[bgm_floor_raw]"
             f"volume={cfg.duck_floor:.4f},"
             f"afade=t=in:ss=0:d={cfg.fade_in_seconds:.2f},"
             f"afade=t=out:st={fade_out_start:.4f}:d={cfg.fade_out_seconds:.2f}"
             f"[bgm_floor];"
-
             # ── Path B: main — scaled then sidechain-compressed ───────────────
-            f"[bgm_main_raw]volume={main_vol:.4f}[bgm_main_scaled];"
-
+            f"[bgm_main_raw]volume={main_vol:.4f}[bgm_main_scaled];" + nar_split +
             # ── Narration split + phrase-grouping gate ────────────────────────
-            + nar_split +
-
             # ── Sidechain compress: BGM ducks while narration gate is open ────
             # V3: attack=180 ms (cinematic), release=1800 ms (no pumping)
             # V2: attack/release from BGMConfig (15 ms / 350 ms legacy)
@@ -300,23 +314,19 @@ class BGMMixer:
             f"release={sc_release_ms}:"
             f"knee=2.0"
             f"[bgm_main_compressed];"
-
             # ── Fades on main path (applied after compression) ────────────────
             f"[bgm_main_compressed]"
             f"afade=t=in:ss=0:d={cfg.fade_in_seconds:.2f},"
             f"afade=t=out:st={fade_out_start:.4f}:d={cfg.fade_out_seconds:.2f}"
             f"[bgm_main_faded];"
-
             # ── Combine floor + main → full BGM with floor guarantee ──────────
             f"[bgm_floor][bgm_main_faded]"
             f"amix=inputs=2:normalize=0"
             f"[bgm_ducked];"
-
             # ── Final mix: narration at full gain + ducked BGM ────────────────
             f"[nar_mix][bgm_ducked]"
             f"amix=inputs=2:duration=first:normalize=0:weights=1 1"
             f"[premix];"
-
             # ── Hard limiter — catch any transient peaks ──────────────────────
             f"[premix]"
             f"alimiter=level_in=1:level_out=1:limit=0.95:attack=5:release=50"
@@ -328,8 +338,11 @@ class BGMMixer:
         """Return media duration in seconds via ffprobe."""
         result = subprocess.run(
             [
-                "ffprobe", "-v", "quiet",
-                "-print_format", "json",
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 str(path),
             ],

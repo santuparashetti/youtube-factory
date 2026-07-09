@@ -12,7 +12,9 @@ from loguru import logger
 from .models import BootstrapResult, CheckStatus
 
 
-def write_environment_report(result: BootstrapResult, base_dir: Path | None = None) -> Path:
+def write_environment_report(
+    result: BootstrapResult, base_dir: Path | None = None
+) -> Path:
     """Write environment-report.json to the project root. Returns the path."""
     root = base_dir or Path.cwd()
     report_path = root / "environment-report.json"
@@ -25,7 +27,9 @@ def write_environment_report(result: BootstrapResult, base_dir: Path | None = No
             "ok": sum(1 for c in result.checks if c.status == CheckStatus.OK),
             "warning": sum(1 for c in result.checks if c.status == CheckStatus.WARNING),
             "error": sum(1 for c in result.checks if c.status == CheckStatus.ERROR),
-            "repaired": sum(1 for c in result.checks if c.status == CheckStatus.REPAIRED),
+            "repaired": sum(
+                1 for c in result.checks if c.status == CheckStatus.REPAIRED
+            ),
             "skipped": sum(1 for c in result.checks if c.status == CheckStatus.SKIPPED),
         },
         "checks": [

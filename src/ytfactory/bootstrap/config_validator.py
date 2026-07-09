@@ -47,20 +47,28 @@ def validate_config(base_dir: Path | None = None) -> list[CheckResult]:
     env_file = root / ".env"
     if not env_file.exists():
         example = root / ".env.example"
-        detail = "Copy .env.example to .env and fill in API keys." if example.exists() else "Create .env from .env.example."
-        results.append(CheckResult(
-            name="config:.env",
-            status=CheckStatus.ERROR,
-            message=".env file not found",
-            detail=detail,
-        ))
+        detail = (
+            "Copy .env.example to .env and fill in API keys."
+            if example.exists()
+            else "Create .env from .env.example."
+        )
+        results.append(
+            CheckResult(
+                name="config:.env",
+                status=CheckStatus.ERROR,
+                message=".env file not found",
+                detail=detail,
+            )
+        )
         return results
 
-    results.append(CheckResult(
-        name="config:.env",
-        status=CheckStatus.OK,
-        message=".env file present",
-    ))
+    results.append(
+        CheckResult(
+            name="config:.env",
+            status=CheckStatus.OK,
+            message=".env file present",
+        )
+    )
 
     # Parse env values directly so we read from base_dir, not CWD
     env_vals = _load_dotenv_values(env_file)
@@ -68,19 +76,24 @@ def validate_config(base_dir: Path | None = None) -> list[CheckResult]:
     # Attempt Settings load (uses CWD .env — best-effort, non-fatal)
     try:
         from ytfactory.config.settings import Settings
+
         Settings()  # Validates pydantic parsing; value not needed here
-        results.append(CheckResult(
-            name="config:settings",
-            status=CheckStatus.OK,
-            message="Settings loaded",
-        ))
+        results.append(
+            CheckResult(
+                name="config:settings",
+                status=CheckStatus.OK,
+                message="Settings loaded",
+            )
+        )
     except Exception as exc:
-        results.append(CheckResult(
-            name="config:settings",
-            status=CheckStatus.WARNING,
-            message="Settings load failed (non-fatal in tests)",
-            detail=str(exc),
-        ))
+        results.append(
+            CheckResult(
+                name="config:settings",
+                status=CheckStatus.WARNING,
+                message="Settings load failed (non-fatal in tests)",
+                detail=str(exc),
+            )
+        )
 
     # Check LLM provider key from parsed env file
     llm_provider = env_vals.get("LLM_PROVIDER", "gemini").lower()
@@ -88,59 +101,73 @@ def validate_config(base_dir: Path | None = None) -> list[CheckResult]:
         for key_name in _PROVIDER_KEYS[llm_provider]:
             val = env_vals.get(key_name, "")
             if not val:
-                results.append(CheckResult(
-                    name=f"config:{key_name}",
-                    status=CheckStatus.ERROR,
-                    message=f"{key_name} not set (required for LLM_PROVIDER={llm_provider})",
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"config:{key_name}",
+                        status=CheckStatus.ERROR,
+                        message=f"{key_name} not set (required for LLM_PROVIDER={llm_provider})",
+                    )
+                )
             else:
-                results.append(CheckResult(
-                    name=f"config:{key_name}",
-                    status=CheckStatus.OK,
-                    message=f"{key_name} present",
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"config:{key_name}",
+                        status=CheckStatus.OK,
+                        message=f"{key_name} present",
+                    )
+                )
 
     # Search provider
     search_provider = env_vals.get("SEARCH_PROVIDER", "tavily")
     if search_provider == "tavily":
         tavily_key = env_vals.get("TAVILY_API_KEY", "")
         if not tavily_key:
-            results.append(CheckResult(
-                name="config:TAVILY_API_KEY",
-                status=CheckStatus.ERROR,
-                message="TAVILY_API_KEY not set (required for SEARCH_PROVIDER=tavily)",
-            ))
+            results.append(
+                CheckResult(
+                    name="config:TAVILY_API_KEY",
+                    status=CheckStatus.ERROR,
+                    message="TAVILY_API_KEY not set (required for SEARCH_PROVIDER=tavily)",
+                )
+            )
         else:
-            results.append(CheckResult(
-                name="config:TAVILY_API_KEY",
-                status=CheckStatus.OK,
-                message="TAVILY_API_KEY present",
-            ))
+            results.append(
+                CheckResult(
+                    name="config:TAVILY_API_KEY",
+                    status=CheckStatus.OK,
+                    message="TAVILY_API_KEY present",
+                )
+            )
 
     # Image provider
     image_provider = env_vals.get("IMAGE_PROVIDER", "huggingface")
     if image_provider == "huggingface":
         hf_token = env_vals.get("HF_TOKEN", "")
         if not hf_token:
-            results.append(CheckResult(
-                name="config:HF_TOKEN",
-                status=CheckStatus.WARNING,
-                message="HF_TOKEN not set (some HuggingFace models require it)",
-            ))
+            results.append(
+                CheckResult(
+                    name="config:HF_TOKEN",
+                    status=CheckStatus.WARNING,
+                    message="HF_TOKEN not set (some HuggingFace models require it)",
+                )
+            )
         else:
-            results.append(CheckResult(
-                name="config:HF_TOKEN",
-                status=CheckStatus.OK,
-                message="HF_TOKEN present",
-            ))
+            results.append(
+                CheckResult(
+                    name="config:HF_TOKEN",
+                    status=CheckStatus.OK,
+                    message="HF_TOKEN present",
+                )
+            )
 
     # Provider summary
     tts_provider = env_vals.get("TTS_PROVIDER", "edge")
-    results.append(CheckResult(
-        name="config:providers",
-        status=CheckStatus.OK,
-        message=f"Providers: LLM={llm_provider}, search={search_provider}, image={image_provider}, tts={tts_provider}",
-    ))
+    results.append(
+        CheckResult(
+            name="config:providers",
+            status=CheckStatus.OK,
+            message=f"Providers: LLM={llm_provider}, search={search_provider}, image={image_provider}, tts={tts_provider}",
+        )
+    )
 
     return results
 

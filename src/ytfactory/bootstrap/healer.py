@@ -30,19 +30,23 @@ def _heal_directories(root: Path) -> list[CheckResult]:
             try:
                 target.mkdir(parents=True, exist_ok=True)
                 logger.info("Self-heal: created missing directory {}", rel)
-                results.append(CheckResult(
-                    name=f"heal:dir:{rel}",
-                    status=CheckStatus.REPAIRED,
-                    message=f"Created missing directory: {rel}/",
-                    repaired=True,
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:dir:{rel}",
+                        status=CheckStatus.REPAIRED,
+                        message=f"Created missing directory: {rel}/",
+                        repaired=True,
+                    )
+                )
             except OSError as exc:
-                results.append(CheckResult(
-                    name=f"heal:dir:{rel}",
-                    status=CheckStatus.ERROR,
-                    message=f"Cannot create {rel}/",
-                    detail=str(exc),
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:dir:{rel}",
+                        status=CheckStatus.ERROR,
+                        message=f"Cannot create {rel}/",
+                        detail=str(exc),
+                    )
+                )
     return results
 
 
@@ -57,19 +61,23 @@ def _heal_permissions(root: Path) -> list[CheckResult]:
                 current = target.stat().st_mode
                 target.chmod(current | stat.S_IWUSR | stat.S_IWGRP)
                 logger.info("Self-heal: fixed permissions on {}", rel)
-                results.append(CheckResult(
-                    name=f"heal:perms:{rel}",
-                    status=CheckStatus.REPAIRED,
-                    message=f"Fixed permissions on {rel}/",
-                    repaired=True,
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:perms:{rel}",
+                        status=CheckStatus.REPAIRED,
+                        message=f"Fixed permissions on {rel}/",
+                        repaired=True,
+                    )
+                )
             except OSError as exc:
-                results.append(CheckResult(
-                    name=f"heal:perms:{rel}",
-                    status=CheckStatus.ERROR,
-                    message=f"Cannot fix permissions on {rel}/",
-                    detail=str(exc),
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:perms:{rel}",
+                        status=CheckStatus.ERROR,
+                        message=f"Cannot fix permissions on {rel}/",
+                        detail=str(exc),
+                    )
+                )
     return results
 
 
@@ -84,17 +92,21 @@ def _heal_symlinks(root: Path) -> list[CheckResult]:
             try:
                 item.unlink()
                 logger.info("Self-heal: removed broken symlink {}", item)
-                results.append(CheckResult(
-                    name=f"heal:symlink:{item.name}",
-                    status=CheckStatus.REPAIRED,
-                    message=f"Removed broken symlink: {item.relative_to(root)}",
-                    repaired=True,
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:symlink:{item.name}",
+                        status=CheckStatus.REPAIRED,
+                        message=f"Removed broken symlink: {item.relative_to(root)}",
+                        repaired=True,
+                    )
+                )
             except OSError as exc:
-                results.append(CheckResult(
-                    name=f"heal:symlink:{item.name}",
-                    status=CheckStatus.ERROR,
-                    message=f"Cannot remove broken symlink: {item.name}",
-                    detail=str(exc),
-                ))
+                results.append(
+                    CheckResult(
+                        name=f"heal:symlink:{item.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Cannot remove broken symlink: {item.name}",
+                        detail=str(exc),
+                    )
+                )
     return results

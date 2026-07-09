@@ -29,18 +29,18 @@ class PauseRange:
 class ThoughtPauseRanges:
     """Per-depth silence ranges for thought-based pacing (one per profile)."""
 
-    small: PauseRange        # simple complete thought
+    small: PauseRange  # simple complete thought
     realization: PauseRange  # meaningful insight / important realization
-    insight: PauseRange      # deep philosophical point — maximum contemplative space
+    insight: PauseRange  # deep philosophical point — maximum contemplative space
 
 
 @dataclass(frozen=True)
 class ProfilePauses:
     """Per-category pause ranges for one pacing profile."""
 
-    short: PauseRange        # normal sentence — low emotional weight
-    medium: PauseRange       # important statement — notable idea
-    long: PauseRange         # major realization — profound insight
+    short: PauseRange  # normal sentence — low emotional weight
+    medium: PauseRange  # important statement — notable idea
+    long: PauseRange  # major realization — profound insight
     concept_pre: PauseRange  # extra pause added before a key-concept opener
 
 

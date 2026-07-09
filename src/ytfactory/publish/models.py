@@ -152,5 +152,7 @@ class PublishingPackage:
             "description": self.description.to_dict(),
             "chapters": [c.to_dict() for c in self.chapters],
             "thumbnail": self.thumbnail.to_dict() if self.thumbnail else None,
-            "pinned_comment": self.pinned_comment.to_dict() if self.pinned_comment else None,
+            "pinned_comment": self.pinned_comment.to_dict()
+            if self.pinned_comment
+            else None,
         }

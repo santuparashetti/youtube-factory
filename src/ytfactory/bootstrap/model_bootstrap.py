@@ -33,18 +33,23 @@ def _check_lamm_available() -> list[CheckResult]:
     """Verify the Local AI Model Manager package is importable."""
     try:
         from ytfactory.models import LocalAIModelManager  # noqa: F401
-        return [CheckResult(
-            name="model:lamm",
-            status=CheckStatus.OK,
-            message="Local AI Model Manager available",
-        )]
+
+        return [
+            CheckResult(
+                name="model:lamm",
+                status=CheckStatus.OK,
+                message="Local AI Model Manager available",
+            )
+        ]
     except ImportError as exc:
-        return [CheckResult(
-            name="model:lamm",
-            status=CheckStatus.WARNING,
-            message="Local AI Model Manager import error",
-            detail=str(exc),
-        )]
+        return [
+            CheckResult(
+                name="model:lamm",
+                status=CheckStatus.WARNING,
+                message="Local AI Model Manager import error",
+                detail=str(exc),
+            )
+        ]
 
 
 def _provision_via_lamm(root: Path) -> list[CheckResult]:
@@ -63,52 +68,66 @@ def _provision_via_lamm(root: Path) -> list[CheckResult]:
 
     for model_name, entry in manager._registry.items():
         if not entry.enabled:
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.SKIPPED,
-                message=f"Model '{model_name}' disabled in registry",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.SKIPPED,
+                    message=f"Model '{model_name}' disabled in registry",
+                )
+            )
             continue
 
         # Vision model only provisioned when image review is enabled
         if model_name == vision_model_name and not image_review_enabled:
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.SKIPPED,
-                message=f"Vision model '{model_name}' skipped (image_review_enabled=false)",
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.SKIPPED,
+                    message=f"Vision model '{model_name}' skipped (image_review_enabled=false)",
+                )
+            )
             continue
 
-        provision = manager.provision(model_name)
+        # Vision model: allow download when image_review_enabled=true (user opt-in)
+        allow_dl: bool | None = True if (model_name == vision_model_name and image_review_enabled) else None
+        provision = manager.provision(model_name, allow_download=allow_dl)
 
         if provision.skipped or provision.status == ModelStatus.SKIPPED:
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.SKIPPED,
-                message=provision.message,
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.SKIPPED,
+                    message=provision.message,
+                )
+            )
         elif provision.ok:
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.OK,
-                message=f"Model '{model_name}' ready (backend: {provision.backend})",
-                detail=provision.message,
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.OK,
+                    message=f"Model '{model_name}' ready (backend: {provision.backend})",
+                    detail=provision.message,
+                )
+            )
         elif provision.status == ModelStatus.MISSING:
             # Missing with auto_download=false is a warning, not an error
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.WARNING,
-                message=f"Model '{model_name}' not downloaded yet",
-                detail=provision.message,
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.WARNING,
+                    message=f"Model '{model_name}' not downloaded yet",
+                    detail=provision.message,
+                )
+            )
         else:
-            results.append(CheckResult(
-                name=f"model:{model_name}",
-                status=CheckStatus.ERROR,
-                message=f"Model '{model_name}' provisioning failed",
-                detail=provision.error or provision.message,
-            ))
+            results.append(
+                CheckResult(
+                    name=f"model:{model_name}",
+                    status=CheckStatus.ERROR,
+                    message=f"Model '{model_name}' provisioning failed",
+                    detail=provision.error or provision.message,
+                )
+            )
 
     return results
 
@@ -117,6 +136,7 @@ def _is_image_review_enabled() -> bool:
     """Check whether image_review_enabled is set in the environment."""
     try:
         from ytfactory.config.settings import Settings
+
         return Settings().image_review_enabled
     except Exception:
         return False
@@ -126,6 +146,7 @@ def _get_vision_model_name() -> str:
     """Return the configured vision model registry key."""
     try:
         from ytfactory.config.settings import Settings
+
         return Settings().vision_review_local_model
     except Exception:
         return "minicpm_v2_6"

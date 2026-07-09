@@ -43,7 +43,9 @@ class VideoState(TypedDict, total=False):
     review_result: Optional[dict]  # {"verdict": "PASS"|"FAIL", "errors": [...], ...}
 
     # ── Remediation (populated by remediation_node) ────────────────────────
-    remediation_result: Optional[dict]  # {"final_verdict": "PASS"|"FAIL", "stopped_reason": str, ...}
+    remediation_result: Optional[
+        dict
+    ]  # {"final_verdict": "PASS"|"FAIL", "stopped_reason": str, ...}
 
     # ── Non-fatal error accumulation ──────────────────────────────────────
     stage_errors: Annotated[list[str], _append_list]

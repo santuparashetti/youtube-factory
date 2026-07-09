@@ -1,0 +1,97 @@
+# Vision Review Benchmark Dataset
+#
+# Each scene entry defines:
+#   id                - unique scene identifier
+#   image             - path relative to this file
+#   expected_failures - hard-fail rule names that MUST fire for a true positive
+#                       (empty list = "good scene"; model should return PASS)
+#   visual_prompt     - the image-generation prompt used to create this image
+#   notes             - human annotation of the observed defects (for reference)
+#
+# To add new scenes: append entries here — no code changes required.
+# Rule names must match keys in src/ytfactory/benchmark/hard_fails.py:RULE_MATCHERS.
+
+scenes:
+
+  # ── Known-bad scenes (model should REGENERATE) ────────────────────────────
+
+  - id: scene-002
+    image: images/scene-002.png
+    expected_failures:
+      - impossible_walk_cycle
+      - clothing_violation
+    visual_prompt: >
+      Ancient Greek philosopher standing motionless in an olive grove,
+      wearing a full white himation draped over both shoulders and torso,
+      contemplative expression, Mediterranean afternoon light
+    notes: >
+      Figure is clearly walking (pose mismatch) and himation covers only the
+      waist — shoulders and upper body are bare (clothing violation).
+
+  - id: scene-024
+    image: images/scene-024.png
+    expected_failures:
+      - hands_invalid
+      - finger_count_invalid
+    visual_prompt: >
+      Ancient Greek man seated at a symposium table with food and wine,
+      hands folded calmly in lap, white himation, classical interior setting
+    notes: >
+      Clasped hands show merged, fused finger joints with indistinct digit
+      boundaries — finger anatomy is clearly broken.
+
+  - id: scene-037
+    image: images/scene-037.png
+    expected_failures:
+      - impossible_walk_cycle
+    visual_prompt: >
+      Ancient Greek figure walking along a stone path through Mediterranean
+      countryside, natural walking gait, sandals, period tunic, rear view
+    notes: >
+      Impossible stride — both feet appear simultaneously grounded at
+      misaligned angles; shoes appear disconnected from the stride arc.
+
+  - id: scene-044
+    image: images/scene-044.png
+    expected_failures:
+      - content_mismatch
+    visual_prompt: >
+      YouTube channel brand card with logo and clean background,
+      no human figures, professional graphic design layout
+    notes: >
+      Complete content mismatch — modern man on a hilltop at sunset instead
+      of the expected abstract brand or logo graphic.
+
+  # ── Known-good scenes (model should PASS) ─────────────────────────────────
+
+  - id: scene-006
+    image: images/scene-006.png
+    expected_failures: []
+    visual_prompt: >
+      Bearded Greek philosopher looking upward in reverence, standing before
+      a marble column, natural sunlight, serene expression
+    notes: Excellent face detail, natural expression, clean lighting — no defects.
+
+  - id: scene-015
+    image: images/scene-015.png
+    expected_failures: []
+    visual_prompt: >
+      Empty marble colonnade in afternoon light, classical Greek architecture,
+      long shadows on stone floor, no human figures
+    notes: Clean architectural composition, accurate perspective, natural shadows.
+
+  - id: scene-016
+    image: images/scene-016.png
+    expected_failures: []
+    visual_prompt: >
+      Elder statesman observing courtyard activity, Indian ashram setting,
+      background figures in motion, afternoon golden light, depth of field
+    notes: Natural pose, realistic face, good depth of field — no defects.
+
+  - id: scene-026
+    image: images/scene-026.png
+    expected_failures: []
+    visual_prompt: >
+      Close-up portrait of Indian man in white kurta standing in a stone
+      archway, direct gaze toward camera, warm ambient light
+    notes: Excellent face anatomy, natural skin texture, realistic eyes — no defects.

@@ -122,9 +122,15 @@ class DiagnosticsReport:
     human_quality_missing: list[int] = field(default_factory=list)
 
     # ── Clothing & cultural authenticity ─────────────────────────────────
-    clothing_violations: list[int] = field(default_factory=list)       # scene indices with violations enforced
-    clothing_exceptions: list[int] = field(default_factory=list)       # authentic cultural/historical exceptions
-    clothing_inferences: list[int] = field(default_factory=list)       # scenes where clothing was inferred/added
+    clothing_violations: list[int] = field(
+        default_factory=list
+    )  # scene indices with violations enforced
+    clothing_exceptions: list[int] = field(
+        default_factory=list
+    )  # authentic cultural/historical exceptions
+    clothing_inferences: list[int] = field(
+        default_factory=list
+    )  # scenes where clothing was inferred/added
 
     # ── Issues ────────────────────────────────────────────────────────────
     issues: list[str] = field(default_factory=list)
@@ -208,7 +214,10 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
         detect_human_presence,
         has_human_quality_reinforcement,
     )
-    from ytfactory.images.clothing_policy import detect_violation, is_authentic_exception
+    from ytfactory.images.clothing_policy import (
+        detect_violation,
+        is_authentic_exception,
+    )
 
     for i, scene in enumerate(generated):
         prompt = scene.get("visual_prompt", "")
@@ -252,9 +261,7 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
         )
     if report.ai_cliches_detected:
         for cliche, scene_list in report.ai_cliches_detected.items():
-            report.issues.append(
-                f"AI cliché '{cliche}' found in scenes: {scene_list}"
-            )
+            report.issues.append(f"AI cliché '{cliche}' found in scenes: {scene_list}")
     if report.unsafe_compositions_detected:
         for comp, scene_list in report.unsafe_compositions_detected.items():
             report.issues.append(

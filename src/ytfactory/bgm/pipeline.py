@@ -71,7 +71,9 @@ class BGMPipeline:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def run(self, project_id: str, video_path: Path | None = None) -> BGMMixResult | None:
+    def run(
+        self, project_id: str, video_path: Path | None = None
+    ) -> BGMMixResult | None:
         """Mix background music into the final video for *project_id*.
 
         Returns the BGMMixResult when music was applied, or None when BGM is
@@ -133,8 +135,12 @@ class BGMPipeline:
         else:
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
-            console.print("[red]  ✗ BGM mixing failed — original video preserved.[/red]")
-            logger.error("BGM mixing failed for project {}: {}", project_id, result.error[:300])
+            console.print(
+                "[red]  ✗ BGM mixing failed — original video preserved.[/red]"
+            )
+            logger.error(
+                "BGM mixing failed for project {}: {}", project_id, result.error[:300]
+            )
             raise RuntimeError(f"BGM mixing failed: {result.error[:300]}")
 
         return result
@@ -153,7 +159,9 @@ class BGMPipeline:
     @staticmethod
     def _read_project_title(project_dir: Path) -> str:
         try:
-            data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+            data = json.loads(
+                (project_dir / "project.json").read_text(encoding="utf-8")
+            )
             return data.get("title", project_dir.name)
         except Exception:
             return project_dir.name

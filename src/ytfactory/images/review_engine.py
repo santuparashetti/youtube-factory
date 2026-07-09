@@ -105,16 +105,18 @@ class ImageReviewEngine:
                 result.score, result.confidence, high_count, medium_count
             )
 
-            remediation.attempt_history.append({
-                "attempt": attempt,
-                "status": result.status,
-                "score": result.score,
-                "confidence": result.confidence,
-                "high_issues": high_count,
-                "medium_issues": medium_count,
-                "passed": passes,
-                "prompt_length": len(current_prompt),
-            })
+            remediation.attempt_history.append(
+                {
+                    "attempt": attempt,
+                    "status": result.status,
+                    "score": result.score,
+                    "confidence": result.confidence,
+                    "high_issues": high_count,
+                    "medium_issues": medium_count,
+                    "passed": passes,
+                    "prompt_length": len(current_prompt),
+                }
+            )
             remediation.total_attempts = attempt
 
             if self._config.debug:
@@ -133,7 +135,10 @@ class ImageReviewEngine:
                 remediation.remediation_applied = True
                 logger.info(
                     "Scene {}: vision review FAIL (score={:.0f}) — refining prompt, attempt {}/{}",
-                    idx, result.score, attempt + 1, self._config.max_attempts,
+                    idx,
+                    result.score,
+                    attempt + 1,
+                    self._config.max_attempts,
                 )
                 # Regenerate image with refined prompt and new seed
                 self._regenerate(scene, current_prompt, image_path)
@@ -172,12 +177,16 @@ class ImageReviewEngine:
 
         try:
             import cv2  # type: ignore[import-not-found]
+
             img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return False, "OpenCV could not read image"
             laplacian_var = float(cv2.Laplacian(img, cv2.CV_64F).var())
             if laplacian_var < 10.0:
-                return False, f"Image appears blurry (Laplacian var={laplacian_var:.1f})"
+                return (
+                    False,
+                    f"Image appears blurry (Laplacian var={laplacian_var:.1f})",
+                )
         except ImportError:
             pass  # OpenCV optional — skip if not installed
 
@@ -193,13 +202,19 @@ class ImageReviewEngine:
         for issue in result.high_severity_issues:
             cat = issue.category.lower()
             if "anatomy" in cat or "hand" in issue.description.lower():
-                additions.append("anatomically correct hands with exactly five fingers per hand")
+                additions.append(
+                    "anatomically correct hands with exactly five fingers per hand"
+                )
             elif "face" in cat:
-                additions.append("natural facial expression, symmetric face, realistic eyes")
+                additions.append(
+                    "natural facial expression, symmetric face, realistic eyes"
+                )
             elif "artifact" in cat or "watermark" in issue.description.lower():
                 additions.append("no watermarks, no text artifacts, no distortions")
             elif "lighting" in cat:
-                additions.append("correct lighting direction, realistic shadows and highlights")
+                additions.append(
+                    "correct lighting direction, realistic shadows and highlights"
+                )
 
         for issue in result.medium_severity_issues:
             if "blur" in issue.description.lower():
@@ -235,14 +250,20 @@ class ImageReviewEngine:
         try:
             self._image_provider.generate(request)
         except Exception as exc:
-            logger.warning("Regeneration failed for scene {}: {}", scene.get("index"), exc)
+            logger.warning(
+                "Regeneration failed for scene {}: {}", scene.get("index"), exc
+            )
 
     # ── Artifact writers ──────────────────────────────────────────────────
 
-    def _write_review_artifact(self, artifact: SceneReviewArtifact, output_dir: Path) -> None:
+    def _write_review_artifact(
+        self, artifact: SceneReviewArtifact, output_dir: Path
+    ) -> None:
         path = output_dir / f"image-review-{artifact.scene_index:03d}.json"
         try:
-            path.write_text(json.dumps(artifact.__dict__, indent=2, default=str), encoding="utf-8")
+            path.write_text(
+                json.dumps(artifact.__dict__, indent=2, default=str), encoding="utf-8"
+            )
         except Exception as exc:
             logger.debug("Could not write review artifact: {}", exc)
 
@@ -253,7 +274,9 @@ class ImageReviewEngine:
     ) -> None:
         path = output_dir / f"image-remediation-{rem.scene_index:03d}.json"
         try:
-            path.write_text(json.dumps(rem.__dict__, indent=2, default=str), encoding="utf-8")
+            path.write_text(
+                json.dumps(rem.__dict__, indent=2, default=str), encoding="utf-8"
+            )
         except Exception as exc:
             logger.debug("Could not write remediation artifact: {}", exc)
 
@@ -292,14 +315,16 @@ def write_image_quality_summary(
         else:
             summary.skipped += 1
 
-        summary.scenes.append({
-            "scene_index": a.scene_index,
-            "status": a.status,
-            "score": a.score,
-            "confidence": a.confidence,
-            "attempts": a.attempts,
-            "issues_count": len(a.issues),
-        })
+        summary.scenes.append(
+            {
+                "scene_index": a.scene_index,
+                "status": a.status,
+                "score": a.score,
+                "confidence": a.confidence,
+                "attempts": a.attempts,
+                "issues_count": len(a.issues),
+            }
+        )
 
     summary.finalize()
 

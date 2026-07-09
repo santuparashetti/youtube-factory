@@ -18,7 +18,9 @@ from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
 
 
-def _measure_mean_volume_db(audio_path: Path, start: float = 0.0, duration: float | None = None) -> float | None:
+def _measure_mean_volume_db(
+    audio_path: Path, start: float = 0.0, duration: float | None = None
+) -> float | None:
     """Return mean volume in dBFS for a segment of *audio_path* using ffmpeg volumedetect.
 
     Returns None on error or when the segment is too short to measure.
@@ -162,11 +164,15 @@ class AudioValidator(BaseValidator):
                 audio_path = project_dir / "audio" / f"scene-{idx:03d}.mp3"
                 if not audio_path.exists():
                     results.append(
-                        self._skip("AUD_005", f"Scene {idx}: audio missing", scene_index=idx)
+                        self._skip(
+                            "AUD_005", f"Scene {idx}: audio missing", scene_index=idx
+                        )
                     )
                     continue
 
-                opening_db = _measure_mean_volume_db(audio_path, start=0.0, duration=window)
+                opening_db = _measure_mean_volume_db(
+                    audio_path, start=0.0, duration=window
+                )
                 body_db = _measure_mean_volume_db(audio_path, start=window)
 
                 if opening_db is None or body_db is None:

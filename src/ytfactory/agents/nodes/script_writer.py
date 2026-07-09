@@ -7,7 +7,12 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
-from ytfactory.agents.prompts.branding import get_closing, get_closing_brand, get_transition, get_welcome
+from ytfactory.agents.prompts.branding import (
+    get_closing,
+    get_closing_brand,
+    get_transition,
+    get_welcome,
+)
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
     NARRATION_WPM,

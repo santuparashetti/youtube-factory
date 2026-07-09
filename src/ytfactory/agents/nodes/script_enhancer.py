@@ -9,7 +9,13 @@ from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 
-from ytfactory.agents.prompts.branding import get_closing, get_closing_brand, get_cta, get_transition, get_welcome
+from ytfactory.agents.prompts.branding import (
+    get_closing,
+    get_closing_brand,
+    get_cta,
+    get_transition,
+    get_welcome,
+)
 from ytfactory.agents.prompts.script_enhancer import build_enhance_script_prompt
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,

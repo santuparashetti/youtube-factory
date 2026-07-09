@@ -39,17 +39,24 @@ from .thought_analyzer import ThoughtAnalyzer
 # FFmpeg helpers
 # ---------------------------------------------------------------------------
 
+
 def _probe_duration(path: Path) -> float:
     """Return audio duration in seconds via ffprobe. Returns 0.0 on error."""
     try:
         result = subprocess.run(
             [
-                "ffprobe", "-v", "quiet",
-                "-print_format", "json",
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 str(path),
             ],
-            capture_output=True, text=True, check=True, timeout=30,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         )
         return float(json.loads(result.stdout)["format"]["duration"])
     except Exception:
@@ -63,12 +70,18 @@ def _generate_silence(path: Path, duration_seconds: float) -> None:
     """
     subprocess.run(
         [
-            "ffmpeg", "-y",
-            "-f", "lavfi",
-            "-i", "anullsrc=sample_rate=24000:channel_layout=mono",
-            "-t", f"{duration_seconds:.4f}",
-            "-c:a", "libmp3lame",
-            "-q:a", "9",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=sample_rate=24000:channel_layout=mono",
+            "-t",
+            f"{duration_seconds:.4f}",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "9",
             str(path),
         ],
         check=True,
@@ -93,12 +106,18 @@ def _concat_segments(segments: list[Path], output_path: Path) -> None:
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(filelist),
-                "-c:a", "libmp3lame",
-                "-q:a", "2",
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(filelist),
+                "-c:a",
+                "libmp3lame",
+                "-q:a",
+                "2",
                 str(output_path),
             ],
             check=True,
@@ -112,6 +131,7 @@ def _concat_segments(segments: list[Path], output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 class PauseInjector:
     """Orchestrates thought-block TTS synthesis with contemplative silence gaps.
@@ -135,8 +155,8 @@ class PauseInjector:
         self,
         narration: str,
         output_path: Path,
-        optimizer,          # SpeechOptimizer — duck-typed to avoid circular import
-        provider,           # TTSProvider — duck-typed
+        optimizer,  # SpeechOptimizer — duck-typed to avoid circular import
+        provider,  # TTSProvider — duck-typed
         *,
         profile: str = "spiritual",
         style: str = "spiritual",
@@ -155,18 +175,32 @@ class PauseInjector:
         blocks = self._analyzer.analyze(narration, profile)
 
         if not blocks:
-            logger.warning("PauseInjector: no thought blocks found — falling back to plain synthesis")
-            return self._fallback(narration, output_path, optimizer, provider,
-                                  style=style, language=language,
-                                  scene_position=scene_position, keywords=keywords)
+            logger.warning(
+                "PauseInjector: no thought blocks found — falling back to plain synthesis"
+            )
+            return self._fallback(
+                narration,
+                output_path,
+                optimizer,
+                provider,
+                style=style,
+                language=language,
+                scene_position=scene_position,
+                keywords=keywords,
+            )
 
         # Single thought block: synthesise directly without silence machinery.
         if len(blocks) == 1:
             logger.debug("PauseInjector: single thought block — no inter-block silence")
             return self._synthesise_block(
-                blocks[0].text, output_path, optimizer, provider,
-                style=style, language=language,
-                scene_position=scene_position, keywords=keywords,
+                blocks[0].text,
+                output_path,
+                optimizer,
+                provider,
+                style=style,
+                language=language,
+                scene_position=scene_position,
+                keywords=keywords,
             )
 
         with tempfile.TemporaryDirectory() as tmp_str:
@@ -179,9 +213,14 @@ class PauseInjector:
                 block_audio = tmp / f"block_{i:03d}.mp3"
 
                 _, block_boundaries = self._synthesise_block(
-                    block.text, block_audio, optimizer, provider,
-                    style=style, language=language,
-                    scene_position=scene_position, keywords=keywords,
+                    block.text,
+                    block_audio,
+                    optimizer,
+                    provider,
+                    style=style,
+                    language=language,
+                    scene_position=scene_position,
+                    keywords=keywords,
                 )
 
                 # Shift this block's word boundaries by the cumulative time offset.
@@ -281,10 +320,14 @@ class PauseInjector:
         keywords: list[str] | None,
     ) -> tuple[Path, list[dict]]:
         """Plain synthesis — used when the analyzer returns no blocks."""
-        optimized = optimizer.optimize(narration, style=style,
-                                       scene_position=scene_position, keywords=keywords)
+        optimized = optimizer.optimize(
+            narration, style=style, scene_position=scene_position, keywords=keywords
+        )
         _, boundaries = provider.generate_with_boundaries(
-            text=optimized, output_path=output_path,
-            language=language, style=style, scene_position=scene_position,
+            text=optimized,
+            output_path=output_path,
+            language=language,
+            style=style,
+            scene_position=scene_position,
         )
         return output_path, boundaries

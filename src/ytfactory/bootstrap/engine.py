@@ -13,7 +13,12 @@ from .model_bootstrap import bootstrap_models
 from .models import BootstrapResult, CheckResult, CheckStatus
 from .provider_validator import validate_providers
 from .report import write_environment_report
-from .version_manager import build_manifest, is_manifest_current, load_manifest, save_manifest
+from .version_manager import (
+    build_manifest,
+    is_manifest_current,
+    load_manifest,
+    save_manifest,
+)
 from .workspace import bootstrap_workspace
 
 
@@ -36,11 +41,13 @@ class BootstrapEngine:
         manifest = load_manifest(self._base_dir)
         if not force and is_manifest_current(manifest):
             logger.info("Bootstrap already complete (use --force to re-run)")
-            result.add(CheckResult(
-                name="bootstrap:manifest",
-                status=CheckStatus.OK,
-                message="Previously bootstrapped — all checks skipped (use --force to re-run)",
-            ))
+            result.add(
+                CheckResult(
+                    name="bootstrap:manifest",
+                    status=CheckStatus.OK,
+                    message="Previously bootstrapped — all checks skipped (use --force to re-run)",
+                )
+            )
             return result
 
         logger.info("Starting bootstrap setup...")

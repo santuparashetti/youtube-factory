@@ -17,10 +17,10 @@ class IssueSeverity(str, Enum):
 class VisionIssue:
     """A single detected issue in the reviewed image."""
 
-    category: str           # e.g. "anatomy", "face", "artifact", "cinematic"
-    description: str        # human-readable description
+    category: str  # e.g. "anatomy", "face", "artifact", "cinematic"
+    description: str  # human-readable description
     severity: IssueSeverity = IssueSeverity.MEDIUM
-    location: str = ""      # optional location hint (e.g. "left hand")
+    location: str = ""  # optional location hint (e.g. "left hand")
 
 
 @dataclass
@@ -37,14 +37,14 @@ class VisionReviewResult:
     }
     """
 
-    status: str                               # "PASS" | "FAIL" | "SKIP" | "ERROR"
-    score: float = 0.0                        # 0–100
-    confidence: float = 0.0                  # 0–100
+    status: str  # "PASS" | "FAIL" | "SKIP" | "ERROR"
+    score: float = 0.0  # 0–100
+    confidence: float = 0.0  # 0–100
     issues: list[VisionIssue] = field(default_factory=list)
     recommend_regeneration: bool = False
     model_name: str = ""
     backend: str = ""
-    raw_response: str = ""                    # raw LLM/model output for debugging
+    raw_response: str = ""  # raw LLM/model output for debugging
     error: str = ""
 
     @property
@@ -53,7 +53,11 @@ class VisionReviewResult:
 
     @property
     def high_severity_issues(self) -> list[VisionIssue]:
-        return [i for i in self.issues if i.severity in (IssueSeverity.HIGH, IssueSeverity.CRITICAL)]
+        return [
+            i
+            for i in self.issues
+            if i.severity in (IssueSeverity.HIGH, IssueSeverity.CRITICAL)
+        ]
 
     @property
     def medium_severity_issues(self) -> list[VisionIssue]:

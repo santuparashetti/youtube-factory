@@ -44,7 +44,9 @@ class ChangeDetector:
             patterns = STAGE_OUTPUT_PATTERNS.get(stage, [])
             for pattern in patterns:
                 if "*" in pattern:
-                    self._scan_glob(stage, pattern, report, changed_stages, scene_filter)
+                    self._scan_glob(
+                        stage, pattern, report, changed_stages, scene_filter
+                    )
                 else:
                     self._scan_file(stage, pattern, report, changed_stages)
 
