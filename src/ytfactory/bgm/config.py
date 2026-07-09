@@ -83,13 +83,12 @@ class BGMConfig:
     vad_provider: str = "silero"
 
     # Gap (ms) between speech bursts treated as one continuous phrase.
-    # The agate hold parameter is set to this value so music stays ducked
-    # across brief inter-word pauses.
+    # V2 legacy value — used when adaptive_mixing=False.
     phrase_gap_ms: int = 300
 
-    # Silence duration (ms) after which music recovers to full volume.
-    # Used by review rules to verify recovery timing.
-    long_silence_ms: int = 2000
+    # Silence duration (ms) after which music recovers to full volume (V2).
+    # Overridden by long_silence_threshold_ms when adaptive_mixing=True.
+    long_silence_ms: int = 2500
 
     # Vary duck depth with narration energy (louder → deeper duck).
     # Implemented naturally by sidechaincompress — this flag gates debug output.
@@ -98,3 +97,30 @@ class BGMConfig:
     # Volume recovery curve after long silence.
     # "logarithmic" matches the natural sidechaincompress release envelope.
     restore_curve: str = "logarithmic"
+
+    # ── V3: Adaptive State-Machine Mixing ────────────────────────────────────
+
+    # Enable V3 adaptive mixing. When True, uses hold_after_speech_ms for the
+    # agate hold and V3 attack/release values. When False, falls back to V2
+    # phrase_gap_ms + the original duck_attack_ms / duck_release_ms values.
+    adaptive_mixing: bool = True
+
+    # Duration (ms) music stays ducked after speech ends before beginning
+    # recovery. Bridges breaths, commas, dramatic pauses, and sentence pauses.
+    # Only silence longer than this allows music to rise (MUSIC_FEATURE state).
+    hold_after_speech_ms: int = 2200
+
+    # Threshold (ms) above which a gap is classified as "long_silence" (vs
+    # dramatic_pause). Used by PauseClassifier and review rules only — the
+    # actual recovery is controlled by hold_after_speech_ms + duck_release_ms.
+    long_silence_threshold_ms: int = 2500
+
+    # Target narration level in LUFS (for review checks only; not applied to signal).
+    narration_level_lufs: float = -30.0
+
+    # Target music level in LUFS during narration (for review checks only).
+    music_level_lufs: float = -17.0
+
+    # Duck curve shape. "ease_in_out" means gentle acceleration at start and
+    # end of each transition (implemented via the sidechaincompress envelope).
+    transition_curve: str = "ease_in_out"

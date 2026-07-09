@@ -309,17 +309,40 @@ class Settings(BaseSettings):
     # VAD backend ("silero" preferred; current impl uses FFmpeg silencedetect).
     bgm_vad_provider: str = "silero"
 
-    # Gap (ms) between speech bursts treated as a single continuous phrase.
+    # Gap (ms) between speech bursts treated as a single continuous phrase (V2 legacy).
     bgm_phrase_gap_ms: int = 300
 
-    # Silence duration (ms) after which music recovers to full volume.
-    bgm_long_silence_ms: int = 2000
+    # Silence duration (ms) after which music recovers (V2 / review rules).
+    bgm_long_silence_ms: int = 2500
 
     # Vary duck depth with narration energy (louder → deeper duck).
     bgm_dynamic_ducking: bool = True
 
     # Volume recovery curve after long silence ("logarithmic" matches compressor).
     bgm_restore_curve: str = "logarithmic"
+
+    # ── BGM V3: Adaptive State-Machine Mixing ─────────────────────────────
+
+    # Enable V3 adaptive mixing state machine. When True, uses cinematic
+    # attack/release and holds music ducked through short pauses.
+    bgm_adaptive_mixing: bool = True
+
+    # Duration (ms) music stays ducked after speech ends (V3 hold timer).
+    # Bridges breaths (< 200 ms), commas (200–500 ms), dramatic pauses
+    # (500–1500 ms) and sentence pauses (1500–2500 ms).
+    bgm_hold_after_speech_ms: int = 2200
+
+    # Threshold (ms) above which a gap is classified as "long_silence".
+    bgm_long_silence_threshold_ms: int = 2500
+
+    # Target narration level in LUFS (for review checks and debug reports).
+    bgm_narration_level_lufs: float = -30.0
+
+    # Target music level in LUFS during narration (for review checks).
+    bgm_music_level_lufs: float = -17.0
+
+    # Duck curve shape for V3 transitions.
+    bgm_transition_curve: str = "ease_in_out"
 
     # ------------------------------------------------------------------
     # Cinematic Intro

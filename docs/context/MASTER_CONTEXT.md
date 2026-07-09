@@ -337,6 +337,74 @@ BGM_005–007 SKIP when `bgm-debug/speech_timeline.json` absent.
 #### Incremental build
 Already handled — `"bgm": "video"` in `incremental/deps.py` invalidates only the video stage when BGM settings change.
 
+#### BGMLibrary fallback (post-V2 fix)
+`BGMLibrary.find_track()` has a **4-level fallback**:
+1. Exact `<library_path>/<category>/` subdirectory
+2. Flat root files whose filename contains the category keyword
+3. Any flat root-level file
+4. **Any track in any subdirectory** (new) — fires when the library uses a subdirectory layout but the auto-detected category has no tracks. Prevents silent BGM skip when only some categories are populated.
+
+Before this fix, step 4 was missing — if the auto-detector chose (e.g.) `emotional_documentary` but only `spiritual/` had tracks, BGM was silently skipped even though music was available.
+
+#### `mix-bgm` CLI command (post-V2 addition)
+`ytfactory mix-bgm PROJECT_ID [--video PATH]` — applies BGM to an already-rendered `final.mp4`. Use when BGM was disabled during the original render, or after adding tracks to the library. Implemented in `cli/main.py` inline (no separate `bgm/cli.py`); delegates to `BGMPipeline.run()`.
+
+---
+
+### 12a. BGM_ADAPTIVE_MIXING_ENGINE_V3
+
+**Spec:** `docs/video/BGM_ADAPTIVE_MIXING_ENGINE_V3.md`  
+**Modified:** `bgm/config.py`, `bgm/mixer.py`, `bgm/vad.py`, `bgm/debug.py`, `bgm/pipeline.py`, `review/validation/rules/bgm.py`, `config/settings.py`, `video/pipeline.py`, `.env.example`
+
+#### Problem solved
+V2 `sidechaincompress` with `release=350ms` released too quickly, allowing music to pump during breaths, commas and dramatic pauses. V3 implements a **hold-then-release state machine** via FFmpeg filter parameter tuning:
+- `agate hold = 2200ms` (bridges all short pauses ≤ 2.2 s)
+- `sidechaincompress attack = 180ms` (cinematic onset, was 15ms)
+- `sidechaincompress release = 1800ms` (slow recovery, was 350ms)
+- Only silence > 2.2s triggers recovery; full recovery takes a further 1.8s
+
+#### New config fields (`BGMConfig` and `Settings`)
+| Field | Default | Description |
+|---|---|---|
+| `adaptive_mixing` / `BGM_ADAPTIVE_MIXING` | `True` | Enable V3 state machine |
+| `hold_after_speech_ms` / `BGM_HOLD_AFTER_SPEECH_MS` | 2200 | Hold timer (ms) |
+| `long_silence_threshold_ms` / `BGM_LONG_SILENCE_THRESHOLD_MS` | 2500 | Classification threshold |
+| `narration_level_lufs` / `BGM_NARRATION_LEVEL_LUFS` | -30.0 | Target LUFS (review/debug) |
+| `music_level_lufs` / `BGM_MUSIC_LEVEL_LUFS` | -17.0 | Target music LUFS |
+| `transition_curve` / `BGM_TRANSITION_CURVE` | "ease_in_out" | Curve shape |
+
+`long_silence_ms` default updated 2000 → 2500 to match threshold.
+
+#### New V3 modules in `bgm/vad.py`
+- `PauseType` enum: `BREATH` (<200ms), `COMMA` (200–500ms), `DRAMATIC_PAUSE` (500–1500ms), `SENTENCE_PAUSE` (1500–threshold), `LONG_SILENCE` (>threshold)
+- `PauseEvent`: classified gap with start/end/duration/pause_type
+- `classify_pause(gap_s, threshold_ms)`: pure function, no FFmpeg
+- `PauseClassifier`: classifies all gaps in a SpeechTimeline
+- `build_speech_timeline_from_kokoro(project_dir, ...)`: reads `audio/scene-NNN.alignment.json` (WhisperX, preferred) or `audio/scene-NNN.timing.json` (TTS, fallback); merges all scenes with cumulative offsets. Returns None when no files found.
+
+#### `BGMMixer._build_filter()` V3 path
+When `adaptive_mixing=True`: `agate hold = hold_after_speech_ms/1000`, `sidechaincompress attack=180, release=1800`. When `False`: V2 legacy values (`phrase_gap_ms`, `duck_attack_ms`, `duck_release_ms`).
+
+#### Debug output additions (`bgm/debug.py`)
+When `adaptive_mixing=True`, two extra files written to `bgm-debug/`:
+- `state_timeline.json` — full state machine trace: FULL/NARRATION_ACTIVE/MUSIC_FEATURE entries with time, bgm_level_approx, note
+- `bgm-mix-report.json` — quality summary: pause_classifications, long_silence_windows, pumping_risk ("low" when adaptive, "medium" when not), quality_notes
+
+Existing files updated: `ducking_events.json` now includes `pause_type` on each restore event; `audio_levels.csv` has a new `pause_type` column.
+
+`BGMDebugWriter.write()` now uses Kokoro timestamps as primary source in the mixer (via `build_speech_timeline_from_kokoro`), falls back to `detect_speech` (FFmpeg silencedetect).
+
+#### New review rules
+- **BGM_008 [medium]:** No pumping — adaptive_mixing must be True and pumping_risk="low"
+- **BGM_009 [medium]:** Smooth transitions — attack ≥ 100ms, release ≥ 500ms (warns on V2 legacy values)
+- **BGM_010 [medium]:** Narration not masked — intro (BGM only) must not be louder than narration body by > 3 dB
+
+BGM_008–010 SKIP when `bgm-debug/bgm-mix-report.json` (008/009) or `speech_timeline.json` (010) absent.
+ValidationRunner now runs **10 BGM rules** (was 7).
+
+#### Test count
+1793 → **1856** (+63 new V3 tests across: PauseClassifier, classify_pause, BGMConfigV3, BGMMixerV3Filter, SettingsBGMV3Fields, BGMDebugWriterV3, KokoroTimestampReader, BGMV3ReviewRules)
+
 ---
 
 ### 12. PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM

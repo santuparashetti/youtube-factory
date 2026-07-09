@@ -395,6 +395,20 @@ Renders all scene clips (image + audio + subtitles → `.mp4`) and concatenates 
 ytfactory render PROJECT_ID
 ```
 
+### `ytfactory mix-bgm`
+
+Mix background music into `video/final.mp4` for an existing project. Useful when BGM was disabled during the original render or when re-applying after adding tracks to the library.
+
+```bash
+ytfactory mix-bgm PROJECT_ID [--video PATH]
+```
+
+| Option | Description |
+|---|---|
+| `--video PATH` | Override the default `video/final.mp4` path |
+
+The command auto-detects the BGM category from the project title and scene plan. If the detected category has no tracks, it falls back to any available track in the library. Exits silently with a warning when BGM is disabled (`BGM_ENABLED=false`) or the library is empty.
+
 ### `ytfactory setup`
 
 First-run bootstrap: creates workspace, validates config and providers, provisions required models. Idempotent — safe to run multiple times.

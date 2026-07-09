@@ -266,6 +266,24 @@ app.command(name="build")(build)
 app.add_typer(scene_app, name="scene")
 
 
+@app.command(name="mix-bgm")
+def mix_bgm(
+    project_id: str = typer.Argument(..., help="Project ID to apply BGM to"),
+    video: Optional[str] = typer.Option(
+        None, "--video", "-v", help="Path to video file (default: video/final.mp4)"
+    ),
+) -> None:
+    """Mix background music into the final video for a project."""
+    from pathlib import Path
+    from ytfactory.bgm.pipeline import BGMPipeline
+
+    pipeline = BGMPipeline()
+    video_path = Path(video) if video else None
+    result = pipeline.run(project_id, video_path=video_path)
+    if result is None:
+        _console.print("[yellow]BGM skipped (disabled or no matching tracks).[/yellow]")
+
+
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """YouTube Factory — run without arguments to open the interactive wizard."""

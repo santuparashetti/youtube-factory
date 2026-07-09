@@ -4,6 +4,13 @@ Uses FFmpeg silencedetect to build a phrase-level SpeechTimeline.
 No external Python dependencies — relies only on the ffmpeg/ffprobe
 binaries already required by the rest of the pipeline.
 
+V3 additions:
+- PauseType / PauseEvent: classify each gap between speech segments
+- PauseClassifier: uses Kokoro word timestamps as primary source,
+  falls back to VAD segments when timestamps are absent.
+- build_speech_timeline_from_kokoro(): reads all scene timing.json /
+  alignment.json files and merges them into a single SpeechTimeline.
+
 Optional Silero VAD can be added later by swapping the backend in
 detect_speech(); the public API and data model stay identical.
 """
@@ -14,6 +21,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 
@@ -58,6 +66,214 @@ class SpeechTimeline:
                 for s in self.segments
             ],
         }
+
+
+# ---------------------------------------------------------------------------
+# V3: Pause classification
+# ---------------------------------------------------------------------------
+
+
+class PauseType(str, Enum):
+    """How a gap between speech segments is classified.
+
+    Only LONG_SILENCE may trigger music restoration (MUSIC_FEATURE state).
+    All other types keep music ducked (NARRATION_ACTIVE state).
+    """
+
+    BREATH = "breath"             # < 200 ms — between words, micro-pause
+    COMMA = "comma"               # 200–500 ms — comma or short clause break
+    DRAMATIC_PAUSE = "dramatic_pause"   # 500–1500 ms — intentional emphasis
+    SENTENCE_PAUSE = "sentence_pause"   # 1500–long_silence_ms — sentence boundary
+    LONG_SILENCE = "long_silence"       # > long_silence_threshold_ms — raise music
+
+
+@dataclass
+class PauseEvent:
+    """A classified gap between two consecutive speech segments."""
+
+    start: float  # seconds — end of previous segment
+    end: float    # seconds — start of next segment
+    pause_type: PauseType
+    duration: float  # seconds
+
+    def to_dict(self) -> dict:
+        return {
+            "start": round(self.start, 3),
+            "end": round(self.end, 3),
+            "duration": round(self.duration, 3),
+            "pause_type": self.pause_type.value,
+        }
+
+
+def classify_pause(gap_seconds: float, long_silence_threshold_ms: int = 2500) -> PauseType:
+    """Return the PauseType for a gap of *gap_seconds* seconds.
+
+    Thresholds (all in seconds):
+        < 0.20  → BREATH
+        0.20–0.50 → COMMA
+        0.50–1.50 → DRAMATIC_PAUSE
+        1.50–(long_silence_threshold_ms/1000) → SENTENCE_PAUSE
+        ≥ long_silence_threshold_ms/1000 → LONG_SILENCE
+    """
+    long_s = long_silence_threshold_ms / 1000.0
+    if gap_seconds < 0.20:
+        return PauseType.BREATH
+    if gap_seconds < 0.50:
+        return PauseType.COMMA
+    if gap_seconds < 1.50:
+        return PauseType.DRAMATIC_PAUSE
+    if gap_seconds < long_s:
+        return PauseType.SENTENCE_PAUSE
+    return PauseType.LONG_SILENCE
+
+
+class PauseClassifier:
+    """Classify pauses in a SpeechTimeline.
+
+    Primary source: Kokoro word timestamps (timing.json / alignment.json).
+    Fallback: SpeechTimeline segments from VAD.
+
+    Usage::
+
+        classifier = PauseClassifier(long_silence_threshold_ms=2500)
+        events = classifier.classify(timeline)
+    """
+
+    def __init__(self, long_silence_threshold_ms: int = 2500) -> None:
+        self._threshold_ms = long_silence_threshold_ms
+
+    def classify(self, timeline: SpeechTimeline) -> list[PauseEvent]:
+        """Return a PauseEvent for each gap between segments in *timeline*."""
+        events: list[PauseEvent] = []
+        segs = timeline.segments
+        for i in range(len(segs) - 1):
+            gap_start = segs[i].end
+            gap_end = segs[i + 1].start
+            gap_dur = max(0.0, gap_end - gap_start)
+            events.append(
+                PauseEvent(
+                    start=gap_start,
+                    end=gap_end,
+                    pause_type=classify_pause(gap_dur, self._threshold_ms),
+                    duration=gap_dur,
+                )
+            )
+        return events
+
+
+# ---------------------------------------------------------------------------
+# V3: Kokoro timestamp reader
+# ---------------------------------------------------------------------------
+
+
+def _load_timing_json(path: Path) -> list[dict]:
+    """Load scene-NNN.timing.json → list of {word, start, end} dicts."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _load_alignment_json(path: Path) -> list[dict]:
+    """Load scene-NNN.alignment.json → list of {word, start, end} dicts."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        words = data.get("words", [])
+        if isinstance(words, list):
+            return words
+    except Exception:
+        pass
+    return []
+
+
+def build_speech_timeline_from_kokoro(
+    project_dir: Path,
+    *,
+    phrase_gap_ms: int = 300,
+    long_silence_threshold_ms: int = 2500,
+) -> SpeechTimeline | None:
+    """Build a SpeechTimeline from Kokoro word timestamps across all scenes.
+
+    Reads ``audio/scene-NNN.alignment.json`` (WhisperX, preferred) then
+    ``audio/scene-NNN.timing.json`` (TTS boundaries, fallback) for each scene.
+
+    Each scene's words are offset by the scene's cumulative start time.  The
+    function estimates scene offsets by summing the last ``end`` value of the
+    previous scene (plus a small inter-scene gap of 0.1 s).
+
+    Returns None when no timing files are found (caller falls back to VAD).
+    """
+    audio_dir = project_dir / "audio"
+    if not audio_dir.exists():
+        return None
+
+    all_words: list[dict] = []
+    cursor = 0.0  # cumulative start time of current scene
+
+    # Collect all scene files in order
+    mp3_files = sorted(audio_dir.glob("scene-*.mp3"))
+    if not mp3_files:
+        return None
+
+    for mp3 in mp3_files:
+        stem = mp3.stem  # "scene-001"
+        alignment = audio_dir / f"{stem}.alignment.json"
+        timing = audio_dir / f"{stem}.timing.json"
+
+        words: list[dict] = []
+        if alignment.exists():
+            words = _load_alignment_json(alignment)
+        elif timing.exists():
+            words = _load_timing_json(timing)
+
+        if not words:
+            # Estimate scene duration via ffprobe; skip if unavailable
+            dur = _probe_duration(mp3)
+            cursor += dur + 0.1
+            continue
+
+        # Find actual end of this scene's audio (last word end)
+        last_end = 0.0
+        for w in words:
+            word_start = float(w.get("start", 0.0)) + cursor
+            word_end = float(w.get("end", 0.0)) + cursor
+            last_end = max(last_end, word_end)
+            all_words.append(
+                {
+                    "word": w.get("word", ""),
+                    "start": round(word_start, 4),
+                    "end": round(word_end, 4),
+                }
+            )
+
+        # Advance cursor to after this scene (leave 0.1 s gap for transitions)
+        cursor = last_end + 0.1
+
+    if not all_words:
+        return None
+
+    # Build speech segments: each word is a segment; group nearby words
+    word_segs = [
+        SpeechSegment(start=w["start"], end=w["end"])
+        for w in all_words
+        if w["end"] > w["start"]
+    ]
+    if not word_segs:
+        return None
+
+    phrases = _group_phrases(word_segs, phrase_gap_ms / 1000.0)
+    total_dur = phrases[-1].end if phrases else 0.0
+    speech_total = sum(s.duration for s in phrases)
+    speech_ratio = round(speech_total / total_dur, 3) if total_dur > 0 else 0.0
+
+    return SpeechTimeline(
+        segments=phrases,
+        total_duration=total_dur,
+        speech_ratio=speech_ratio,
+    )
 
 
 # ---------------------------------------------------------------------------

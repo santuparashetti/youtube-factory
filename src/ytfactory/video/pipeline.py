@@ -83,6 +83,13 @@ def _bgm_config_from_settings(settings: Settings):
         long_silence_ms=settings.bgm_long_silence_ms,
         dynamic_ducking=settings.bgm_dynamic_ducking,
         restore_curve=settings.bgm_restore_curve,
+        # V3 adaptive mixing
+        adaptive_mixing=settings.bgm_adaptive_mixing,
+        hold_after_speech_ms=settings.bgm_hold_after_speech_ms,
+        long_silence_threshold_ms=settings.bgm_long_silence_threshold_ms,
+        narration_level_lufs=settings.bgm_narration_level_lufs,
+        music_level_lufs=settings.bgm_music_level_lufs,
+        transition_curve=settings.bgm_transition_curve,
     )
 
 

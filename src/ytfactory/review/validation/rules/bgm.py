@@ -9,7 +9,12 @@ Rules:
   BGM_006 [low]      — Phrase detection active: VAD timeline written and non-empty
   BGM_007 [medium]   — BGM recovers during long silence (> bgm_long_silence_ms)
 
-BGM_005–007 SKIP when bgm-debug/speech_timeline.json is absent (VAD not run).
+V3 rules (require bgm-debug/bgm-mix-report.json):
+  BGM_008 [medium]   — No pumping: short pauses bridged, music stable during narration
+  BGM_009 [medium]   — No abrupt gain jumps (smooth transitions only)
+  BGM_010 [medium]   — Narration not masked by BGM (narration dominates mix)
+
+BGM_005–010 SKIP when required bgm-debug files are absent (VAD not run).
 All rules SKIP automatically when BGM is disabled (context["bgm_enabled"] is False/absent).
 """
 
@@ -63,7 +68,11 @@ class BGMValidator(BaseValidator):
 
         # Skip all BGM rules when BGM is disabled
         bgm_enabled = context.get("bgm_enabled", False)
-        rule_ids = ("BGM_001", "BGM_002", "BGM_003", "BGM_004", "BGM_005", "BGM_006", "BGM_007")
+        rule_ids = (
+            "BGM_001", "BGM_002", "BGM_003", "BGM_004",
+            "BGM_005", "BGM_006", "BGM_007",
+            "BGM_008", "BGM_009", "BGM_010",
+        )
 
         if not bgm_enabled:
             for rule_id in rule_ids:
@@ -234,8 +243,20 @@ class BGMValidator(BaseValidator):
 
         # ── BGM_007: Long silence recovery — BGM restores after long pause ───
         if self._config.is_enabled("BGM_007"):
-            long_silence_ms = context.get("bgm_long_silence_ms", 2000)
+            long_silence_ms = context.get("bgm_long_silence_ms", 2500)
             results.append(self._check_silence_recovery(final_video, project_dir, long_silence_ms))
+
+        # ── BGM_008: No pumping — short pauses bridged, stable during narration ─
+        if self._config.is_enabled("BGM_008"):
+            results.append(self._check_no_pumping(project_dir))
+
+        # ── BGM_009: No abrupt gain jumps — smooth transitions only ──────────
+        if self._config.is_enabled("BGM_009"):
+            results.append(self._check_smooth_transitions(project_dir))
+
+        # ── BGM_010: Narration not masked — narration dominates mix ──────────
+        if self._config.is_enabled("BGM_010"):
+            results.append(self._check_narration_not_masked(final_video, project_dir))
 
         return results
 
@@ -393,6 +414,168 @@ class BGMValidator(BaseValidator):
             f"silence={silence_mean:.1f} dBFS, intro={intro_mean:.1f} dBFS",
             silence_mean_db=silence_mean,
             intro_mean_db=intro_mean,
+        )
+
+
+    # ── V3 rule helpers ───────────────────────────────────────────────────────
+
+    def _load_mix_report(self, project_dir: Path) -> dict | None:
+        """Load bgm-debug/bgm-mix-report.json; return None if absent."""
+        path = project_dir / "bgm-debug" / "bgm-mix-report.json"
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _check_no_pumping(self, project_dir: Path) -> ValidationResult:
+        """BGM_008: Verify no pumping — adaptive_mixing should bridge short pauses."""
+        report = self._load_mix_report(project_dir)
+        if report is None:
+            return self._skip(
+                "BGM_008",
+                "bgm-debug/bgm-mix-report.json absent — V3 debug not run",
+            )
+
+        adaptive = report.get("adaptive_mixing", False)
+        if not adaptive:
+            return self._warn(
+                "BGM_008",
+                "Adaptive mixing is disabled — pumping possible during short pauses",
+                "adaptive_mixing=False",
+                "medium",
+                adaptive_mixing=False,
+            )
+
+        # Count non-LONG_SILENCE pauses — all should be bridged (held ducked)
+        pause_counts: dict = report.get("pause_classifications", {})
+        bridged = (
+            pause_counts.get("breath", 0)
+            + pause_counts.get("comma", 0)
+            + pause_counts.get("dramatic_pause", 0)
+            + pause_counts.get("sentence_pause", 0)
+        )
+        pumping_risk = report.get("pumping_risk", "medium")
+
+        if pumping_risk == "low":
+            return self._pass(
+                "BGM_008",
+                f"No pumping — {bridged} short pause(s) bridged by hold timer",
+                f"adaptive_mixing=True, bridged_pauses={bridged}",
+                adaptive_mixing=True,
+                bridged_pauses=bridged,
+            )
+        return self._warn(
+            "BGM_008",
+            f"Pumping risk elevated (pumping_risk={pumping_risk})",
+            f"bridged_pauses={bridged}",
+            "medium",
+            pumping_risk=pumping_risk,
+            bridged_pauses=bridged,
+        )
+
+    def _check_smooth_transitions(self, project_dir: Path) -> ValidationResult:
+        """BGM_009: Verify smooth transitions — no abrupt gain jumps."""
+        report = self._load_mix_report(project_dir)
+        if report is None:
+            return self._skip(
+                "BGM_009",
+                "bgm-debug/bgm-mix-report.json absent — V3 debug not run",
+            )
+
+        hold_ms = report.get("hold_after_speech_ms", 0)
+        attack_ms = report.get("duck_attack_ms", 0)
+        release_ms = report.get("duck_release_ms", 0)
+
+        # V3 spec: attack 150–250 ms, release 1500–2000 ms
+        abrupt = []
+        if attack_ms > 0 and attack_ms < 100:
+            abrupt.append(f"duck_attack_ms={attack_ms} (< 100 ms — may be abrupt)")
+        if release_ms > 0 and release_ms < 500:
+            abrupt.append(f"duck_release_ms={release_ms} (< 500 ms — may be abrupt)")
+
+        if abrupt:
+            return self._warn(
+                "BGM_009",
+                "Transition timing may produce abrupt gain changes: " + "; ".join(abrupt),
+                f"attack={attack_ms} ms, release={release_ms} ms",
+                "medium",
+                duck_attack_ms=attack_ms,
+                duck_release_ms=release_ms,
+            )
+
+        return self._pass(
+            "BGM_009",
+            f"Smooth transitions — attack={attack_ms} ms, release={release_ms} ms, "
+            f"hold={hold_ms} ms",
+            f"attack={attack_ms} ms, release={release_ms} ms",
+            duck_attack_ms=attack_ms,
+            duck_release_ms=release_ms,
+            hold_after_speech_ms=hold_ms,
+        )
+
+    def _check_narration_not_masked(
+        self, final_video: Path, project_dir: Path
+    ) -> ValidationResult:
+        """BGM_010: Narration dominates mix — BGM not masking speech."""
+        timeline_path = project_dir / "bgm-debug" / "speech_timeline.json"
+        if not timeline_path.exists():
+            return self._skip(
+                "BGM_010",
+                "bgm-debug/speech_timeline.json absent — VAD not run",
+            )
+
+        try:
+            timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+            segments = timeline.get("segments", [])
+        except Exception:
+            return self._skip("BGM_010", "Could not read speech_timeline.json")
+
+        if not segments:
+            return self._skip("BGM_010", "No speech segments in timeline")
+
+        # Measure overall mix: BGM+narration section should be louder than
+        # intro (BGM only). If intro ≥ body → narration is being masked.
+        intro_vol = _run_volumedetect(final_video, start=0.0, duration=3.0)
+        intro_mean = intro_vol.get("mean")
+
+        # Measure at several speech points and take the highest (most narration)
+        body_means: list[float] = []
+        for seg in segments[:3]:  # sample first 3 speech phrases
+            seg_dur = seg["end"] - seg["start"]
+            if seg_dur < 0.5:
+                continue
+            mid = (seg["start"] + seg["end"]) / 2
+            vol = _run_volumedetect(final_video, start=max(0.0, mid - 0.25), duration=0.5)
+            m = vol.get("mean")
+            if m is not None:
+                body_means.append(m)
+
+        if intro_mean is None or not body_means:
+            return self._skip("BGM_010", "volumedetect failed")
+
+        body_mean = max(body_means)
+
+        # Narration+BGM should be ≥ intro (BGM only). If body is more than 3 dB
+        # quieter than intro, BGM is dominating / narration is masked.
+        if intro_mean > body_mean + 3.0:
+            return self._warn(
+                "BGM_010",
+                f"BGM may be masking narration — intro ({intro_mean:.1f} dBFS) louder "
+                f"than narration section ({body_mean:.1f} dBFS)",
+                f"intro={intro_mean:.1f} dBFS, narration_section={body_mean:.1f} dBFS",
+                "medium",
+                intro_mean_db=intro_mean,
+                narration_mean_db=body_mean,
+            )
+
+        return self._pass(
+            "BGM_010",
+            "Narration dominates mix — BGM is supportive, not masking",
+            f"intro={intro_mean:.1f} dBFS, narration_section={body_mean:.1f} dBFS",
+            intro_mean_db=intro_mean,
+            narration_mean_db=body_mean,
         )
 
 

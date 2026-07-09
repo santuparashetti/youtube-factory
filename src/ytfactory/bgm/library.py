@@ -39,7 +39,9 @@ class BGMLibrary:
         Search order:
         1. ``<library_path>/<category>/`` subdirectory
         2. Tracks in ``<library_path>/`` whose filename contains the category name
-        3. Any track in ``<library_path>/`` (fallback)
+        3. Any track in ``<library_path>/`` (flat fallback)
+        4. Any track in any subdirectory (recursive fallback when library uses
+           subdirectory layout but requested category has no tracks)
         """
         # 1. Category subdirectory
         cat_dir = self._base / category
@@ -57,9 +59,19 @@ class BGMLibrary:
         if keyword_tracks:
             return self._pick(keyword_tracks)
 
-        # 3. Any track
+        # 3. Any root-level track
         if flat:
             return self._pick(flat)
+
+        # 4. Any track in any subdirectory (handles category-organised libraries
+        #    where the detected category simply has no tracks yet)
+        if self._base.exists():
+            all_sub: list[BGMTrack] = []
+            for sub in sorted(self._base.iterdir()):
+                if sub.is_dir():
+                    all_sub.extend(self._scan_dir(sub, sub.name))
+            if all_sub:
+                return self._pick(all_sub)
 
         return None
 

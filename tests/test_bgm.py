@@ -59,7 +59,7 @@ class TestBGMConfig:
         assert self._cfg().phrase_gap_ms == 300
 
     def test_default_long_silence_ms(self):
-        assert self._cfg().long_silence_ms == 2000
+        assert self._cfg().long_silence_ms == 2500
 
     def test_default_dynamic_ducking(self):
         assert self._cfg().dynamic_ducking is True
@@ -448,7 +448,7 @@ class TestSettingsBGMFields:
 
     def test_bgm_long_silence_ms_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_long_silence_ms"].default == 2000
+        assert _S.model_fields["bgm_long_silence_ms"].default == 2500
 
     def test_bgm_dynamic_ducking_default(self):
         from ytfactory.config.settings import Settings as _S
@@ -841,7 +841,7 @@ class TestBGMV2ReviewRules:
         with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={"mean": -20.0, "max": -3.0}), \
              patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=10.0):
             results = self._validator().validate(
-                tmp_path, [], {"bgm_enabled": True, "bgm_long_silence_ms": 2000}
+                tmp_path, [], {"bgm_enabled": True, "bgm_long_silence_ms": 2500}
             )
 
         bgm007 = next(r for r in results if r.rule_id == "BGM_007")
@@ -863,8 +863,589 @@ class TestBGMV2ReviewRules:
                    return_value={"mean": -20.0, "max": -3.0}), \
              patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=10.0):
             results = self._validator().validate(
-                tmp_path, [], {"bgm_enabled": True, "bgm_long_silence_ms": 2000}
+                tmp_path, [], {"bgm_enabled": True, "bgm_long_silence_ms": 2500}
             )
 
         bgm007 = next(r for r in results if r.rule_id == "BGM_007")
         assert bgm007.status == "PASS"
+
+
+# ── V3: PauseClassifier ───────────────────────────────────────────────────────
+
+
+class TestPauseClassifier:
+    def _classifier(self, threshold_ms=2500):
+        from ytfactory.bgm.vad import PauseClassifier
+        return PauseClassifier(long_silence_threshold_ms=threshold_ms)
+
+    def _timeline(self, gaps: list[tuple[float, float]]):
+        from ytfactory.bgm.vad import SpeechSegment, SpeechTimeline
+        segs = []
+        for start, end in gaps:
+            segs.append(SpeechSegment(start=start, end=end))
+        return SpeechTimeline(segments=segs, total_duration=gaps[-1][1] if gaps else 0.0)
+
+    def test_breath_gap_under_200ms(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (1.10, 2.0)])  # 100ms gap
+        events = self._classifier().classify(tl)
+        assert len(events) == 1
+        assert events[0].pause_type == PauseType.BREATH
+
+    def test_comma_gap_200_to_500ms(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (1.35, 2.0)])  # 350ms gap
+        events = self._classifier().classify(tl)
+        assert events[0].pause_type == PauseType.COMMA
+
+    def test_dramatic_pause_500ms_to_1500ms(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (1.8, 3.0)])  # 800ms gap
+        events = self._classifier().classify(tl)
+        assert events[0].pause_type == PauseType.DRAMATIC_PAUSE
+
+    def test_sentence_pause_1500ms_to_threshold(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (3.0, 5.0)])  # 2000ms gap < 2500ms threshold
+        events = self._classifier().classify(tl)
+        assert events[0].pause_type == PauseType.SENTENCE_PAUSE
+
+    def test_long_silence_above_threshold(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (4.0, 6.0)])  # 3000ms gap > 2500ms threshold
+        events = self._classifier().classify(tl)
+        assert events[0].pause_type == PauseType.LONG_SILENCE
+
+    def test_empty_timeline_returns_no_events(self):
+        from ytfactory.bgm.vad import SpeechTimeline
+        tl = SpeechTimeline(segments=[], total_duration=10.0)
+        events = self._classifier().classify(tl)
+        assert events == []
+
+    def test_single_segment_returns_no_events(self):
+        tl = self._timeline([(1.0, 3.0)])
+        events = self._classifier().classify(tl)
+        assert events == []
+
+    def test_multiple_gaps_classified_independently(self):
+        from ytfactory.bgm.vad import PauseType
+        # breath, long_silence
+        tl = self._timeline([(0.0, 1.0), (1.1, 2.0), (5.5, 7.0)])
+        events = self._classifier().classify(tl)
+        assert len(events) == 2
+        assert events[0].pause_type == PauseType.BREATH
+        assert events[1].pause_type == PauseType.LONG_SILENCE
+
+    def test_pause_event_duration_correct(self):
+        tl = self._timeline([(0.0, 1.0), (3.5, 5.0)])  # 2.5s gap
+        events = self._classifier().classify(tl)
+        assert events[0].duration == pytest.approx(2.5, abs=0.01)
+
+    def test_pause_event_to_dict(self):
+        from ytfactory.bgm.vad import PauseType
+        tl = self._timeline([(0.0, 1.0), (3.5, 5.0)])
+        ev = self._classifier().classify(tl)[0]
+        d = ev.to_dict()
+        assert "pause_type" in d
+        assert d["pause_type"] == PauseType.LONG_SILENCE.value
+
+
+# ── V3: classify_pause standalone ────────────────────────────────────────────
+
+
+class TestClassifyPause:
+    def _classify(self, gap_s, threshold_ms=2500):
+        from ytfactory.bgm.vad import classify_pause
+        return classify_pause(gap_s, threshold_ms)
+
+    def test_zero_gap_is_breath(self):
+        from ytfactory.bgm.vad import PauseType
+        assert self._classify(0.0) == PauseType.BREATH
+
+    def test_exact_boundary_200ms_is_comma(self):
+        from ytfactory.bgm.vad import PauseType
+        assert self._classify(0.20) == PauseType.COMMA
+
+    def test_exact_boundary_500ms_is_dramatic(self):
+        from ytfactory.bgm.vad import PauseType
+        assert self._classify(0.50) == PauseType.DRAMATIC_PAUSE
+
+    def test_exact_threshold_is_long_silence(self):
+        from ytfactory.bgm.vad import PauseType
+        assert self._classify(2.5, threshold_ms=2500) == PauseType.LONG_SILENCE
+
+    def test_custom_threshold(self):
+        from ytfactory.bgm.vad import PauseType
+        # With threshold_ms=3000, 2.8s gap is still SENTENCE_PAUSE
+        assert self._classify(2.8, threshold_ms=3000) == PauseType.SENTENCE_PAUSE
+        assert self._classify(3.0, threshold_ms=3000) == PauseType.LONG_SILENCE
+
+
+# ── V3: BGMConfig adaptive defaults ──────────────────────────────────────────
+
+
+class TestBGMConfigV3:
+    def _cfg(self, **kw):
+        from ytfactory.bgm.config import BGMConfig
+        return BGMConfig(**kw)
+
+    def test_adaptive_mixing_default_true(self):
+        assert self._cfg().adaptive_mixing is True
+
+    def test_hold_after_speech_ms_default(self):
+        assert self._cfg().hold_after_speech_ms == 2200
+
+    def test_long_silence_threshold_ms_default(self):
+        assert self._cfg().long_silence_threshold_ms == 2500
+
+    def test_narration_level_lufs_default(self):
+        assert self._cfg().narration_level_lufs == pytest.approx(-30.0)
+
+    def test_music_level_lufs_default(self):
+        assert self._cfg().music_level_lufs == pytest.approx(-17.0)
+
+    def test_transition_curve_default(self):
+        assert self._cfg().transition_curve == "ease_in_out"
+
+
+# ── V3: BGMMixer filter — adaptive vs legacy ──────────────────────────────────
+
+
+class TestBGMMixerV3Filter:
+    def _mixer(self, **kw):
+        from ytfactory.bgm.config import BGMConfig
+        from ytfactory.bgm.mixer import BGMMixer
+        return BGMMixer(BGMConfig(enabled=True, **kw))
+
+    def test_v3_filter_uses_hold_after_speech_ms_for_agate(self):
+        from ytfactory.bgm.mixer import _ffmpeg_agate_has_hold
+        mixer = self._mixer(adaptive_mixing=True, hold_after_speech_ms=2200, vad_enabled=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        if _ffmpeg_agate_has_hold():
+            assert "hold=2.200" in fc
+        else:
+            assert "agate" in fc  # still present, just without hold
+
+    def test_v2_filter_uses_phrase_gap_ms_for_agate(self):
+        from ytfactory.bgm.mixer import _ffmpeg_agate_has_hold
+        mixer = self._mixer(adaptive_mixing=False, phrase_gap_ms=300, vad_enabled=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        if _ffmpeg_agate_has_hold():
+            assert "hold=0.300" in fc
+
+    def test_v3_filter_uses_180ms_attack(self):
+        mixer = self._mixer(adaptive_mixing=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "attack=180" in fc
+
+    def test_v3_filter_uses_1800ms_release(self):
+        mixer = self._mixer(adaptive_mixing=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "release=1800" in fc
+
+    def test_v2_filter_uses_legacy_attack_ms(self):
+        mixer = self._mixer(adaptive_mixing=False, duck_attack_ms=15)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "attack=15" in fc
+
+    def test_v2_filter_uses_legacy_release_ms(self):
+        mixer = self._mixer(adaptive_mixing=False, duck_release_ms=350)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "release=350" in fc
+
+    def test_v3_still_has_sidechaincompress(self):
+        mixer = self._mixer(adaptive_mixing=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "sidechaincompress" in fc
+
+    def test_v3_still_has_alimiter(self):
+        mixer = self._mixer(adaptive_mixing=True)
+        fc = mixer._build_filter(120.0, 116.0)
+        assert "alimiter" in fc
+
+
+# ── V3: Settings fields ───────────────────────────────────────────────────────
+
+
+class TestSettingsBGMV3Fields:
+    def _S(self):
+        from ytfactory.config.settings import Settings
+        return Settings
+
+    def test_adaptive_mixing_field_exists(self):
+        assert hasattr(self._S()(), "bgm_adaptive_mixing")
+
+    def test_adaptive_mixing_default_true(self):
+        assert self._S().model_fields["bgm_adaptive_mixing"].default is True
+
+    def test_hold_after_speech_ms_default(self):
+        assert self._S().model_fields["bgm_hold_after_speech_ms"].default == 2200
+
+    def test_long_silence_threshold_ms_default(self):
+        assert self._S().model_fields["bgm_long_silence_threshold_ms"].default == 2500
+
+    def test_narration_level_lufs_default(self):
+        assert self._S().model_fields["bgm_narration_level_lufs"].default == pytest.approx(-30.0)
+
+    def test_music_level_lufs_default(self):
+        assert self._S().model_fields["bgm_music_level_lufs"].default == pytest.approx(-17.0)
+
+    def test_transition_curve_default(self):
+        assert self._S().model_fields["bgm_transition_curve"].default == "ease_in_out"
+
+
+# ── V3: BGMDebugWriter — state_timeline and bgm-mix-report ───────────────────
+
+
+class TestBGMDebugWriterV3:
+    def _timeline(self):
+        from ytfactory.bgm.vad import SpeechSegment, SpeechTimeline
+        return SpeechTimeline(
+            segments=[
+                SpeechSegment(start=2.0, end=5.0, energy=0.8),
+                SpeechSegment(start=10.0, end=13.0, energy=0.7),
+            ],
+            total_duration=20.0,
+            speech_ratio=0.3,
+        )
+
+    def _write_v3(self, tmp_path):
+        from ytfactory.bgm.debug import BGMDebugWriter
+        profile = {
+            "bgm_volume": 0.30,
+            "duck_floor": 0.04,
+            "adaptive_mixing": True,
+            "hold_after_speech_ms": 2200,
+            "duck_attack_ms": 180,
+            "duck_release_ms": 1800,
+            "long_silence_threshold_ms": 2500,
+        }
+        BGMDebugWriter(tmp_path).write(self._timeline(), profile, "fc_str", long_silence_threshold_ms=2500)
+        return tmp_path / "bgm-debug"
+
+    def test_v3_writes_state_timeline(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        assert (out / "state_timeline.json").exists()
+
+    def test_v3_writes_bgm_mix_report(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        assert (out / "bgm-mix-report.json").exists()
+
+    def test_state_timeline_has_entries(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "state_timeline.json").read_text())
+        assert data["entry_count"] > 0
+        assert len(data["entries"]) == data["entry_count"]
+
+    def test_state_timeline_contains_narration_active(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "state_timeline.json").read_text())
+        states = [e["state"] for e in data["entries"]]
+        assert "NARRATION_ACTIVE" in states
+
+    def test_state_timeline_contains_full(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "state_timeline.json").read_text())
+        states = [e["state"] for e in data["entries"]]
+        assert "FULL" in states
+
+    def test_mix_report_adaptive_mixing_true(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "bgm-mix-report.json").read_text())
+        assert data["adaptive_mixing"] is True
+
+    def test_mix_report_pumping_risk_low(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "bgm-mix-report.json").read_text())
+        assert data["pumping_risk"] == "low"
+
+    def test_mix_report_version_v3(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "bgm-mix-report.json").read_text())
+        assert data["version"] == "v3"
+
+    def test_mix_report_long_silence_classified(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "bgm-mix-report.json").read_text())
+        # Gap between segments: 10.0-5.0=5.0s → LONG_SILENCE (> 2500ms)
+        assert data["long_silence_count"] == 1
+
+    def test_no_v3_files_when_adaptive_mixing_false(self, tmp_path):
+        from ytfactory.bgm.debug import BGMDebugWriter
+        profile = {"bgm_volume": 0.30, "adaptive_mixing": False}
+        BGMDebugWriter(tmp_path).write(self._timeline(), profile, "fc")
+        out = tmp_path / "bgm-debug"
+        assert not (out / "state_timeline.json").exists()
+        assert not (out / "bgm-mix-report.json").exists()
+
+    def test_ducking_events_include_pause_type(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        data = json.loads((out / "ducking_events.json").read_text())
+        restore_events = [e for e in data["events"] if e["state"] == "restore"]
+        assert all("pause_type" in e for e in restore_events)
+
+    def test_audio_levels_csv_has_pause_type_column(self, tmp_path):
+        out = self._write_v3(tmp_path)
+        csv_text = (out / "audio_levels.csv").read_text()
+        assert "pause_type" in csv_text
+
+
+# ── V3: Kokoro timestamp reader ───────────────────────────────────────────────
+
+
+class TestKokoroTimestampReader:
+    def _write_timing(self, audio_dir: Path, stem: str, words: list[dict]) -> None:
+        (audio_dir / f"{stem}.timing.json").write_text(
+            json.dumps(words), encoding="utf-8"
+        )
+
+    def _write_alignment(self, audio_dir: Path, stem: str, words: list[dict]) -> None:
+        (audio_dir / f"{stem}.alignment.json").write_text(
+            json.dumps({"version": "whisperx_v1", "words": words}),
+            encoding="utf-8",
+        )
+
+    def test_returns_none_when_no_audio_dir(self, tmp_path):
+        from ytfactory.bgm.vad import build_speech_timeline_from_kokoro
+        result = build_speech_timeline_from_kokoro(tmp_path)
+        assert result is None
+
+    def test_returns_none_when_no_mp3_files(self, tmp_path):
+        from ytfactory.bgm.vad import build_speech_timeline_from_kokoro
+        (tmp_path / "audio").mkdir()
+        result = build_speech_timeline_from_kokoro(tmp_path)
+        assert result is None
+
+    def test_builds_timeline_from_timing_json(self, tmp_path):
+        from ytfactory.bgm.vad import build_speech_timeline_from_kokoro
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        mp3 = audio / "scene-001.mp3"
+        mp3.write_bytes(b"x")
+        self._write_timing(audio, "scene-001", [
+            {"word": "hello", "start": 0.1, "end": 0.5},
+            {"word": "world", "start": 0.6, "end": 1.0},
+        ])
+        tl = build_speech_timeline_from_kokoro(tmp_path)
+        assert tl is not None
+        assert len(tl.segments) >= 1
+
+    def test_alignment_preferred_over_timing(self, tmp_path):
+        from ytfactory.bgm.vad import build_speech_timeline_from_kokoro
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        mp3 = audio / "scene-001.mp3"
+        mp3.write_bytes(b"x")
+        # Both files present — alignment should win
+        self._write_timing(audio, "scene-001", [
+            {"word": "timing", "start": 0.1, "end": 0.5},
+        ])
+        self._write_alignment(audio, "scene-001", [
+            {"word": "alignment", "start": 0.2, "end": 0.8},
+        ])
+        tl = build_speech_timeline_from_kokoro(tmp_path)
+        assert tl is not None
+        # Alignment words are in range 0.2–0.8
+        assert tl.segments[0].start == pytest.approx(0.2, abs=0.01)
+
+    def test_offsets_second_scene(self, tmp_path):
+        from ytfactory.bgm.vad import build_speech_timeline_from_kokoro
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        for i in [1, 2]:
+            (audio / f"scene-00{i}.mp3").write_bytes(b"x")
+        self._write_timing(audio, "scene-001", [
+            {"word": "a", "start": 0.0, "end": 1.0},
+        ])
+        self._write_timing(audio, "scene-002", [
+            {"word": "b", "start": 0.0, "end": 0.5},
+        ])
+        # phrase_gap_ms=50 keeps scenes separate (inter-scene gap 0.1 s > 0.05 s)
+        tl = build_speech_timeline_from_kokoro(tmp_path, phrase_gap_ms=50)
+        assert tl is not None
+        # Second scene words are offset by cursor (1.0 + 0.1 = 1.1)
+        assert tl.segments[-1].end > 1.0
+
+
+# ── V3: BGMValidator new rules ────────────────────────────────────────────────
+
+
+class TestBGMV3ReviewRules:
+    def _validator(self):
+        from ytfactory.review.validation.config import ValidationRulesConfig
+        from ytfactory.review.validation.rules.bgm import BGMValidator
+        return BGMValidator(ValidationRulesConfig())
+
+    def _write_timeline(self, project_dir: Path, segments: list[dict]) -> None:
+        debug_dir = project_dir / "bgm-debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / "speech_timeline.json").write_text(
+            json.dumps({
+                "total_duration": 30.0,
+                "speech_ratio": 0.4,
+                "segment_count": len(segments),
+                "segments": segments,
+            }),
+            encoding="utf-8",
+        )
+
+    def _write_mix_report(self, project_dir: Path, **overrides: object) -> None:
+        debug_dir = project_dir / "bgm-debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        report = {
+            "version": "v3",
+            "adaptive_mixing": True,
+            "hold_after_speech_ms": 2200,
+            "duck_attack_ms": 180,
+            "duck_release_ms": 1800,
+            "long_silence_threshold_ms": 2500,
+            "speech_ratio": 0.4,
+            "segment_count": 2,
+            "pause_classifications": {"breath": 2, "comma": 1},
+            "long_silence_windows": [],
+            "long_silence_count": 0,
+            "pumping_risk": "low",
+            "quality_notes": [],
+        }
+        report.update(overrides)
+        (debug_dir / "bgm-mix-report.json").write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+
+    def test_bgm_008_skip_when_no_mix_report(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm008 = next(r for r in results if r.rule_id == "BGM_008")
+        assert bgm008.status == "SKIP"
+
+    def test_bgm_008_pass_when_adaptive_mixing_low_risk(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_mix_report(tmp_path, adaptive_mixing=True, pumping_risk="low")
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={"mean": -20.0, "max": -3.0}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm008 = next(r for r in results if r.rule_id == "BGM_008")
+        assert bgm008.status == "PASS"
+
+    def test_bgm_008_warn_when_adaptive_mixing_false(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_mix_report(tmp_path, adaptive_mixing=False, pumping_risk="medium")
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={"mean": -20.0, "max": -3.0}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm008 = next(r for r in results if r.rule_id == "BGM_008")
+        assert bgm008.status == "WARNING"
+
+    def test_bgm_009_skip_when_no_mix_report(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm009 = next(r for r in results if r.rule_id == "BGM_009")
+        assert bgm009.status == "SKIP"
+
+    def test_bgm_009_pass_with_cinematic_timing(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_mix_report(tmp_path, duck_attack_ms=180, duck_release_ms=1800)
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={"mean": -20.0, "max": -3.0}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm009 = next(r for r in results if r.rule_id == "BGM_009")
+        assert bgm009.status == "PASS"
+
+    def test_bgm_009_warn_with_abrupt_attack(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_mix_report(tmp_path, duck_attack_ms=15, duck_release_ms=350)
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={"mean": -20.0, "max": -3.0}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm009 = next(r for r in results if r.rule_id == "BGM_009")
+        assert bgm009.status == "WARNING"
+
+    def test_bgm_010_skip_when_no_timeline(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", return_value={}), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm010 = next(r for r in results if r.rule_id == "BGM_010")
+        assert bgm010.status == "SKIP"
+
+    def test_bgm_010_pass_when_narration_dominates(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_timeline(tmp_path, [
+            {"start": 3.0, "end": 8.0, "duration": 5.0, "energy": 0.8},
+        ])
+
+        def fake_vol(path, start=0.0, duration=None):
+            if duration == 3.0:  # intro
+                return {"mean": -24.0}
+            return {"mean": -20.0}  # narration section louder
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", side_effect=fake_vol), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm010 = next(r for r in results if r.rule_id == "BGM_010")
+        assert bgm010.status == "PASS"
+
+    def test_bgm_010_warn_when_bgm_masks_narration(self, tmp_path):
+        video = tmp_path / "video" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"fake")
+        self._write_timeline(tmp_path, [
+            {"start": 3.0, "end": 8.0, "duration": 5.0, "energy": 0.8},
+        ])
+
+        def fake_vol(path, start=0.0, duration=None):
+            if duration == 3.0:  # intro
+                return {"mean": -18.0}  # BGM-only intro is very loud
+            return {"mean": -30.0}  # narration section quieter → BGM masking
+
+        with patch("ytfactory.review.validation.rules.bgm._run_volumedetect", side_effect=fake_vol), \
+             patch("ytfactory.review.validation.rules.bgm._probe_duration", return_value=30.0):
+            results = self._validator().validate(tmp_path, [], {"bgm_enabled": True})
+
+        bgm010 = next(r for r in results if r.rule_id == "BGM_010")
+        assert bgm010.status == "WARNING"
+
+    def test_all_ten_rules_present_in_runner(self, tmp_path):
+        from ytfactory.review.validation.runner import ValidationRunner
+        runner = ValidationRunner()
+        report = runner.run(tmp_path, [], {"bgm_enabled": False})
+        bgm_rule_ids = {r.rule_id for r in report.results if r.category == "bgm"}
+        for rule_id in ("BGM_001", "BGM_002", "BGM_003", "BGM_004",
+                        "BGM_005", "BGM_006", "BGM_007",
+                        "BGM_008", "BGM_009", "BGM_010"):
+            assert rule_id in bgm_rule_ids, f"{rule_id} missing from runner output"

@@ -104,26 +104,59 @@ class BGMMixer:
         if cfg.vad_enabled and project_dir is not None:
             try:
                 from .debug import BGMDebugWriter
-                from .vad import detect_speech
+                from .vad import build_speech_timeline_from_kokoro, detect_speech
 
-                timeline = detect_speech(
-                    video_path,
-                    phrase_gap_ms=cfg.phrase_gap_ms,
-                )
+                # V3: try Kokoro timestamps first; fall back to FFmpeg silencedetect
+                if cfg.adaptive_mixing:
+                    timeline = build_speech_timeline_from_kokoro(
+                        project_dir,
+                        phrase_gap_ms=cfg.phrase_gap_ms,
+                        long_silence_threshold_ms=cfg.long_silence_threshold_ms,
+                    )
+                    if timeline is None:
+                        timeline = detect_speech(
+                            video_path,
+                            phrase_gap_ms=cfg.phrase_gap_ms,
+                        )
+                else:
+                    timeline = detect_speech(
+                        video_path,
+                        phrase_gap_ms=cfg.phrase_gap_ms,
+                    )
+
+                # Determine actual attack/release used in the filter
+                if cfg.adaptive_mixing:
+                    actual_attack = 180
+                    actual_release = 1800
+                else:
+                    actual_attack = cfg.duck_attack_ms
+                    actual_release = cfg.duck_release_ms
+
                 mix_profile = {
                     "bgm_volume": cfg.bgm_volume,
                     "duck_floor": cfg.duck_floor,
                     "duck_threshold": cfg.duck_threshold,
                     "duck_ratio": cfg.duck_ratio,
-                    "duck_attack_ms": cfg.duck_attack_ms,
-                    "duck_release_ms": cfg.duck_release_ms,
+                    "duck_attack_ms": actual_attack,
+                    "duck_release_ms": actual_release,
                     "phrase_gap_ms": cfg.phrase_gap_ms,
+                    "hold_after_speech_ms": cfg.hold_after_speech_ms,
                     "long_silence_ms": cfg.long_silence_ms,
+                    "long_silence_threshold_ms": cfg.long_silence_threshold_ms,
                     "dynamic_ducking": cfg.dynamic_ducking,
                     "restore_curve": cfg.restore_curve,
                     "vad_provider": cfg.vad_provider,
+                    "adaptive_mixing": cfg.adaptive_mixing,
+                    "narration_level_lufs": cfg.narration_level_lufs,
+                    "music_level_lufs": cfg.music_level_lufs,
+                    "transition_curve": cfg.transition_curve,
                 }
-                BGMDebugWriter(project_dir).write(timeline, mix_profile, filter_complex)
+                BGMDebugWriter(project_dir).write(
+                    timeline,
+                    mix_profile,
+                    filter_complex,
+                    long_silence_threshold_ms=cfg.long_silence_threshold_ms,
+                )
             except Exception as exc:
                 logger.warning("BGM debug write failed (non-fatal): {}", exc)
 
@@ -176,39 +209,54 @@ class BGMMixer:
     def _build_filter(self, duration: float, fade_out_start: float) -> str:
         """Return the FFmpeg filter_complex string for BGM mixing with ducking.
 
-        V2 two-path architecture — see module docstring for the full signal flow.
-        When vad_enabled the narration sidechain is pre-processed with agate to
-        group nearby words into phrases (eliminating inter-word pumping).
+        V2/V3 two-path architecture — see module docstring for signal flow.
+
+        V3 adaptive mixing (adaptive_mixing=True):
+          - agate hold = hold_after_speech_ms (default 2200 ms) — bridges all
+            breaths, commas, dramatic pauses and sentence pauses so music stays
+            ducked across any narration gap shorter than 2.2 s.
+          - sidechaincompress attack = 180 ms (slow onset — cinematic)
+          - sidechaincompress release = 1800 ms (slow recovery — no pumping)
+          Only genuine long silence (>2.2 s) allows music to recover.
+
+        V2 legacy mode (adaptive_mixing=False):
+          - Uses phrase_gap_ms for agate hold (300 ms)
+          - Uses duck_attack_ms / duck_release_ms directly (15 ms / 350 ms)
         """
         cfg = self._config
-        main_vol = max(0.0, cfg.bgm_volume - cfg.duck_floor)
-        phrase_gap_s = cfg.phrase_gap_ms / 1000.0
 
-        # ── Narration sidechain label — V1 or V2 depending on vad_enabled ────
+        # ── Select V3 or V2 timing params ────────────────────────────────────
+        if cfg.adaptive_mixing:
+            agate_hold_s = cfg.hold_after_speech_ms / 1000.0
+            sc_attack_ms = 180  # cinematic onset — 150–250 ms spec range
+            sc_release_ms = 1800  # slow recovery — 1500–2000 ms spec range
+        else:
+            agate_hold_s = cfg.phrase_gap_ms / 1000.0
+            sc_attack_ms = cfg.duck_attack_ms
+            sc_release_ms = cfg.duck_release_ms
+
+        main_vol = max(0.0, cfg.bgm_volume - cfg.duck_floor)
+
+        # ── Narration sidechain — V1 (no agate) or V2/V3 (agate phrase gate) ─
         if cfg.vad_enabled:
             agate_has_hold = _ffmpeg_agate_has_hold()
             if not agate_has_hold:
-                # FFmpeg < 5.x: hold not available; use agate without it.
-                # Phrase grouping is absent but ducking still works correctly.
                 logger.debug(
                     "BGM: agate 'hold' not supported by this FFmpeg — "
                     "using agate without hold (slight inter-word pumping possible)"
                 )
             agate_params = (
                 f"threshold={cfg.duck_threshold:.4f}:"
-                + (f"hold={phrase_gap_s:.3f}:" if agate_has_hold else "")
+                + (f"hold={agate_hold_s:.3f}:" if agate_has_hold else "")
                 + "attack=0.015:"
                 "release=0.350:"
                 "range=0.01"
             )
             nar_split = (
-                # Split narration: one copy for sidechain gating, one for the mix
                 f"[0:a]"
                 f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
                 f"asplit=2"
                 f"[nar_raw][nar_mix];"
-
-                # Phrase-grouping gate on sidechain.
                 f"[nar_raw]agate={agate_params}[nar_sc];"
             )
         else:
@@ -238,16 +286,18 @@ class BGMMixer:
             # ── Path B: main — scaled then sidechain-compressed ───────────────
             f"[bgm_main_raw]volume={main_vol:.4f}[bgm_main_scaled];"
 
-            # ── Narration split + optional phrase-grouping gate ───────────────
+            # ── Narration split + phrase-grouping gate ────────────────────────
             + nar_split +
 
-            # ── Sidechain compress: BGM ducks while narration is above threshold ─
+            # ── Sidechain compress: BGM ducks while narration gate is open ────
+            # V3: attack=180 ms (cinematic), release=1800 ms (no pumping)
+            # V2: attack/release from BGMConfig (15 ms / 350 ms legacy)
             f"[bgm_main_scaled][nar_sc]"
             f"sidechaincompress="
             f"threshold={cfg.duck_threshold:.4f}:"
             f"ratio={cfg.duck_ratio:.1f}:"
-            f"attack={cfg.duck_attack_ms}:"
-            f"release={cfg.duck_release_ms}:"
+            f"attack={sc_attack_ms}:"
+            f"release={sc_release_ms}:"
             f"knee=2.0"
             f"[bgm_main_compressed];"
 

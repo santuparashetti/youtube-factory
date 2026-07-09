@@ -58,6 +58,13 @@ class BGMPipeline:
             long_silence_ms=self._settings.bgm_long_silence_ms,
             dynamic_ducking=self._settings.bgm_dynamic_ducking,
             restore_curve=self._settings.bgm_restore_curve,
+            # V3 adaptive mixing
+            adaptive_mixing=self._settings.bgm_adaptive_mixing,
+            hold_after_speech_ms=self._settings.bgm_hold_after_speech_ms,
+            long_silence_threshold_ms=self._settings.bgm_long_silence_threshold_ms,
+            narration_level_lufs=self._settings.bgm_narration_level_lufs,
+            music_level_lufs=self._settings.bgm_music_level_lufs,
+            transition_curve=self._settings.bgm_transition_curve,
         )
         self._library = BGMLibrary(self._config)
         self._mixer = BGMMixer(self._config)

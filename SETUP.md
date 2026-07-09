@@ -229,7 +229,13 @@ mkdir -p workspace/music/{spiritual,meditation,cinematic_ambient,emotional_docum
 
 Recommended: royalty-free tracks from [Free Music Archive](https://freemusicarchive.org/) or [YouTube Audio Library](https://studio.youtube.com/channel/audiomono/music).
 
-When `BGM_CATEGORY=auto`, the pipeline selects the category based on the video topic. When `BGM_ENABLED=true` but the music folder is empty, BGM is silently skipped.
+When `BGM_CATEGORY=auto`, the pipeline selects the category based on the video title and scene titles. The library uses a four-level fallback: (1) exact category subdirectory, (2) filename keyword match in the root, (3) any root-level file, (4) any track in any subdirectory. This means adding even one track to any category folder is enough to get BGM — you never need a track in every category. BGM is silently skipped only when the library directory has no audio files at all, or when `BGM_ENABLED=false`.
+
+To apply BGM to an already-rendered video (e.g. rendered before BGM was enabled):
+
+```bash
+ytfactory mix-bgm PROJECT_ID
+```
 
 ---
 
