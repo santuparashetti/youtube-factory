@@ -35,10 +35,11 @@ RUN uv sync --frozen --no-install-project
 
 # Install heavy ML packages (not in pyproject.toml due to platform-specific wheels)
 # PyTorch CPU — upgrade to CUDA variant at runtime via ytfactory setup if needed
-RUN /app/.venv/bin/pip install --quiet \
-        torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
-    /app/.venv/bin/pip install --quiet \
-        kokoro soundfile whisperx
+# Use `uv pip install` — uv venvs have no pip binary, so /app/.venv/bin/pip
+# does not exist; uv pip targets the venv directly via VIRTUAL_ENV.
+ENV VIRTUAL_ENV=/app/.venv
+RUN uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
+    uv pip install kokoro soundfile whisperx
 
 # ── Production image ──────────────────────────────────────────────────────────
 FROM base AS production
@@ -55,7 +56,7 @@ COPY pyproject.toml ./
 COPY config/ config/
 
 # Install the project itself (editable install in the existing venv)
-RUN /app/.venv/bin/pip install -e . --no-deps --quiet
+RUN uv pip install -e . --no-deps
 
 # Activate venv for all subsequent commands
 ENV PATH="/app/.venv/bin:$PATH"
