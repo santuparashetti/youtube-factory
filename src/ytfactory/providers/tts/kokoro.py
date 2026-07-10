@@ -89,8 +89,19 @@ class KokoroProvider(TTSProvider):
             ) from exc
 
         if self._pipeline is None:
+            import warnings  # noqa: PLC0415
+
             logger.info("Kokoro: loading pipeline lang_code={}", lang_code)
-            self._pipeline = KPipeline(lang_code=lang_code)
+            with warnings.catch_warnings():
+                # Suppress internal PyTorch warnings from Kokoro model init —
+                # dropout/num_layers and weight_norm deprecation are inside Kokoro's
+                # own LSTM/model code and not actionable from our side.
+                warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+                warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
+                self._pipeline = KPipeline(
+                    lang_code=lang_code,
+                    repo_id="hexgrad/Kokoro-82M",  # suppress "Defaulting repo_id" warning
+                )
         return self._pipeline
 
     # ── Voice resolution ───────────────────────────────────────────────────────

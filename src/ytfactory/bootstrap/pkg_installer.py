@@ -52,22 +52,25 @@ def install_ml_packages() -> list[CheckResult]:
             )
 
     # ── Kokoro TTS packages ───────────────────────────────────────────────────
+    # Use `uv sync --extra kokoro` so the resolver also satisfies transformers>=4.47.0
+    # (which removed the huggingface-hub<1.0 runtime check) alongside our other deps.
     if tts_provider == "kokoro":
-        for pkg, label in [("kokoro", "pkg:kokoro"), ("soundfile", "pkg:soundfile")]:
-            if not _importable(pkg):
-                results.extend(
-                    _pip_install([pkg], label=label, description=pkg)
+        if not _importable("kokoro") or not _importable("soundfile"):
+            results.extend(
+                _uv_sync_extra("kokoro", label="pkg:kokoro", description="kokoro + soundfile + transformers")
+            )
+        else:
+            results.append(
+                CheckResult(
+                    name="pkg:kokoro",
+                    status=CheckStatus.OK,
+                    message="kokoro already installed",
                 )
-            else:
-                results.append(
-                    CheckResult(
-                        name=label,
-                        status=CheckStatus.OK,
-                        message=f"{pkg} already installed",
-                    )
-                )
+            )
 
     # ── WhisperX forced alignment ─────────────────────────────────────────────
+    # whisperx has platform-specific onnxruntime wheels — keep as uv pip install,
+    # not a pyproject.toml extra, so the resolver doesn't choke on cp310 gaps.
     if whisperx_enabled:
         if not _importable("whisperx"):
             results.extend(
@@ -90,6 +93,43 @@ def install_ml_packages() -> list[CheckResult]:
 
 def _importable(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def _uv_sync_extra(extra: str, *, label: str, description: str) -> list[CheckResult]:
+    """Install an optional-extra group via `uv sync --extra <name>`.
+
+    Using sync (not bare pip install) lets uv resolve all constraints together —
+    critical for the kokoro extra where transformers>=4.47.0 must coexist with
+    huggingface-hub>=1.0 that our main deps resolve to.
+    """
+    cmd = ["uv", "sync", "--extra", extra]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if r.returncode == 0:
+            return [
+                CheckResult(
+                    name=label,
+                    status=CheckStatus.OK,
+                    message=f"Installed {description} (via uv sync --extra {extra})",
+                )
+            ]
+        return [
+            CheckResult(
+                name=label,
+                status=CheckStatus.WARNING,
+                message=f"Failed to install {description}",
+                detail=(r.stdout + r.stderr)[-500:],
+            )
+        ]
+    except Exception as exc:
+        return [
+            CheckResult(
+                name=label,
+                status=CheckStatus.WARNING,
+                message=f"Install error: {description}",
+                detail=str(exc),
+            )
+        ]
 
 
 def _pip_install(

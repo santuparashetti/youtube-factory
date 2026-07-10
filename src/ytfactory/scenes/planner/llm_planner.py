@@ -31,6 +31,11 @@ class LLMScenePlanner:
                 f"completion_tokens={response.completion_tokens})"
             )
 
+        # Strip markdown code fences (```json ... ``` or ``` ... ```)
+        import re  # noqa: PLC0415
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text).strip()
+
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:

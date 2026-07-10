@@ -11,7 +11,7 @@ dependencies = [
     "edge-tts>=7.2.8",
     "ffmpeg-python>=0.2.0",
     "google-genai>=2.10.0",
-    "huggingface-hub>=1.16.1",
+    "huggingface-hub>=0.34.0",
     "langchain-core>=0.3",
     "langdetect>=1.0.9",
     "langgraph>=0.2",
@@ -36,6 +36,19 @@ dependencies = [
     "tenacity>=9.1.4",
     "tiktoken>=0.13.0",
     "typer>=0.26.8",
+]
+
+[project.optional-dependencies]
+# Heavy ML packages — not installed by default.
+# Install with: uv sync --extra kokoro
+# or via: ytfactory setup  (which calls uv sync --extra kokoro automatically)
+# transformers>=4.47.0 removes the huggingface-hub<1.0 runtime check.
+# click added explicitly: spacy imports it directly but typer>=0.12 no longer declares it.
+kokoro = [
+    "kokoro>=0.9.0",
+    "soundfile>=0.12.1",
+    "transformers>=4.47.0",
+    "click>=8.0.0",
 ]
 
 [project.scripts]
