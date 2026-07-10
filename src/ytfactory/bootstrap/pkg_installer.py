@@ -95,7 +95,10 @@ def _importable(name: str) -> bool:
 def _pip_install(
     packages: list[str], *, label: str, description: str
 ) -> list[CheckResult]:
-    cmd = [sys.executable, "-m", "pip", "install", "--quiet"] + packages
+    # Use `uv pip install` so packages always land in the active uv-managed venv.
+    # Falling back to `sys.executable -m pip install` risks installing to the
+    # system/user site-packages when pip is absent from the venv (uv default).
+    cmd = ["uv", "pip", "install"] + packages
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if r.returncode == 0:
