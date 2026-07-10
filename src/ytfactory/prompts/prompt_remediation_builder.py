@@ -113,6 +113,42 @@ CATEGORY_PROMPT_LIBRARY: dict[str, str] = {
     ),
 }
 
+# ── Category normalization ────────────────────────────────────────────────────
+#
+# The vision model is instructed to return one of the canonical categories, but
+# sometimes returns variants like "AI Artifacts" instead of "artifact".  When a
+# broad category like "artifact" accompanies a description that contains
+# hand/anatomy keywords, the issue is really an anatomy defect; normalising it
+# to "anatomy" lets _RULE_DETECTORS match on category as well as keyword.
+
+_ARTIFACT_ANATOMY_KEYWORDS: frozenset[str] = frozenset({
+    "hand", "hands", "finger", "fingers", "thumb", "digit", "digits",
+    "knuckle", "knuckles", "palm", "palms", "wrist", "wrists",
+    "duplicated thumb", "extra finger", "missing finger", "fused digit",
+})
+
+_CATEGORY_ALIASES: dict[str, str] = {
+    "ai artifacts": "artifact",
+    "ai artifact": "artifact",
+}
+
+
+def _normalize_category(issue: "VisionIssue") -> str:
+    """Return a canonical lowercase category for rule-detection purposes.
+
+    ``"AI Artifacts"`` + an anatomy-keyword description → ``"anatomy"`` so that
+    hand/anatomy rules match on category as well as keyword.
+    Any other alias is collapsed to its canonical form; unknown values pass through.
+    """
+    cat = issue.category.lower()
+    cat = _CATEGORY_ALIASES.get(cat, cat)
+    if cat == "artifact":
+        desc = issue.description.lower()
+        if any(kw in desc for kw in _ARTIFACT_ANATOMY_KEYWORDS):
+            return "anatomy"
+    return cat
+
+
 _FALLBACK_INSTRUCTION = (
     "High photographic quality, sharp focus, correct proportions, "
     "no artifacts — preserve all original scene elements."
@@ -132,12 +168,12 @@ _SEVERITY_RANK: dict[str, int] = {
 _RULE_DETECTORS: dict[str, tuple[frozenset[str], frozenset[str], str]] = {
     "hands_invalid": (
         frozenset({"anatomy"}),
-        frozenset({"hand", "finger", "palm", "wrist", "knuckle"}),
+        frozenset({"hand", "finger", "thumb", "palm", "wrist", "knuckle", "duplicated thumb"}),
         "MEDIUM",
     ),
     "finger_count_invalid": (
         frozenset({"anatomy"}),
-        frozenset({"finger", "digit", "extra finger", "missing finger", "fused", "merged"}),
+        frozenset({"finger", "digit", "thumb", "extra finger", "missing finger", "fused", "merged", "duplicated"}),
         "MEDIUM",
     ),
     "impossible_walk_cycle": (
@@ -245,6 +281,8 @@ class PromptRemediationBuilder:
         """Infer named rule names from a list of VisionIssues.
 
         Uses keyword + category matching.  Each rule is returned at most once.
+        Category is normalised via ``_normalize_category`` before matching so
+        that model-returned variants like ``"AI Artifacts"`` resolve correctly.
         """
         detected: list[str] = []
         for rule, (categories, keywords, min_sev) in _RULE_DETECTORS.items():
@@ -257,7 +295,7 @@ class PromptRemediationBuilder:
                 )
                 if _SEVERITY_RANK.get(sev_str, 0) < min_rank:
                     continue
-                cat_match = issue.category.lower() in categories
+                cat_match = _normalize_category(issue) in categories
                 desc = issue.description.lower()
                 kw_match = any(kw in desc for kw in keywords)
                 if cat_match or kw_match:

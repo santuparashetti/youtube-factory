@@ -30,6 +30,7 @@ ENGINE_STRATEGY_MAP: dict[str, str] = {
     "ASS Subtitle Engine": "regenerate_subtitles",
     "Video Renderer": "regenerate_video_clip",
     "Video Quality Review Engine": "retry_validation",
+    "ImageReviewEngine": "regenerate_image",
 }
 
 # Maps validation category to a fallback strategy when engine mapping is absent
@@ -42,6 +43,7 @@ CATEGORY_STRATEGY_MAP: dict[str, str] = {
     "motion": "regenerate_video_clip",
     "rendering": "regenerate_video_clip",
     "story": "retry_validation",
+    "vision_review": "regenerate_image",
 }
 
 # Strategy cost estimates in relative units (not real USD — used for comparison)
