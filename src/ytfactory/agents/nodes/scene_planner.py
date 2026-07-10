@@ -345,6 +345,32 @@ def _parse_visual_prompts(text: str) -> list[dict] | None:
     return None
 
 
+def _generate_vp_sub_batches(
+    llm: "LLMProvider",
+    batch: list[dict],
+    style: str,
+    visual_diary: list[str],
+) -> list[dict] | None:
+    """Retry a truncated batch by splitting it in half and calling each half separately."""
+    half = max(1, len(batch) // 2)
+    merged: list[dict] = []
+    for sub in [batch[:half], batch[half:]]:
+        if not sub:
+            continue
+        sub_prompt = build_visual_prompts_prompt(sub, style, prev_context=visual_diary or None)
+        sub_resp = llm.generate(sub_prompt, temperature=0.35)
+        if sub_resp.finish_reason == "length":
+            logger.warning(
+                "Sub-batch {}-{} still truncated after split — accepting partial results",
+                sub[0]["index"],
+                sub[-1]["index"],
+            )
+        sub_list = _parse_visual_prompts(sub_resp.text)
+        if sub_list:
+            merged.extend(sub_list)
+    return merged or None
+
+
 def scene_planner_node(state: VideoState) -> dict:
     """
     Scene Planner Agent:
@@ -428,9 +454,11 @@ def scene_planner_node(state: VideoState) -> dict:
     )
 
     # ── Phase 2: Visual prompts — use the configured LLM provider ───────────
-    # Batch size: Claude/Gemini handle 15 scenes cleanly; Groq needs 7 to avoid truncation.
+    # Batch size: 10 scenes keeps each batch well under an 8192-token proxy cap (~500 tok/prompt).
+    # Groq uses 7 (tighter output limit). If the proxy returns finish_reason=length the batch
+    # is automatically split in half and retried by _generate_vp_sub_batches().
     # Asset scenes are excluded — they have no visual_prompt and skip image generation.
-    _VP_BATCH = 7 if settings.llm_provider.lower() == "groq" else 15
+    _VP_BATCH = 7 if settings.llm_provider.lower() == "groq" else 10
     generated_scenes = [
         s for s in scenes if s.get("scene_type", "generated_image") == "generated_image"
     ]
@@ -451,13 +479,23 @@ def scene_planner_node(state: VideoState) -> dict:
             batch, style, prev_context=visual_diary or None
         )
         vp_response = llm.generate(prompt, temperature=0.35)
-        vp_list = _parse_visual_prompts(vp_response.text)
 
-        # Retry once on parse failure
-        if vp_list is None:
-            logger.warning("Batch {} parse failed — retrying", batch_nums)
-            vp_response = llm.generate(prompt, temperature=0.35)
+        # If the proxy hit its output token cap, split the batch and retry each half.
+        # Parsing a truncated response risks silently dropping the last N scenes.
+        if vp_response.finish_reason == "length":
+            logger.warning(
+                "Batch {} hit output token limit ({} tokens) — splitting into sub-batches",
+                batch_nums,
+                vp_response.completion_tokens,
+            )
+            vp_list = _generate_vp_sub_batches(llm, batch, style, visual_diary)
+        else:
             vp_list = _parse_visual_prompts(vp_response.text)
+            # Retry once on parse failure
+            if vp_list is None:
+                logger.warning("Batch {} parse failed — retrying", batch_nums)
+                vp_response = llm.generate(prompt, temperature=0.35)
+                vp_list = _parse_visual_prompts(vp_response.text)
 
         if vp_list:
             expected_indexes = [s["index"] for s in batch]
