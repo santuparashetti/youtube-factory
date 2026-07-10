@@ -10,11 +10,12 @@ Flow:
             → generate_scene_assets (parallel fan-out, one per scene)
               → video_renderer
                 → video_concatenator
-                  → quality_review        ← Video Quality Review Engine V1
-                    PASS → publish        ← Publishing & Growth Engine V1
-                    FAIL → remediation    ← Auto Remediation Engine V1
-                      PASS → publish
-                      FAIL → END (pipeline stopped, publishing skipped)
+                  → cta                  ← CTA Overlay Engine V2
+                    → quality_review     ← Video Quality Review Engine V1
+                      PASS → publish     ← Publishing & Growth Engine V1
+                      FAIL → remediation ← Auto Remediation Engine V1
+                        PASS → publish
+                        FAIL → END (pipeline stopped, publishing skipped)
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from ytfactory.agents.nodes.cta import cta_node
 from ytfactory.agents.nodes.human_review import (
     human_review_scenes_node,
     human_review_script_node,
@@ -90,6 +92,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("generate_scene_assets", generate_scene_assets)
     workflow.add_node("video_renderer", video_renderer_node)
     workflow.add_node("video_concatenator", video_concatenator_node)
+    workflow.add_node("cta", cta_node)
     workflow.add_node("quality_review", quality_review_node)
     workflow.add_node("remediation", remediation_node)
     workflow.add_node("publish", publish_node)
@@ -121,7 +124,8 @@ def build_graph() -> StateGraph:
         {"video_renderer": "video_renderer", END: END},
     )
     workflow.add_edge("video_renderer", "video_concatenator")
-    workflow.add_edge("video_concatenator", "quality_review")
+    workflow.add_edge("video_concatenator", "cta")
+    workflow.add_edge("cta", "quality_review")
     workflow.add_conditional_edges(
         "quality_review",
         _route_after_review,

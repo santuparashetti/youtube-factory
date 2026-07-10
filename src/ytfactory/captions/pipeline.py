@@ -38,7 +38,7 @@ class CaptionPipeline:
 
     def run(
         self,
-        project: str,
+        project_id: str,
     ) -> None:
         settings = Settings()
         engine = SubtitleEngine.from_settings(settings)
@@ -47,7 +47,7 @@ class CaptionPipeline:
         # Build subtitle editor once (None when disabled)
         editor = _build_editor(settings)
 
-        project_dir = Path("workspace") / "jobs" / project
+        project_dir = Path("workspace") / "jobs" / project_id
         scene_file = project_dir / "scenes" / "scene-plan.json"
         scenes = json.loads(scene_file.read_text(encoding="utf-8"))["scenes"]
 
@@ -55,8 +55,8 @@ class CaptionPipeline:
 
         for scene in scenes:
             index = scene["index"]
-            srt_path = subtitles_directory(project) / f"scene-{index:03d}.srt"
-            ass_path = subtitles_directory(project) / f"scene-{index:03d}.ass"
+            srt_path = subtitles_directory(project_id) / f"scene-{index:03d}.srt"
+            ass_path = subtitles_directory(project_id) / f"scene-{index:03d}.ass"
 
             # Skip if primary output already exists
             primary = ass_path if use_ass else srt_path
@@ -82,14 +82,14 @@ class CaptionPipeline:
                 boundaries=boundaries,
                 narration=scene["narration"],
                 scene_index=index,
-                project_id=project,
+                project_id=project_id,
                 total_duration=total_duration,
             )
 
             # ── Editorial pass (when enabled) ─────────────────────────────
             if editor is not None:
                 cues = editor.edit(
-                    cues, scene_id=f"scene-{index:03d}", project_id=project
+                    cues, scene_id=f"scene-{index:03d}", project_id=project_id
                 )
 
             # ── Serialise and write ───────────────────────────────────────
@@ -115,7 +115,7 @@ class CaptionPipeline:
             self.repository.save(artifact)
 
         SubtitleDebugWriter.write_project_summary(
-            project_id=project,
+            project_id=project_id,
             reports=reports,
             enabled=settings.subtitle_debug,
         )

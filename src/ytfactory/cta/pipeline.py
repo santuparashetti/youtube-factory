@@ -33,8 +33,16 @@ class CTAPipeline:
 
     Usage::
 
-        CTAPipeline().run(project_id)
+        CTAPipeline().run(project_id)               # reads from Settings()
+        CTAPipeline(settings=settings).run(project_id)  # shared Settings instance
     """
+
+    def __init__(self, settings=None) -> None:
+        # Defer Settings import to avoid circular deps at module level
+        if settings is None:
+            from ytfactory.config.settings import Settings
+            settings = Settings()
+        self._max_retries: int = int(getattr(settings, "cta_max_retries", 3))
 
     def run(
         self,
@@ -111,45 +119,47 @@ class CTAPipeline:
                 output_video=str(final_video),
             )
 
-        # Step 1 — retry once with same placement
-        logger.warning("CTA validation failed, retrying once (same placement)")
-        work_output.unlink(missing_ok=True)
-        render_result = renderer.render(final_video, work_output, placement, config)
-        review = self._validate(render_result, placement, config, final_video)
-        review.retry_count = 1
+        # Step 1 — retry once with same placement (when max_retries >= 2)
+        if self._max_retries >= 2:
+            logger.warning("CTA validation failed, retrying once (same placement)")
+            work_output.unlink(missing_ok=True)
+            render_result = renderer.render(final_video, work_output, placement, config)
+            review = self._validate(render_result, placement, config, final_video)
+            review.retry_count = 1
 
-        if review.passed:
-            self._replace_final(final_video, work_output, pre_cta_backup)
-            return CTAResult(
-                success=True,
-                enabled=True,
-                placement=placement,
-                review=review,
-                output_video=str(final_video),
+            if review.passed:
+                self._replace_final(final_video, work_output, pre_cta_backup)
+                return CTAResult(
+                    success=True,
+                    enabled=True,
+                    placement=placement,
+                    review=review,
+                    output_video=str(final_video),
+                )
+
+        # Step 2 — fall back to minimal template (when max_retries >= 3)
+        if self._max_retries >= 3:
+            logger.warning("CTA retry failed, falling back to minimal template")
+            work_output.unlink(missing_ok=True)
+            minimal_config = self._minimal_config(config)
+            render_result = renderer.render(
+                final_video, work_output, placement, minimal_config
             )
+            review = self._validate(render_result, placement, minimal_config, final_video)
+            review.retry_count = 2
+            review.fallback_template = "minimal"
 
-        # Step 2 — fall back to minimal template
-        logger.warning("CTA retry failed, falling back to minimal template")
-        work_output.unlink(missing_ok=True)
-        minimal_config = self._minimal_config(config)
-        render_result = renderer.render(
-            final_video, work_output, placement, minimal_config
-        )
-        review = self._validate(render_result, placement, minimal_config, final_video)
-        review.retry_count = 2
-        review.fallback_template = "minimal"
+            if review.passed:
+                self._replace_final(final_video, work_output, pre_cta_backup)
+                return CTAResult(
+                    success=True,
+                    enabled=True,
+                    placement=placement,
+                    review=review,
+                    output_video=str(final_video),
+                )
 
-        if review.passed:
-            self._replace_final(final_video, work_output, pre_cta_backup)
-            return CTAResult(
-                success=True,
-                enabled=True,
-                placement=placement,
-                review=review,
-                output_video=str(final_video),
-            )
-
-        # Step 3 — block final mux
+        # Exhausted all configured steps — block final mux
         work_output.unlink(missing_ok=True)
         reason_code = "CTA_RENDER_FAILED_ALL_ATTEMPTS"
         review.reason_code = reason_code

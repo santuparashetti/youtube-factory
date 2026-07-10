@@ -617,7 +617,7 @@ uv pip install whisperx
 - You are running from the wrong directory. Always run from the repo root.
 - Or your `.env` file is missing / has empty values.
 
-### `Settings defaults fall back to llm_provider="gemini"` (unexpected)
+### `Settings defaults fall back to llm_provider="anthropic"` (unexpected)
 - You ran `ytfactory` from a subdirectory. The `.env` was not found.
 - Fix: `cd /path/to/youtube-factory` then re-run.
 

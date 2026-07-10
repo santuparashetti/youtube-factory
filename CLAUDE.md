@@ -81,10 +81,10 @@ Business logic never imports a concrete provider directly — it calls a factory
 
 | Provider type | Base class | Implementations | Setting key |
 |---|---|---|---|
-| LLM | `providers/llm/base.py` | Gemini | `LLM_PROVIDER` |
+| LLM | `providers/llm/base.py` | Gemini, Anthropic (OpenAI-compat), Groq, Ollama | `LLM_PROVIDER` |
 | Search | `providers/search/base.py` | Tavily | `SEARCH_PROVIDER` |
 | Image | `providers/image/base.py` | HuggingFace, Gemini | `IMAGE_PROVIDER` |
-| TTS | `providers/tts/base.py` | Edge TTS, ElevenLabs | `TTS_PROVIDER` |
+| TTS | `providers/tts/base.py` | Kokoro, Edge TTS | `TTS_PROVIDER` |
 
 To add a new provider: implement the abstract base, add a `case` in the factory, expose a setting.
 
@@ -216,13 +216,13 @@ GEMINI_API_KEY=...
 TAVILY_API_KEY=...
 HF_TOKEN=...
 
-LLM_PROVIDER=gemini
+LLM_PROVIDER=anthropic
 SEARCH_PROVIDER=tavily
 IMAGE_PROVIDER=huggingface   # or gemini
-TTS_PROVIDER=edge            # or elevenlabs
+TTS_PROVIDER=kokoro          # or edge
 ```
 
-Image and video output default to 1920×1080 (Full HD).
+Image output defaults to 1280×720 (HD 720p).
 
 ### Constants
 

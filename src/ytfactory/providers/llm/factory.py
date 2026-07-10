@@ -30,5 +30,5 @@ def get_llm_provider(
         case _:
             raise ValueError(
                 f"Unsupported LLM provider: {settings.llm_provider}. "
-                "Valid options: gemini, groq, ollama"
+                "Valid options: gemini, groq, ollama, anthropic"
             )

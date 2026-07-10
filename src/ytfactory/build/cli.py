@@ -5,14 +5,19 @@ from rich.console import Console
 
 from .pipeline import BuildPipeline
 
+_STYLE_CHOICES = ["spiritual", "documentary", "history", "educational"]
+
 console = Console()
 
 
 def build(
     project_id: str = typer.Argument(..., help="Project ID to build"),
+    skip_script: bool = typer.Option(False, "--skip-script", help="Skip script enhancement (use script.md as-is)"),
     skip_scenes: bool = typer.Option(False, "--skip-scenes", help="Skip scene planning (use existing scene-plan.json)"),
     skip_images: bool = typer.Option(False, "--skip-images", help="Skip image generation (use existing images)"),
     no_remediate: bool = typer.Option(False, "--no-remediate", help="Skip auto-remediation even if review fails"),
+    style: Optional[str] = typer.Option(None, "--style", help=f"Narrative style hint for script enhancement ({', '.join(_STYLE_CHOICES)})"),
+    target_minutes: int = typer.Option(7, "--target-minutes", help="Target narration duration in minutes (5-10)"),
     remediation_threshold: float = typer.Option(70.0, "--remediation-threshold", help="Quality score threshold for auto-remediation (0-100)"),
     remediation_retries: int = typer.Option(3, "--remediation-retries", help="Max auto-remediation retry cycles"),
     # ── Incremental / resume flags ─────────────────────────────────────────
@@ -103,11 +108,14 @@ def build(
     else:
         BuildPipeline().run(
             project_id,
+            skip_script=skip_script,
             skip_scenes=skip_scenes,
             skip_images=skip_images,
             auto_remediate=not no_remediate,
             remediation_threshold=remediation_threshold,
             remediation_max_retries=remediation_retries,
+            style=style,
+            target_minutes=target_minutes,
         )
 
     console.print("[bold green]✓ Build completed[/bold green]")

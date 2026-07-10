@@ -5,10 +5,13 @@ from __future__ import annotations
 from rich.console import Console
 
 from ytfactory.agents.state import VideoState
+from ytfactory.config.settings import Settings
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.pipeline import PublishPipeline
 
 console = Console()
+
+_settings = Settings()
 
 
 def publish_node(state: VideoState) -> dict:
@@ -24,7 +27,7 @@ def publish_node(state: VideoState) -> dict:
     skip_thumbnail = bool(state.get("skip_images", False))
     config = PublishConfig(skip_thumbnail=skip_thumbnail)
 
-    package = PublishPipeline(config=config).run(project_id)
+    package = PublishPipeline(config=config, settings=_settings).run(project_id)
 
     errors = [f"[publish] {e}" for e in package.validation_errors]
 

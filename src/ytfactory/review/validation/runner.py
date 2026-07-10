@@ -1,4 +1,4 @@
-"""ValidationRunner — orchestrates all 11 category validators.
+"""ValidationRunner — orchestrates all 12 category validators.
 
 Catches exceptions from individual validators so a single broken rule
 cannot prevent the other categories from running.
@@ -39,7 +39,7 @@ class ValidationRunner:
         scenes: list[dict],
         context: dict,
     ) -> ValidationReport:
-        """Run all 8 validators and aggregate results.
+        """Run all 12 validators and aggregate results.
 
         Never raises — any validator exception is recorded as a SKIP result.
         """

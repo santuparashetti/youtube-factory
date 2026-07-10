@@ -69,7 +69,7 @@ class PublishPipeline:
         )
 
         # ── 1. Chapters ────────────────────────────────────────────────────
-        print("  [1/6] Generating chapters…")
+        print("  [1/7] Generating chapters…")
         chapters = ChaptersGenerator().generate(project_id, project_dir, scenes)
 
         # Build chapters block for description prompt
@@ -77,7 +77,7 @@ class PublishPipeline:
         chapters_block = "\n".join(chapters_lines)
 
         # ── 2. Title ───────────────────────────────────────────────────────
-        print("  [2/6] Generating title…")
+        print("  [2/7] Generating title…")
         title = TitleGenerator(self._llm, self._config).generate(
             project_id=project_id,
             project_title=project.title,
@@ -86,7 +86,7 @@ class PublishPipeline:
         )
 
         # ── 3. SEO ─────────────────────────────────────────────────────────
-        print("  [3/6] Generating SEO metadata…")
+        print("  [3/7] Generating SEO metadata…")
         seo = SEOGenerator(self._llm, self._config).generate(
             project_id=project_id,
             project_title=project.title,
@@ -95,7 +95,7 @@ class PublishPipeline:
         )
 
         # ── 4. Description ─────────────────────────────────────────────────
-        print("  [4/6] Generating description…")
+        print("  [4/7] Generating description…")
         description = DescriptionGenerator(self._llm, self._config).generate(
             project_id=project_id,
             project_title=project.title,

@@ -16,6 +16,8 @@ from ytfactory.review.pipeline import ReviewPipeline
 from ytfactory.review.remediation.config import RemediationConfig
 from ytfactory.review.remediation.engine import AutoRemediationEngine
 from ytfactory.scenes.pipeline import ScenePipeline
+from ytfactory.script_enhancer.pipeline import ScriptEnhancerPipeline
+from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.video.pipeline import VideoPipeline
 from ytfactory.voice.pipeline import VoicePipeline
 
@@ -28,25 +30,37 @@ class BuildPipeline:
     def __init__(self):
         settings = Settings()
 
+        self.script_enhancer = ScriptEnhancerPipeline(settings)
         self.scenes = ScenePipeline(settings)
         self.images = ImagePipeline(settings)
         self.voice = VoicePipeline(settings)
         self.captions = CaptionPipeline()
         self.video = VideoPipeline()
-        self.cta = CTAPipeline()
+        self.cta = CTAPipeline(settings=settings)
         self.review = ReviewPipeline()
         self.publish = PublishPipeline(settings=settings)
 
     def run(
         self,
         project_id: str,
+        skip_script: bool = False,
         skip_scenes: bool = False,
         skip_images: bool = False,
         auto_remediate: bool = True,
         remediation_threshold: float = 70.0,
         remediation_max_retries: int = 3,
+        style: str | None = None,
+        target_minutes: int = 7,
     ) -> None:
 
+        if not skip_script:
+            project = ProjectRepository().load(project_id)
+            self.script_enhancer.run(
+                project_id,
+                topic=project.title,
+                style=style,
+                target_minutes=target_minutes,
+            )
         if not skip_scenes:
             self.scenes.run(project_id)
         if not skip_images:

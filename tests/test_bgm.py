@@ -413,7 +413,7 @@ class TestSettingsBGMFields:
 
     def test_bgm_volume_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_volume"].default == pytest.approx(0.30)
+        assert _S.model_fields["bgm_volume"].default == pytest.approx(0.24)
 
     def test_bgm_duck_floor_default(self):
         from ytfactory.config.settings import Settings as _S
@@ -421,19 +421,19 @@ class TestSettingsBGMFields:
 
     def test_bgm_duck_threshold_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_duck_threshold"].default == pytest.approx(0.008)
+        assert _S.model_fields["bgm_duck_threshold"].default == pytest.approx(0.02)
 
     def test_bgm_duck_ratio_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_duck_ratio"].default == pytest.approx(8.0)
+        assert _S.model_fields["bgm_duck_ratio"].default == pytest.approx(6.2)
 
     def test_bgm_fade_in_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_fade_in_seconds"].default == pytest.approx(1.5)
+        assert _S.model_fields["bgm_fade_in_seconds"].default == pytest.approx(3.0)
 
     def test_bgm_fade_out_default(self):
         from ytfactory.config.settings import Settings as _S
-        assert _S.model_fields["bgm_fade_out_seconds"].default == pytest.approx(2.5)
+        assert _S.model_fields["bgm_fade_out_seconds"].default == pytest.approx(4.0)
 
     def test_bgm_random_track_default(self):
         assert self._s().bgm_random_track is True

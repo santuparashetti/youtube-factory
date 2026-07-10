@@ -311,7 +311,13 @@ def mix_bgm(
         None, "--video", "-v", help="Path to video file (default: video/final.mp4)"
     ),
 ) -> None:
-    """Mix background music into the final video for a project."""
+    """Re-apply background music to an already-rendered final.mp4.
+
+    This is the standalone BGM re-apply path. BGM is normally embedded
+    automatically during `ytfactory render` / `ytfactory build` via the
+    video pipeline. Use this command only when BGM was disabled during the
+    original render, or after adding new tracks to the BGM library.
+    """
     from pathlib import Path
     from ytfactory.bgm.pipeline import BGMPipeline
 

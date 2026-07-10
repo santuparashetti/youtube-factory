@@ -11,7 +11,7 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 1793 passing (as of 2026-07-09)  
+**Test count:** 2124 passing (as of 2026-07-10)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
 
 ---
@@ -33,7 +33,7 @@ LangGraph graph in `src/ytfactory/agents/`. Nodes: research → script_writer �
 State: `VideoState` in `agents/state.py`. Entry: `run_pipeline()` in `agents/runner.py`.  
 `--resume --project <id>` skips the LangGraph graph entirely → routes to `BuildPipeline.run_incremental()`.
 
-**Interactive wizard:** `uv run ytfactory` (no subcommand) launches `src/ytfactory/cli/wizard.py`. Must be run from repo root or `.env` won't load — Settings defaults fall back to `llm_provider="gemini"` which fails with an empty key.
+**Interactive wizard:** `uv run ytfactory` (no subcommand) launches `src/ytfactory/cli/wizard.py`. Must be run from repo root or `.env` won't load — Settings defaults fall back to `llm_provider="anthropic"` which fails with an empty key.
 
 ### 2. Sequential pipeline — `ytfactory build <id>`
 `BuildPipeline` in `src/ytfactory/build/pipeline.py`. Calls each pipeline class in order. Supports incremental mode via `run_incremental()`.
@@ -242,7 +242,7 @@ KOKORO_SPEED=0.85               # 1.0 = natural, 0.85 = contemplative
 - Local neural TTS, no API key needed. First run downloads ~300 MB model weights.
 - Lazy import (`import kokoro` inside methods). WAV → MP3 via FFmpeg subprocess.
 - Returns empty word boundaries — WhisperX alignment needed for accurate subtitle timing.
-- Settings: `kokoro_voice="am_michael"`, `kokoro_language="en-US"`, `kokoro_speed=1.0`, `kokoro_sample_rate=24000`.
+- Settings: `kokoro_voice="am_michael"`, `kokoro_language="en-US"`, `kokoro_speed=0.85`, `kokoro_sample_rate=24000`.
 - Activate: `TTS_PROVIDER=kokoro` in `.env`.
 
 #### WhisperX Forced Alignment
@@ -502,7 +502,7 @@ Three entries: `whisperx`, `silero_vad`, `minicpm_v2_6`. All have `auto_download
 - **`force=True` on lazy model** routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError
 - `ProvisionResult.ok` = True when status is VERIFIED, DOWNLOADED, or SKIPPED
 - Model manifest: `models/model-manifest.json` at repo root (gitignored)
-- Bootstrap now delegates all model checks to LAMM; `minicpm_v2_6` is skipped when `image_review_enabled=false`
+- Bootstrap now delegates all model checks to LAMM; the configured vision model (`qwen2_5_vl_3b` by default) is checked when `image_review_enabled=true`
 - Test count: 30 new tests in `tests/test_local_ai_model_manager.py`
 
 ---
@@ -595,11 +595,11 @@ Reads `images/image-quality-summary.json` — never calls any model. Four rules:
 - `VIS_003` [medium]: all reviewed scenes above `vision_review_min_score` (default 90)
 - `VIS_004` [low]: overall pass_rate ≥ `vision_review_min_pass_rate` (default 0.8)
 
-#### Settings (all default to disabled/safe)
+#### Settings
 ```
-IMAGE_REVIEW_ENABLED=false          # master switch
+IMAGE_REVIEW_ENABLED=true           # master switch (enabled by default)
 VISION_REVIEW_PROVIDER=local        # "local" | "mock"
-VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6
+VISION_REVIEW_LOCAL_MODEL=qwen2_5_vl_3b
 IMAGE_REVIEW_MIN_SCORE=90
 IMAGE_REVIEW_CONFIDENCE=80
 IMAGE_REVIEW_MAX_ATTEMPTS=3
@@ -608,10 +608,10 @@ IMAGE_REVIEW_DEBUG=false
 ```
 
 #### Key Invariants
-- `image_review_enabled=false` (default) → `_build_review_engine()` returns None → no vision imports at runtime
-- Default local vision model is `minicpm_v2_6` via **config only** — never hardcoded in business logic
+- `image_review_enabled=true` (default) → `_build_review_engine()` creates vision engine at runtime
+- Default local vision model is `qwen2_5_vl_3b` via **config only** — never hardcoded in business logic
 - `_regenerate()` passes `seed=None` → new random seed each attempt
-- ValidationRunner now runs 11 validators (was 10) — added VisionReviewValidator
+- ValidationRunner now runs 12 validators (was 10) — added VisionReviewValidator and CTAValidator
 - Test count: 20 new (test_vision_provider.py) + 26 new (test_image_review_engine.py) = 46 new tests
 
 ---
@@ -640,7 +640,7 @@ IMAGE_REVIEW_DEBUG=false
 - `RemediationAction` requires `confidence: int` and `rationale: str` fields (not optional).
 - `kokoro` and `whisperx` are lazy-imported — not in `pyproject.toml`. Must be installed manually.
 - Gemini providers (`llm/gemini.py`, `image/gemini.py`) now raise a clear `ValueError` if `GEMINI_API_KEY` is empty, with a message pointing to `.env` and CWD.
-- Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="gemini"`) → crash. Always run from repo root.
+- Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="anthropic"`) → crash with empty key. Always run from repo root.
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
 - **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
 - `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
@@ -648,7 +648,7 @@ IMAGE_REVIEW_DEBUG=false
 - **`entry.bundle` is always non-None after registry parse** — `_parse_bundle()` creates a synthetic minimal bundle when no explicit `bundle:` section exists.
 - **Dockerfile uses `COPY config/ config/`** — `models-registry.yaml` and `brand_config.yaml` are baked in at `/app/config/`. Never use `COPY brand_config.yaml*` from root (that file doesn't exist; `config/` is the canonical location).
 - **`model_bootstrap.py` uses `_get_vision_model_name()`** to look up the configured vision model key from Settings — not hardcoded `"minicpm_v2_6"`.
-- **ValidationRunner runs 11 validators** (Sections: script, narration, subtitle, image, human, motion, audio, rendering, story, bgm, vision_review).
+- **ValidationRunner runs 12 validators** (Sections: script, narration, subtitle, image, human, motion, audio, rendering, story, bgm, vision_review, cta).
 
 ---
 

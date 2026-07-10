@@ -249,10 +249,10 @@ class VideoPipeline:
 
     def run(
         self,
-        project: str,
+        project_id: str,
     ) -> None:
 
-        project_dir = Path("workspace") / "jobs" / project
+        project_dir = Path("workspace") / "jobs" / project_id
 
         scene_plan = project_dir / "scenes" / "scene-plan.json"
 
@@ -270,7 +270,7 @@ class VideoPipeline:
         scenes = self._transition_planner.plan(scenes, profile=self._profile)
         scenes = self._effects_planner.plan(scenes, profile=self._profile)
 
-        output_dir = video_directory(project)
+        output_dir = video_directory(project_id)
 
         print(f"\nRendering {len(scenes)} video scenes [profile: {self._profile}]...\n")
 

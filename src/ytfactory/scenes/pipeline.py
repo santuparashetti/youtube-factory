@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ytfactory.config.settings import Settings
-from ytfactory.scenes.planner.gemini_planner import GeminiScenePlanner
+from ytfactory.scenes.planner.llm_planner import LLMScenePlanner
 from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.project_repository import ProjectRepository
@@ -12,7 +12,7 @@ class ScenePipeline:
 
     def __init__(self, settings: Settings):
         self._projects = ProjectRepository()
-        self._planner = GeminiScenePlanner(settings)
+        self._planner = LLMScenePlanner(settings)
         self._repository = SceneRepository()
 
     def run(self, project_id: str) -> None:

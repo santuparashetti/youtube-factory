@@ -14,23 +14,23 @@ class Settings(BaseSettings):
     hf_token: str = Field(default="")
     groq_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
-    anthropic_base_url: str = Field(default="https://api.anthropic.com")
+    anthropic_base_url: str = Field(default="https://litellm.smarthubai.net")
 
     # ------------------------------------------------------------------
     # Providers
     # ------------------------------------------------------------------
 
-    llm_provider: str = "gemini"
+    llm_provider: str = "anthropic"
     search_provider: str = "tavily"
-    tts_provider: str = "edge"
-    image_provider: str = "pollinations"
+    tts_provider: str = "kokoro"
+    image_provider: str = "huggingface"
 
     # ------------------------------------------------------------------
     # Models
     # ------------------------------------------------------------------
 
     gemini_text_model: str = "gemini-2.5-flash"
-    gemini_image_model: str = "gemini-3.1-flash-image"
+    gemini_image_model: str = "gemini-3.1-flash-lite-image"
 
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
 
@@ -50,9 +50,9 @@ class Settings(BaseSettings):
     # Image Defaults
     # ------------------------------------------------------------------
 
-    # Native YouTube Full HD
-    image_width: int = 1920
-    image_height: int = 1080
+    # Native YouTube HD (720p — active default)
+    image_width: int = 1280
+    image_height: int = 720
 
     # ------------------------------------------------------------------
     # Video Defaults
@@ -256,8 +256,8 @@ class Settings(BaseSettings):
     # Background Music (BGM)
     # ------------------------------------------------------------------
 
-    # Master enable — False = no BGM (default; opt-in per project)
-    bgm_enabled: bool = False
+    # Master enable — True = BGM on by default
+    bgm_enabled: bool = True
 
     # BGM category. "auto" selects based on video topic.
     # Options: auto | spiritual | meditation | cinematic_ambient |
@@ -269,17 +269,17 @@ class Settings(BaseSettings):
     bgm_library_path: str = "workspace/music"
 
     # BGM volume relative to full scale during quiet/pause sections (0.0–1.0).
-    bgm_volume: float = 0.30
+    bgm_volume: float = 0.24
 
     # Minimum BGM level during active speech (0.0–bgm_volume).
     bgm_duck_floor: float = 0.04
 
     # Sidechain compress threshold — amplitude above which ducking engages.
-    # 0.008 ≈ −42 dBFS — catches speech onset early.
-    bgm_duck_threshold: float = 0.008
+    # 0.02 ≈ −34 dBFS — detects speech onset.
+    bgm_duck_threshold: float = 0.02
 
-    # Ducking compression ratio — 8:1 for strong, clean ducking.
-    bgm_duck_ratio: float = 8.0
+    # Ducking compression ratio — 6:1 compression under speech.
+    bgm_duck_ratio: float = 6.2
 
     # Milliseconds for ducking to engage after speech onset.
     # 15 ms: near-instantaneous onset.
@@ -290,10 +290,10 @@ class Settings(BaseSettings):
     bgm_duck_release_ms: int = 350
 
     # Music fade-in at video start (seconds).
-    bgm_fade_in_seconds: float = 1.5
+    bgm_fade_in_seconds: float = 3.0
 
     # Music fade-out at video end (seconds).
-    bgm_fade_out_seconds: float = 2.5
+    bgm_fade_out_seconds: float = 4.0
 
     # Crossfade between loop iterations (seconds).
     bgm_crossfade_seconds: float = 2.0
@@ -367,7 +367,7 @@ class Settings(BaseSettings):
     kokoro_language: str = "en-US"
 
     # Speech speed multiplier (1.0 = natural).
-    kokoro_speed: float = 1.0
+    kokoro_speed: float = 0.85
 
     # Audio sample rate in Hz produced by Kokoro (native 24 kHz).
     kokoro_sample_rate: int = 24000
@@ -379,7 +379,7 @@ class Settings(BaseSettings):
     # Enable WhisperX forced alignment after TTS generation.
     # When True, alignment.json is written to audio/ alongside timing.json.
     # CaptionPipeline prefers alignment.json for subtitle timing when present.
-    whisperx_enabled: bool = False
+    whisperx_enabled: bool = True
 
     # Reserved for future Whisper-based transcription support.
     # Forced alignment uses a fixed wav2vec2 phoneme model per language and
@@ -406,20 +406,20 @@ class Settings(BaseSettings):
     # Image Review (Vision Quality Gate)
     # ------------------------------------------------------------------
 
-    # Master enable — False = skip vision review (default; lightweight mode)
-    image_review_enabled: bool = False
+    # Master enable — True = vision review enabled
+    image_review_enabled: bool = True
 
     # Vision provider: "local" (uses Local AI Model Manager) | "mock" (tests)
     vision_review_provider: str = "local"
 
     # Local model registry key (switchable via config only — no code changes needed)
-    vision_review_local_model: str = "minicpm_v2_6"
+    vision_review_local_model: str = "qwen2_5_vl_3b"
 
     # Minimum vision score to accept a scene (0–100)
-    image_review_min_score: int = 90
+    image_review_min_score: float = 90.0
 
     # Minimum confidence for the score to count (0–100)
-    image_review_confidence: int = 80
+    image_review_confidence: float = 80.0
 
     # Maximum generation+review attempts per scene before accepting best result
     image_review_max_attempts: int = 3
@@ -429,6 +429,15 @@ class Settings(BaseSettings):
 
     # Write per-attempt review prompt files for debugging
     image_review_debug: bool = False
+
+    # ------------------------------------------------------------------
+    # CTA Overlay
+    # ------------------------------------------------------------------
+
+    # Total number of render attempts (step 0 = initial, step 1 = same-placement
+    # retry, step 2 = minimal-template fallback). Default matches the spec's
+    # three-step escalation — reduce to 1 to fail fast with no retries.
+    cta_max_retries: int = 3
 
     # ------------------------------------------------------------------
     # Runtime
