@@ -38,6 +38,7 @@ from ytfactory.images.diagnostics import (
     build_report,
 )
 from ytfactory.images.human_detector import (
+    add_anatomy_constraints,
     add_human_quality_reinforcement,
     apply_subject_dominance_rule,
     detect_human_presence,
@@ -149,6 +150,7 @@ class ImagePromptEngineV4:
                 if prompt and detect_human_presence(prompt):
                     prompt = add_human_quality_reinforcement(prompt)
                     prompt = apply_subject_dominance_rule(prompt, shot_type)
+                    prompt = add_anatomy_constraints(prompt)  # targeted: hand/foot/face
                     s["visual_prompt"] = prompt
 
                 # Clothing & cultural authenticity policy

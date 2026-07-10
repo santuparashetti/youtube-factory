@@ -60,9 +60,21 @@ _HUMAN_INDICATORS: frozenset[str] = frozenset(
         "peasant",
         "merchant",
         "artisan",
-        # Physical — "face" and "portrait" appear as standalone words in prompts
+        # Physical — body parts that commonly appear alone in prompts and
+        # are frequent sources of AI anatomy glitches (fingers, hands, feet)
         "face",
         "portrait",
+        "hand",
+        "hands",
+        "finger",
+        "fingers",
+        "palm",
+        "fist",
+        "feet",
+        "foot",
+        "arm",
+        "arms",
+        "body",
         # Social
         "crowd",
         "audience",
@@ -108,6 +120,54 @@ _WIDE_SHOT_TYPES: frozenset[str] = frozenset(
 _SUBJECT_DOMINANCE_PHRASE = (
     ", subject remains visually prominent and detailed despite wide framing"
 )
+
+# ── Targeted anatomy constraints ───────────────────────────────────────────────
+# Applied when the prompt explicitly mentions a specific body part — more precise
+# than the generic _ANATOMY_REINFORCEMENT in prompt_engine.py.
+
+_HAND_KEYWORDS: frozenset[str] = frozenset({"hand", "hands", "finger", "fingers", "palm", "fist"})
+_FOOT_KEYWORDS: frozenset[str] = frozenset({"feet", "foot", "toe", "toes"})
+_FACE_KEYWORDS: frozenset[str] = frozenset({"face", "faces", "portrait", "expression", "eyes", "lips", "mouth"})
+
+_HAND_ANATOMY_PHRASE = (
+    ", exactly five anatomically correct fingers on each visible hand, "
+    "realistic knuckle structure, natural finger spacing, thumb correctly positioned on one side, "
+    "no extra, missing, or merged digits"
+)
+_FOOT_ANATOMY_PHRASE = (
+    ", exactly five toes per visible foot, natural foot arch and proportions, "
+    "realistic heel and ankle, no extra or fused toes"
+)
+_FACE_ANATOMY_PHRASE = (
+    ", natural facial symmetry, correctly placed eyes and ears, realistic nose bridge, "
+    "no distorted or duplicated facial features"
+)
+
+# Sentinel substrings used by has_anatomy_constraints() to avoid double-appending.
+_HAND_ANATOMY_SENTINEL = "exactly five anatomically correct fingers"
+_FOOT_ANATOMY_SENTINEL = "exactly five toes per visible foot"
+_FACE_ANATOMY_SENTINEL = "natural facial symmetry"
+
+
+def add_anatomy_constraints(prompt: str) -> str:
+    """Append targeted anatomy constraints based on body parts mentioned in the prompt.
+
+    Called during prompt enrichment so the image model receives precise guidance
+    before generation — complementing the post-generation vision review layer.
+    Only appends each constraint once (idempotent).
+    """
+    lower = prompt.lower()
+
+    if any(kw in lower for kw in _HAND_KEYWORDS) and _HAND_ANATOMY_SENTINEL not in prompt:
+        prompt += _HAND_ANATOMY_PHRASE
+
+    if any(kw in lower for kw in _FOOT_KEYWORDS) and _FOOT_ANATOMY_SENTINEL not in prompt:
+        prompt += _FOOT_ANATOMY_PHRASE
+
+    if any(kw in lower for kw in _FACE_KEYWORDS) and _FACE_ANATOMY_SENTINEL not in prompt:
+        prompt += _FACE_ANATOMY_PHRASE
+
+    return prompt
 
 
 def detect_human_presence(prompt: str) -> bool:
