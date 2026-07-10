@@ -33,6 +33,13 @@ COPY pyproject.toml uv.lock* ./
 # Install Python dependencies into /app/.venv
 RUN uv sync --frozen --no-install-project
 
+# Install heavy ML packages (not in pyproject.toml due to platform-specific wheels)
+# PyTorch CPU — upgrade to CUDA variant at runtime via ytfactory setup if needed
+RUN /app/.venv/bin/pip install --quiet \
+        torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
+    /app/.venv/bin/pip install --quiet \
+        kokoro soundfile whisperx
+
 # ── Production image ──────────────────────────────────────────────────────────
 FROM base AS production
 

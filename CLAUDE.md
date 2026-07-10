@@ -122,90 +122,26 @@ workspace/jobs/<project-id>/
 
 ### Review Layer (Quality Gate)
 
-`src/ytfactory/review/` is a multi-layer quality gate that runs after rendering:
+`src/ytfactory/review/` — 7-layer quality gate (stage checks → validation rules → RCA → quality scoring → engine feedback loop → debug mode → auto remediation). Runs after `ytfactory render`.
 
-**Layer 1 — Stage-based checks** (`review/stages/`): Four `BaseReviewStage` subclasses (asset_integrity, timeline, content, production_quality). Each returns a `StageResult` with `errors: list[str]` and `warnings: list[str]`.
-
-**Layer 2 — Validation Rules** (`review/validation/`): Eight `BaseValidator` subclasses (one per category: script, narration, subtitle, image, motion, audio, rendering, story). Each rule returns a structured `ValidationResult` with rule ID, severity, evidence, confidence score, and `responsible_engine`. `ValidationRunner` orchestrates all eight; critical failures bubble into `all_errors` and affect `verdict`.
-
-**Layer 3 — Root Cause Analysis Engine** (`review/rca/`): Consumes the `ValidationReport` to group failures by engine, build remediation chains, and detect recurring patterns. `RootCauseAnalysisEngine.analyze()` returns an `RCAReport`; `RCAReporter` writes four files.
-
-**Layer 4 — Quality Scoring Engine** (`review/scoring/`): Converts all validation results and RCA output into objective quality scores (0–100), a letter grade (A+→F), a PASS/FAIL decision, and ranked improvement recommendations. Eight `BaseCategoryScorer` subclasses (one per validation category) use a point-budget model; `QualityScoringEngine` computes a weighted average. `QualityScoringReporter` writes four files.
-
-**Layer 5 — Engine Feedback Loop** (`review/efl/`): Converts every RCA issue into a structured `FeedbackItem` assigned to a canonical engine target (12 engines defined in `efl/config.py`). Recurring issues get priority escalated (high→critical). `EngineFeedbackLoopEngine.generate()` returns an `EngineFeedbackReport`; `EFLReporter` writes five files including a cross-run accumulating `recurring-patterns.json`.
-
-**Layer 6 — Video Review Debug Mode** (`review/debug/`): Captures timing and diagnostic data from every pipeline layer. Controlled by `DebugConfig(level=DebugLevel.OFF|BASIC|DETAILED|VERBOSE)` passed to `VideoQualityReviewEngine`. When not OFF, `DebugCollector` wraps each layer with `time_layer()` context managers, then `DebugReporter` writes seven files to the `review/debug/` subdirectory. Zero overhead when OFF (the default).
-
-**Layer 7 — Auto Remediation Engine** (`review/remediation/`): Automatically repairs failed pipeline components instead of requiring a full re-run. `DecisionEngine.plan()` maps EFL feedback and RCA issues → `RemediationPlan` (deduped, sorted by severity then cost). `ProductionExecutor` deletes the failed artifact, then calls the existing idempotent pipeline to regenerate only what was deleted. `AutoRemediationEngine.remediate()` orchestrates the decision→execute→re-validate loop (up to `max_retries` cycles) stopping when `overall_score ≥ quality_threshold` (default 70). `RemediationReporter` writes four files to `workspace/jobs/<id>/remediation/`. Use `RemediationConfig(dry_run=True)` to plan without touching files.
-
-All layers run inside `VideoQualityReviewEngine.review()` and produce a `ReviewReport` with attached `validation_report`, `rca_report`, `quality_score`, `quality_score_report`, `efl_report`, and `debug_report` dicts.
-
-**Output files** (`review/` directory):
-```
-review/
-├── review-report.md             # human-readable summary (all layers)
-├── scene-review.json            # per-scene detail
-├── review-debug.json            # full machine-readable diagnostics
-├── validation-report.json       # ValidationRunner → ValidationReport
-├── root-cause-report.md         # RCAReporter — human-readable RCA
-├── root-cause.json              # RCAReporter — full structured report
-├── engine-owner-summary.json    # RCAReporter — per-engine failure counts
-├── recurring-issues.json        # RCAReporter — cross-scene patterns
-├── quality-score.json           # QualityScoringReporter — overall score summary
-├── quality-report.md            # QualityScoringReporter — full grade report
-├── score-breakdown.json         # QualityScoringReporter — per-category detail
-├── score-history.json           # QualityScoringReporter — cumulative run history
-├── engine-feedback.json         # EFLReporter — full structured feedback
-├── engine-feedback.md           # EFLReporter — human-readable feedback
-├── engine-priority-report.json  # EFLReporter — items grouped by priority
-├── recurring-patterns.json      # EFLReporter — cross-run accumulated patterns
-├── improvement-roadmap.md       # EFLReporter — actionable improvement roadmap
-└── debug/                       # DebugReporter — written only when debug level ≠ OFF
-    ├── debug-report.md          # human-readable debug summary
-    ├── debug-summary.json       # high-level JSON with verdicts/scores/diagnostics
-    ├── scene-debug.json         # per-scene asset presence + validation summary
-    ├── validation-debug.json    # per-rule execution data grouped by category
-    ├── scoring-debug.json       # per-category scoring breakdown with weights
-    ├── feedback-debug.json      # EFL feedback items for debug inspection
-    └── execution-timeline.json  # ordered pipeline events with timestamps/durations
-
-remediation/                     # RemediationReporter — written by `ytfactory remediate`
-├── remediation-plan.json        # planned actions (strategy, engine, cost, status)
-├── remediation-report.md        # human-readable remediation summary + cycles
-├── retry-history.json           # per-action execution attempts across all cycles
-└── regenerated-assets.json      # all artifacts deleted + regenerated (with backup paths)
-```
+- ValidationRunner runs **12 validators**: script, narration, subtitle, image, human, motion, audio, rendering, story, bgm, vision_review, cta
+- `RemediationAction` requires `confidence: int` and `rationale: str` fields (not optional)
+- `DebugConfig(level=DebugLevel.OFF)` by default — zero overhead; BASIC/DETAILED/VERBOSE write 7 files to `review/debug/`
+- Scoring: PASS=full pts, WARNING=½ pts, FAIL=0 pts, SKIP=excluded; 8 category scorers → weighted 0–100 + letter grade
+- EFL: 12 engine targets; names normalized via `ENGINE_NORMALIZATION` in `efl/config.py`
+- **"human" NOT in `_HUMAN_INDICATORS`** — avoid false positive with "natural human anatomy"
+- Output: `workspace/jobs/<id>/review/` — 17+ files; `remediation/` — 4 files
 
 ### Publishing Layer (`src/ytfactory/publish/`)
 
-`PublishPipeline.run(project_id)` is the final pipeline stage — runs after `remediate` (or `review`) and writes the complete upload-ready YouTube package to `workspace/jobs/<id>/publish/`:
-
-| Generator | Input | Output |
-|---|---|---|
-| `ChaptersGenerator` | `scenes/scene-plan.json` + `audio/scene-NNN.timing.json` | `chapters.txt` |
-| `TitleGenerator` | LLM + title + script excerpt | `title.txt`, `alternate-titles.txt` |
-| `SEOGenerator` | LLM + title + scene titles | `keywords.txt`, `hashtags.txt`, `youtube-tags.txt` |
-| `DescriptionGenerator` | LLM + chapters block + keywords | `description.md` |
-| `ThumbnailGenerator` | image provider (1280×720) | `thumbnail.png`, `thumbnail-variants/` |
-| `UploadPackageGenerator` | all sub-results | `youtube-metadata.json` |
-
-`PublishConfig(skip_thumbnail=True)` skips image API calls. All LLM generators return JSON only; `_parse_json_response()` strips markdown fences and falls back to safe defaults on parse error. `ChaptersGenerator` reads real audio duration from `timing.json` last entry's `"end"` field (falls back to `scene["duration_seconds"]` if file absent).
-
-**Debug level differences**: BASIC/DETAILED/VERBOSE all write all 7 files. BASIC omits rule-level `debug_metadata` and category scoring contributions. DETAILED adds scoring contributions. VERBOSE also includes `debug_metadata` from each validation rule.
-
-**Scoring model**: each of the 8 categories has a fixed point budget (rules sum to 100 pts within their category); PASS=full pts, WARNING=½ pts, FAIL=0 pts, SKIP=excluded from denominator. Category raw scores are combined via weighted average (see `DEFAULT_WEIGHTS` in `review/scoring/config.py`).
-
-**EFL engine targets**: Research Engine, Script Generation Engine, Script Pacing Engine, Speech Optimizer, TTS Engine, Scene Planner, Image Prompt Engine, Image Generation Engine, Motion Engine, ASS Subtitle Engine, Video Renderer, Video Quality Review Engine. Engine names from RCA are normalized via `ENGINE_NORMALIZATION` in `efl/config.py`.
-
-**Human Quality Validation** (`images/human_detector.py`): `detect_human_presence(prompt)` identifies human subjects using whole-word regex matching against `_HUMAN_INDICATORS`. When a human is detected, `add_human_quality_reinforcement(prompt)` appends 7 quality phrases (highly detailed face, natural facial expression, realistic eyes, authentic skin texture, natural posture, seamless integration, documentary-quality realism). `apply_subject_dominance_rule(prompt, shot_type)` adds "subject remains visually prominent" for wide/establishing/drone shots. `ImagePipeline` retries generation (up to `settings.image_human_max_retries`) when sharpness (`compute_sharpness` via Pillow FIND_EDGES stddev) is below `settings.image_human_min_sharpness`. `HumanValidator` (category "human") in the review pipeline enforces HUM_001 (quality markers), HUM_002 (subject dominance), HUM_003 (sharpness).
+Runs after `remediate` (or `review`). Generators: ChaptersGenerator, TitleGenerator, SEOGenerator, DescriptionGenerator, **PinnedCommentGenerator**, ThumbnailGenerator, UploadPackageGenerator.
+Output: `workspace/jobs/<id>/publish/` — 10 files (includes `pinned-comment.txt`, `youtube-metadata.json`).
+`PublishConfig(skip_thumbnail=True)` skips image API calls. When adding LLM mock side_effects in publish tests, include a **4th response** for the pinned comment call.
+`ChaptersGenerator` reads audio duration from `timing.json` last `"end"` field (falls back to `scene["duration_seconds"]`).
 
 ### Domain Models
 
-`src/ytfactory/domain/` holds plain dataclasses / Pydantic models (no I/O):
-- `Project` — project metadata + stage status dict (stages: research, script, scenes, images, audio, subtitles, video, publish)
-- `LLMResponse`, `SearchResult`, `ImageRequest` — value objects shared across providers
-
-`ProjectRepository` (`storage/project_repository.py`) serializes `Project` to `project.json` and tracks stage status (`pending` / `running` / `completed`).
+`src/ytfactory/domain/` — `Project` (metadata + stage status dict), `LLMResponse`, `SearchResult`, `ImageRequest`. `ProjectRepository` (`storage/project_repository.py`) → `project.json`; statuses: `pending` / `running` / `completed`.
 
 ### Configuration
 

@@ -11,6 +11,7 @@ from .env_checker import check_environment
 from .healer import heal
 from .model_bootstrap import bootstrap_models
 from .models import BootstrapResult, CheckResult, CheckStatus
+from .pkg_installer import install_ml_packages
 from .provider_validator import validate_providers
 from .report import write_environment_report
 from .version_manager import (
@@ -51,6 +52,11 @@ class BootstrapEngine:
             return result
 
         logger.info("Starting bootstrap setup...")
+
+        # 0. ML package auto-installation (before env checks so they see correct state)
+        logger.info("Phase 0: ML package auto-installation")
+        for check in install_ml_packages():
+            result.add(check)
 
         # 1. Environment
         logger.info("Phase 1: Environment checks")

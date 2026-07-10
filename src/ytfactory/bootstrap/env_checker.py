@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 
@@ -14,7 +15,11 @@ def check_environment() -> list[CheckResult]:
     results.extend(_check_python())
     results.extend(_check_ffmpeg())
     results.extend(_check_git())
+    results.extend(_check_espeak_ng())
     results.extend(_check_torch())
+    results.extend(_check_kokoro())
+    results.extend(_check_soundfile())
+    results.extend(_check_whisperx())
     results.extend(_check_fonts())
     return results
 
@@ -127,6 +132,88 @@ def _check_torch() -> list[CheckResult]:
                 detail="Install: uv pip install torch --index-url https://download.pytorch.org/whl/cpu",
             )
         ]
+
+
+def _check_espeak_ng() -> list[CheckResult]:
+    ok, out = _run(["espeak-ng", "--version"])
+    if not ok:
+        return [
+            CheckResult(
+                name="env:espeak-ng",
+                status=CheckStatus.WARNING,
+                message="espeak-ng not found — required for Kokoro TTS phoneme generation",
+                detail="Install: sudo apt install espeak-ng",
+            )
+        ]
+    return [
+        CheckResult(
+            name="env:espeak-ng",
+            status=CheckStatus.OK,
+            message=out.splitlines()[0][:80] if out else "espeak-ng available",
+        )
+    ]
+
+
+def _importable(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+def _check_kokoro() -> list[CheckResult]:
+    tts_provider = _read_setting("tts_provider", "kokoro")
+    if not _importable("kokoro"):
+        status = CheckStatus.ERROR if tts_provider == "kokoro" else CheckStatus.WARNING
+        return [
+            CheckResult(
+                name="env:kokoro",
+                status=status,
+                message="kokoro not installed — run: ytfactory setup",
+            )
+        ]
+    return [CheckResult(name="env:kokoro", status=CheckStatus.OK, message="kokoro available")]
+
+
+def _check_soundfile() -> list[CheckResult]:
+    if not _importable("soundfile"):
+        return [
+            CheckResult(
+                name="env:soundfile",
+                status=CheckStatus.WARNING,
+                message="soundfile not installed — run: uv sync",
+            )
+        ]
+    return [CheckResult(name="env:soundfile", status=CheckStatus.OK, message="soundfile available")]
+
+
+def _check_whisperx() -> list[CheckResult]:
+    whisperx_enabled = _read_bool("whisperx_enabled", True)
+    if not _importable("whisperx"):
+        status = CheckStatus.WARNING if not whisperx_enabled else CheckStatus.ERROR
+        return [
+            CheckResult(
+                name="env:whisperx",
+                status=status,
+                message="whisperx not installed — run: ytfactory setup",
+            )
+        ]
+    return [CheckResult(name="env:whisperx", status=CheckStatus.OK, message="whisperx available")]
+
+
+def _read_setting(key: str, default: str) -> str:
+    try:
+        from ytfactory.config.settings import Settings  # noqa: PLC0415
+
+        return str(getattr(Settings(), key, default))
+    except Exception:
+        return default
+
+
+def _read_bool(key: str, default: bool) -> bool:
+    try:
+        from ytfactory.config.settings import Settings  # noqa: PLC0415
+
+        return bool(getattr(Settings(), key, default))
+    except Exception:
+        return default
 
 
 def _check_fonts() -> list[CheckResult]:

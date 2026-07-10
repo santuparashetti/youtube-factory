@@ -78,43 +78,23 @@ This creates `.venv/` and installs all packages from `pyproject.toml`.
 
 ---
 
-### Step 5 — Install AI / ML Packages (Manual)
+### Step 5 — AI / ML Packages (auto-installed by setup)
 
-These are not in `pyproject.toml` because they have heavy/platform-specific wheels. Install once after `uv sync`.
+`soundfile` and `numpy` are installed automatically by `uv sync`.
 
-#### Kokoro TTS (local neural text-to-speech)
+`kokoro`, `whisperx`, and `torch` are installed automatically when you run:
 
 ```bash
-uv pip install kokoro soundfile
+uv run ytfactory setup
 ```
 
-- First run downloads ~300 MB of model weights automatically.
-- No API key needed.
+Setup detects which packages are needed based on your `.env` settings (`TTS_PROVIDER`, `WHISPERX_ENABLED`) and installs them without any manual steps. This is idempotent — re-running setup skips packages that are already present.
 
-#### WhisperX (forced alignment for subtitle timing)
-
-```bash
-uv pip install whisperx
-```
-
-- Downloads wav2vec2 alignment model on first use (~100 MB).
-- Required only when `WHISPERX_ENABLED=true`.
-
-#### PyTorch (CPU version — skip if you have CUDA)
-
-If the above installs failed with a torch error, install CPU torch first:
+**GPU acceleration (optional):** By default, PyTorch CPU is installed. To use CUDA:
 
 ```bash
-uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-uv pip install kokoro soundfile whisperx
-```
-
-#### PyTorch (CUDA — for GPU acceleration)
-
-```bash
-# CUDA 12.x
+# CUDA 12.x — run after ytfactory setup
 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-uv pip install kokoro soundfile whisperx
 ```
 
 ---
@@ -602,15 +582,15 @@ ytfactory update             # re-validate after code updates
 
 ## Troubleshooting
 
-### `ModuleNotFoundError: No module named 'kokoro'`
+### `ModuleNotFoundError: No module named 'kokoro'` / `No module named 'whisperx'`
+These packages are auto-installed by `ytfactory setup`. Re-run setup:
 ```bash
-uv pip install kokoro soundfile
-apt install espeak-ng
+uv run ytfactory setup --force
 ```
-
-### `ModuleNotFoundError: No module named 'whisperx'`
+If that still fails (e.g. torch conflict), install manually:
 ```bash
-uv pip install whisperx
+uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+uv pip install kokoro soundfile whisperx
 ```
 
 ### `GEMINI_API_KEY is empty` or `ANTHROPIC_API_KEY is empty`
