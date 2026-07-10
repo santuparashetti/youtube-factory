@@ -82,6 +82,11 @@ class ImagePipeline:
 
         total = len(scenes)
 
+        # If image-quality-summary.json already exists, all images have been
+        # vision-reviewed on a prior run — skip review for existing images this time.
+        summary_path = output_dir / "image-quality-summary.json"
+        already_reviewed = summary_path.exists()
+
         print(
             f"\nGenerating {total} YouTube images "
             f"({self._settings.image_width}x{self._settings.image_height})\n"
@@ -95,7 +100,7 @@ class ImagePipeline:
 
             output_path = output_dir / filename
 
-            # Asset scenes skip AI image generation entirely.
+            # Asset scenes skip AI image generation and vision review entirely.
             if scene.get("scene_type") == "asset":
                 asset_path = Path(scene.get("asset_path", ""))
                 print(f"[{index}/{total}] {filename} (asset — skipping generation)")
@@ -122,49 +127,45 @@ class ImagePipeline:
                 negative_prompt=negative_prompt,
             )
 
-            if output_path.exists():
-                print(f"[{index}/{total}] {filename} (skip)")
-                manifest.images.append(
-                    ImageArtifact(
-                        scene_index=scene["index"],
-                        prompt=scene["visual_prompt"],
-                        filename=filename,
-                        path=output_path,
-                    )
-                )
-                continue
+            image_was_new = not output_path.exists()
 
-            print(f"[{index}/{total}] {filename}")
+            if image_was_new:
+                print(f"[{index}/{total}] {filename}")
+                self._provider.generate(request)
 
-            self._provider.generate(request)
-
-            # Human quality validation: regenerate if sharpness is below threshold
-            prompt_text = scene.get("visual_prompt", "")
-            if (
-                detect_human_presence(prompt_text)
-                and self._settings.image_human_max_retries > 0
-            ):
-                sharpness = compute_sharpness(output_path)
-                threshold = self._settings.image_human_min_sharpness
-                max_retries = self._settings.image_human_max_retries
-                for attempt in range(max_retries):
-                    if sharpness >= threshold:
-                        break
-                    print(
-                        f"  ↻ Human scene sharpness {sharpness:.1f} < {threshold} — "
-                        f"retry {attempt + 1}/{max_retries}"
-                    )
-                    output_path.unlink(missing_ok=True)
-                    self._provider.generate(request)
+                # Human quality validation: regenerate if sharpness is below threshold
+                prompt_text = scene.get("visual_prompt", "")
+                if (
+                    detect_human_presence(prompt_text)
+                    and self._settings.image_human_max_retries > 0
+                ):
                     sharpness = compute_sharpness(output_path)
-                if sharpness < threshold:
-                    print(
-                        f"  ⚠ {filename}: sharpness {sharpness:.1f} still below "
-                        f"{threshold} after {max_retries} retries"
-                    )
+                    threshold = self._settings.image_human_min_sharpness
+                    max_retries = self._settings.image_human_max_retries
+                    for attempt in range(max_retries):
+                        if sharpness >= threshold:
+                            break
+                        print(
+                            f"  ↻ Human scene sharpness {sharpness:.1f} < {threshold} — "
+                            f"retry {attempt + 1}/{max_retries}"
+                        )
+                        output_path.unlink(missing_ok=True)
+                        self._provider.generate(request)
+                        sharpness = compute_sharpness(output_path)
+                    if sharpness < threshold:
+                        print(
+                            f"  ⚠ {filename}: sharpness {sharpness:.1f} still below "
+                            f"{threshold} after {max_retries} retries"
+                        )
+            else:
+                print(f"[{index}/{total}] {filename} (skip generation)")
 
-            # Vision review + auto-remediation (when enabled)
-            if self._orchestrator is not None and output_path.exists():
+            # Vision review + auto-remediation.
+            # Runs for: (a) newly-generated images, or (b) existing images when
+            # image-quality-summary.json doesn't exist yet (first run or after reset).
+            # Skips existing images on subsequent runs to avoid redundant inference.
+            run_review = self._orchestrator is not None and output_path.exists()
+            if run_review and (image_was_new or not already_reviewed):
                 scene_with_dims = {
                     **scene,
                     "width": self._settings.image_width,
@@ -186,6 +187,8 @@ class ImagePipeline:
                     f"(score={review_artifact.score:.0f}, "
                     f"attempts={review_artifact.attempts})"
                 )
+            elif not image_was_new and already_reviewed:
+                print(f"  ✦ Vision review: skipped (already reviewed)")
 
             manifest.images.append(
                 ImageArtifact(
