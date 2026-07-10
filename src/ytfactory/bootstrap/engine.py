@@ -38,7 +38,15 @@ class BootstrapEngine:
         """Full first-run bootstrap: workspace + config + providers + models."""
         result = BootstrapResult()
 
-        # Check if already bootstrapped (skip unless forced)
+        # 0. ML package auto-installation — always runs regardless of manifest state.
+        # uv sync removes packages not in pyproject.toml (whisperx, torch) on every
+        # sync; running install_ml_packages() unconditionally ensures they are always
+        # present after `ytfactory setup` without needing --force.
+        logger.info("Phase 0: ML package auto-installation")
+        for check in install_ml_packages():
+            result.add(check)
+
+        # Check if already bootstrapped (skip remaining phases unless forced)
         manifest = load_manifest(self._base_dir)
         if not force and is_manifest_current(manifest):
             logger.info("Bootstrap already complete (use --force to re-run)")
@@ -46,17 +54,12 @@ class BootstrapEngine:
                 CheckResult(
                     name="bootstrap:manifest",
                     status=CheckStatus.OK,
-                    message="Previously bootstrapped — all checks skipped (use --force to re-run)",
+                    message="Previously bootstrapped — ML packages verified (use --force to re-run full setup)",
                 )
             )
             return result
 
         logger.info("Starting bootstrap setup...")
-
-        # 0. ML package auto-installation (before env checks so they see correct state)
-        logger.info("Phase 0: ML package auto-installation")
-        for check in install_ml_packages():
-            result.add(check)
 
         # 1. Environment
         logger.info("Phase 1: Environment checks")

@@ -30,16 +30,17 @@ FROM base AS builder
 # Copy dependency files first (layer cache — only rebuilds if deps change)
 COPY pyproject.toml uv.lock* ./
 
-# Install Python dependencies into /app/.venv
-RUN uv sync --frozen --no-install-project
-
-# Install heavy ML packages (not in pyproject.toml due to platform-specific wheels)
-# PyTorch CPU — upgrade to CUDA variant at runtime via ytfactory setup if needed
-# Use `uv pip install` — uv venvs have no pip binary, so /app/.venv/bin/pip
-# does not exist; uv pip targets the venv directly via VIRTUAL_ENV.
+# Install Python dependencies + kokoro optional extra into /app/.venv.
+# --extra kokoro installs: kokoro, soundfile, transformers>=4.47.0, click.
+# transformers>=4.47.0 is required — older versions have a huggingface-hub<1.0
+# runtime check that conflicts with huggingface-hub>=1.0 resolved by our other deps.
 ENV VIRTUAL_ENV=/app/.venv
+RUN uv sync --frozen --extra kokoro --no-install-project
+
+# PyTorch (CPU) and WhisperX — not in pyproject.toml due to platform-specific wheels.
+# uv pip install targets VIRTUAL_ENV directly; no pip binary exists in uv venvs.
 RUN uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
-    uv pip install kokoro soundfile whisperx
+    uv pip install whisperx
 
 # ── Production image ──────────────────────────────────────────────────────────
 FROM base AS production
