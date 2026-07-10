@@ -39,6 +39,23 @@ def video_concatenator_node(state: VideoState) -> dict:
     video_dir = project_dir / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
 
+    # Refuse to compose when one or more per-scene renders failed.
+    # compose_continuous_video() concatenates all scenes into one FFmpeg call;
+    # a missing-audio scene cannot be silently dropped without shifting the
+    # timeline for every subsequent scene.  Collect the failures and report.
+    scene_video_paths: dict[int, str] = state.get("scene_video_paths", {})
+    scene_indices = {s["index"] for s in scene_plan}
+    missing_renders = sorted(scene_indices - set(scene_video_paths))
+    if missing_renders:
+        scene_labels = ", ".join(f"Scene {i}" for i in missing_renders)
+        error_msg = (
+            f"Cannot compose final.mp4 — {len(missing_renders)} scene render(s) failed "
+            f"or were skipped due to missing assets ({scene_labels}). "
+            "Resolve the upstream asset failures (TTS, image, subtitle) and re-run."
+        )
+        console.print(f"[red]✗ Composition blocked:[/red] {error_msg}")
+        return {"stage_errors": [error_msg]}
+
     scene_count = len(scene_plan)
     bgm_label = " + BGM" if settings.bgm_enabled else ""
     console.print(

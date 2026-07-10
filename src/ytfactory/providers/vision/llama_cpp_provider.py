@@ -20,7 +20,7 @@ from loguru import logger
 from ytfactory.models import LocalAIModelManager, ModelStatus
 from ytfactory.models.backend import Backend, select_backend
 
-from .base import VISION_REVIEW_PROMPT, VisionProvider
+from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
 from .models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
@@ -192,8 +192,9 @@ class LlamaCppVisionProvider(VisionProvider):
             return None
 
     def _build_prompt(self, visual_prompt: str) -> str:
+        hand_block = HAND_ANATOMY_PROMPT if is_hand_focal(visual_prompt) else ""
         return (
-            f"{VISION_REVIEW_PROMPT}\n\n"
+            f"{VISION_REVIEW_PROMPT}{hand_block}\n\n"
             f"The image was generated with this prompt:\n{visual_prompt}\n\n"
             "Review the image against all criteria above and return your JSON assessment."
         )

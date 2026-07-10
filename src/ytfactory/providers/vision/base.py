@@ -2,10 +2,43 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from .models import VisionReviewResult
+
+# Keywords that indicate a hand-focal scene in the visual prompt.
+# Whole-word regex match so "landscape" does not trigger on "land".
+_HAND_FOCAL_PATTERN = re.compile(
+    r"\b(hand|hands|palm|palms|finger|fingers|knuckle|knuckles|digit|digits|fist|wrist|wrists)\b",
+    re.IGNORECASE,
+)
+
+# Targeted hand-anatomy block injected into the prompt when a hand-focal
+# scene is detected.  Kept separate so it can be tested independently.
+HAND_ANATOMY_PROMPT = """
+## CRITICAL: Hand and Digit Anatomy Verification
+This scene features hands prominently. Apply strict digit verification to every
+visible hand in the image:
+
+- **Digit count:** each hand must have exactly 5 digits — 4 fingers + 1 thumb.
+  Flag as HIGH if any hand has more or fewer than 5 digits.
+- **Thumb placement:** the thumb appears on ONE outer edge only (the radial/
+  lateral side). A thumb-like digit on BOTH outer edges of the same hand is an
+  AI generation error. Flag as HIGH with description "duplicated thumb — thumb-
+  like digit appears on both outer edges of hand."
+- **Digit topology:** fingers should be individually distinguishable from base
+  to tip. Fused or merged fingers (two fingers blended into one wide digit) →
+  MEDIUM if minor, HIGH if severe.
+- **No ghost digits:** no partial or stub digits attached to the palm or between
+  the main fingers.
+- **Knuckle row symmetry:** each finger should have a consistent row of knuckles;
+  asymmetric or duplicated knuckle rows indicate a generation artefact.
+
+Treat any HIGH-severity hand anatomy finding as a FAIL regardless of overall
+composition quality.
+"""
 
 # Full vision review checklist — model-agnostic prompt template.
 VISION_REVIEW_PROMPT = """You are a professional image quality reviewer for AI-generated video content.
@@ -13,10 +46,10 @@ VISION_REVIEW_PROMPT = """You are a professional image quality reviewer for AI-g
 Review the provided image and return a structured JSON assessment.
 
 ## Human Anatomy
-- Hands (fingers, joints, proportions)
-- Feet, legs, arms
-- Neck, shoulders
-- Body proportions, posture (walking, sitting)
+- Hands: exactly 5 digits per hand (4 fingers + 1 thumb); thumb on one side only
+- Feet, legs, arms — correct proportions and joint angles
+- Neck, shoulders — natural alignment
+- Body proportions, posture (walking, sitting, reaching)
 
 ## Face
 - Eyes, ear placement, teeth
@@ -30,7 +63,8 @@ Review the provided image and return a structured JSON assessment.
 - Missing object parts
 
 ## AI Artifacts
-- Extra/missing fingers
+- Duplicated or misplaced thumbs; wrong digit count per hand
+- Extra/missing fingers; fused or merged digits
 - Twisted limbs, unrealistic poses, warped anatomy
 - Distorted geometry, hallucinated textures
 - Broken reflections, texture artifacts
@@ -60,6 +94,11 @@ Return ONLY valid JSON with this exact structure:
 Score >= 90, confidence >= 80, no HIGH issues, maximum one MEDIUM issue → "PASS".
 Otherwise → "FAIL" with recommend_regeneration: true.
 """
+
+
+def is_hand_focal(visual_prompt: str) -> bool:
+    """Return True when the visual prompt describes a hand-focal scene."""
+    return bool(_HAND_FOCAL_PATTERN.search(visual_prompt))
 
 
 class VisionProvider(ABC):

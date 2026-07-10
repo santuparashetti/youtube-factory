@@ -198,6 +198,26 @@ def compose_continuous_video(
     scenes = TransitionPlanner().plan(scenes, profile=profile)
     scenes = EffectsPlanner().plan(scenes, profile=profile)
 
+    # Validate all narration audio files before touching FFmpeg — a missing
+    # audio would pass .exists() if the path resolved to "." (a directory).
+    missing_audio: list[str] = []
+    for scene in scenes:
+        index = scene["index"]
+        audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+        if not audio.is_file():
+            missing_audio.append(
+                f"Scene {index}: narration audio missing — TTS failed earlier. "
+                f"Expected: {audio}"
+            )
+    if missing_audio:
+        summary = "\n".join(f"  • {m}" for m in missing_audio)
+        raise RuntimeError(
+            f"compose_continuous_video: cannot build final.mp4 — "
+            f"{len(missing_audio)} scene(s) have missing narration audio:\n"
+            f"{summary}\n"
+            "Fix the TTS failures and re-run the render stage."
+        )
+
     durations: list[float] = []
     for scene in scenes:
         index = scene["index"]
@@ -276,6 +296,7 @@ class VideoPipeline:
 
         scene_clips: list[Path] = []
         durations: list[float] = []
+        scene_errors: list[str] = []
 
         for scene in track(
             scenes,
@@ -311,17 +332,26 @@ class VideoPipeline:
 
             output = output_dir / f"scene-{index:03d}.mp4"
 
-            if not image.exists():
-                raise FileNotFoundError(image)
+            # Validate required assets before invoking FFmpeg.
+            # Use .is_file() instead of .exists() to reject directories (including
+            # Path("."), which .exists() incorrectly accepts as True).
+            if not image.is_file():
+                scene_errors.append(f"Scene {index}: missing image — {image}")
+                continue
 
-            if not audio.exists():
-                raise FileNotFoundError(audio)
+            if not audio.is_file():
+                scene_errors.append(
+                    f"Scene {index}: narration audio missing — TTS failed earlier. "
+                    f"Expected: {audio}. Render skipped."
+                )
+                continue
 
-            if not subtitle.exists():
-                raise FileNotFoundError(
-                    f"No subtitle file found for scene {index}. "
+            if not subtitle.is_file():
+                scene_errors.append(
+                    f"Scene {index}: no subtitle file found. "
                     f"Expected {ass_sub} or {srt_sub}."
                 )
+                continue
 
             # Measure actual audio duration — needed by both the per-scene
             # renderer (fade-out timing, zoompan frame count) and the single-pass
@@ -330,19 +360,31 @@ class VideoPipeline:
             durations.append(duration_hint)
 
             if not output.exists():
-                self.renderer.render(
-                    image=image,
-                    audio=audio,
-                    subtitle=subtitle,
-                    output=output,
-                    duration_hint=duration_hint,
-                    motion_spec=motion_spec,
-                    transition_in=t_in,
-                    transition_out=t_out,
-                    effect_spec=effect_spec,
-                )
+                try:
+                    self.renderer.render(
+                        image=image,
+                        audio=audio,
+                        subtitle=subtitle,
+                        output=output,
+                        duration_hint=duration_hint,
+                        motion_spec=motion_spec,
+                        transition_in=t_in,
+                        transition_out=t_out,
+                        effect_spec=effect_spec,
+                    )
+                except Exception as exc:
+                    scene_errors.append(f"Scene {index} render failed: {exc}")
+                    continue
 
             scene_clips.append(output)
+
+        if scene_errors:
+            error_summary = "\n".join(f"  • {e}" for e in scene_errors)
+            raise RuntimeError(
+                f"Video rendering incomplete — {len(scene_errors)} scene(s) failed:\n"
+                f"{error_summary}\n"
+                "Resolve the asset generation failures above, then re-run `ytfactory render`."
+            )
 
         print("\n✓ All scenes rendered. Composing final video...\n")
 

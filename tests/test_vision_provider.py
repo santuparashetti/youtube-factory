@@ -354,3 +354,147 @@ class TestLlamaCppVisionProviderLoading:
         result = provider.review(missing_image, "test prompt")
         assert result.status == "ERROR"
         assert "not found" in result.error.lower()
+
+
+# ── is_hand_focal() regression tests ─────────────────────────────────────────
+
+# Real visual prompts from the Plato project that exhibit the two-thumb glitch.
+_SCENE_034_PROMPT = (
+    "Low-angle shot looking upward at an open palm, fingers gently spread, "
+    "against a pale sky at late afternoon. The hand belongs to a figure in "
+    "simple cream linen, but only the hand and wrist are visible in frame. "
+    "A single worn coin rests in the center of the palm—small, ancient-looking, "
+    "catching warm light."
+)
+
+_SCENE_035_PROMPT = (
+    "High-angle shot looking down at a figure standing alone in the center of "
+    "a modest courtyard, arms at their sides, palms open and facing forward—empty. "
+    "The figure wears simple earth-toned clothing. The courtyard is paved with worn "
+    "stone, cracks visible, weeds pushing through in places. Soft pre-dawn light."
+)
+
+_NON_HAND_PROMPT = (
+    "Wide establishing shot of an ancient Athenian agora at golden hour. "
+    "Marble columns cast long shadows across the cobblestones. A lone figure "
+    "in a white robe walks in the distance toward a temple entrance."
+)
+
+
+class TestIsHandFocal:
+    """Unit tests for is_hand_focal() keyword detector."""
+
+    def test_scene_034_palm_and_fingers_detected(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        assert is_hand_focal(_SCENE_034_PROMPT), "scene-034 prompt has palm/fingers/wrist"
+
+    def test_scene_035_palms_detected(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        assert is_hand_focal(_SCENE_035_PROMPT), "scene-035 prompt has palms"
+
+    def test_non_hand_scene_returns_false(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        assert not is_hand_focal(_NON_HAND_PROMPT), "no hand keywords in agora prompt"
+
+    def test_each_hand_keyword_individually(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        keywords = ["hand", "hands", "palm", "palms", "finger", "fingers",
+                    "knuckle", "knuckles", "digit", "digits", "fist", "wrist", "wrists"]
+        for kw in keywords:
+            assert is_hand_focal(f"A scene featuring {kw} prominently."), kw
+
+    def test_no_false_positive_on_landscape_or_landmark(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        non_hand_prompts = [
+            "Rocky landscape with no people",
+            "A digital clock face on the wall",
+            "An island floating above the clouds",
+            "Close-up of scattered parchment and ink",
+        ]
+        for p in non_hand_prompts:
+            assert not is_hand_focal(p), f"false positive on: {p!r}"
+
+    def test_case_insensitive_match(self) -> None:
+        from ytfactory.providers.vision.base import is_hand_focal
+        assert is_hand_focal("HAND reaching toward the sky")
+        assert is_hand_focal("PALMS open wide")
+        assert is_hand_focal("Fingers intertwined")
+
+
+# ── _build_prompt() hand-anatomy injection tests ──────────────────────────────
+
+
+class TestBuildPromptHandAnatomy:
+    """Verify that HAND_ANATOMY_PROMPT is injected iff the prompt is hand-focal."""
+
+    def _local_provider(self):
+        from ytfactory.providers.vision.local import LocalVisionProvider
+        return LocalVisionProvider(model_name="minicpm_v2_6")
+
+    def _llama_provider(self):
+        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        return LlamaCppVisionProvider(model_name="qwen2_5_vl_3b")
+
+    def test_local_provider_injects_hand_block_for_scene_034(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._local_provider()
+        result = provider._build_prompt(_SCENE_034_PROMPT)
+        assert HAND_ANATOMY_PROMPT in result
+
+    def test_local_provider_injects_hand_block_for_scene_035(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._local_provider()
+        result = provider._build_prompt(_SCENE_035_PROMPT)
+        assert HAND_ANATOMY_PROMPT in result
+
+    def test_local_provider_no_hand_block_for_non_hand_scene(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._local_provider()
+        result = provider._build_prompt(_NON_HAND_PROMPT)
+        assert HAND_ANATOMY_PROMPT not in result, "hand block must not appear in non-hand scene"
+
+    def test_llama_provider_injects_hand_block_for_scene_034(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._llama_provider()
+        result = provider._build_prompt(_SCENE_034_PROMPT)
+        assert HAND_ANATOMY_PROMPT in result
+
+    def test_llama_provider_injects_hand_block_for_scene_035(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._llama_provider()
+        result = provider._build_prompt(_SCENE_035_PROMPT)
+        assert HAND_ANATOMY_PROMPT in result
+
+    def test_llama_provider_no_hand_block_for_non_hand_scene(self) -> None:
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        provider = self._llama_provider()
+        result = provider._build_prompt(_NON_HAND_PROMPT)
+        assert HAND_ANATOMY_PROMPT not in result
+
+    def test_hand_block_contains_duplicated_thumb_criterion(self) -> None:
+        """The HAND_ANATOMY_PROMPT must explicitly name the duplicated-thumb failure mode."""
+        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        assert "duplicated thumb" in HAND_ANATOMY_PROMPT.lower() or \
+               "both outer edges" in HAND_ANATOMY_PROMPT.lower(), \
+               "duplicated-thumb criterion must be explicit in HAND_ANATOMY_PROMPT"
+
+    def test_base_prompt_includes_hand_in_anatomy_section(self) -> None:
+        """VISION_REVIEW_PROMPT base must mention 5 digits and thumb placement."""
+        from ytfactory.providers.vision.base import VISION_REVIEW_PROMPT
+        assert "5 digits" in VISION_REVIEW_PROMPT or "5 fingers" in VISION_REVIEW_PROMPT or \
+               "thumb" in VISION_REVIEW_PROMPT.lower(), \
+               "Base prompt must mention hand anatomy (5 digits / thumb)"
+
+    def test_visual_prompt_is_forwarded_in_built_prompt(self) -> None:
+        """The original visual_prompt string must appear verbatim in the built prompt."""
+        provider = self._local_provider()
+        result = provider._build_prompt(_SCENE_034_PROMPT)
+        assert _SCENE_034_PROMPT in result
+
+    def test_both_providers_produce_identical_structure_for_non_hand(self) -> None:
+        """For a non-hand scene, both providers produce the same base prompt."""
+        local = self._local_provider()
+        llama = self._llama_provider()
+        local_result = local._build_prompt(_NON_HAND_PROMPT)
+        llama_result = llama._build_prompt(_NON_HAND_PROMPT)
+        assert local_result == llama_result

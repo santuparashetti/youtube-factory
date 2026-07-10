@@ -64,25 +64,38 @@ def video_renderer_node(state: VideoState) -> dict:
         t_out: dict | None = scene.get("transition_out")
         effect_spec: dict | None = scene.get("effects")
 
-        image = Path(image_paths.get(index, ""))
-        audio = Path(audio_paths.get(index, ""))
-        subtitle = Path(srt_paths.get(index, ""))
         output = video_dir / f"scene-{index:03d}.mp4"
 
-        if not image.exists():
+        # Use .get() → None so a missing entry is distinguishable from an empty
+        # string.  Path("") == Path(".") which is always a valid directory, so
+        # the old .exists() guard silently passed and FFmpeg received "-i .".
+        image_str = image_paths.get(index)
+        audio_str = audio_paths.get(index)
+        subtitle_str = srt_paths.get(index)
+
+        if image_str is None or not Path(image_str).is_file():
             errors.append(f"Scene {index}: missing image, skipped")
             console.print(f"  [yellow]⚠[/yellow] Scene {index} skipped — no image")
             continue
 
-        if not audio.exists():
-            errors.append(f"Scene {index}: missing audio, skipped")
-            console.print(f"  [yellow]⚠[/yellow] Scene {index} skipped — no audio")
+        if audio_str is None or not Path(audio_str).is_file():
+            # TTS failed for this scene earlier in the pipeline
+            expected = Path(WORKSPACE_DIR) / project_id / "audio" / f"scene-{index:03d}.mp3"
+            errors.append(
+                f"Scene {index}: narration audio missing — TTS failed earlier. "
+                f"Expected: {expected}. Render skipped."
+            )
+            console.print(f"  [yellow]⚠[/yellow] Scene {index} skipped — no audio (TTS failed)")
             continue
 
-        if not subtitle.exists():
+        if subtitle_str is None or not Path(subtitle_str).is_file():
             errors.append(f"Scene {index}: missing subtitle, skipped")
             console.print(f"  [yellow]⚠[/yellow] Scene {index} skipped — no subtitle")
             continue
+
+        image = Path(image_str)
+        audio = Path(audio_str)
+        subtitle = Path(subtitle_str)
 
         try:
             renderer.render(
