@@ -1,6 +1,6 @@
 from ytfactory.config.settings import Settings
-from ytfactory.providers.search.base import SearchProvider
-from ytfactory.providers.search.tavily import TavilySearchProvider
+from video_core.providers.search.base import SearchProvider
+from video_core.providers.search.tavily import TavilySearchProvider
 
 
 def get_search_provider(settings: Settings) -> SearchProvider:

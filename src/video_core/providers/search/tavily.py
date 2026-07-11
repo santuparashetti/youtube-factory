@@ -4,7 +4,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.search import SearchResult
-from ytfactory.providers.search.base import SearchProvider
+from video_core.providers.search.base import SearchProvider
 
 
 class TavilySearchProvider(SearchProvider):
