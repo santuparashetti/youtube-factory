@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.providers.search.factory import get_search_provider
 from ytfactory.research.models import ResearchResult
 from ytfactory.research.prompts import PromptBuilder

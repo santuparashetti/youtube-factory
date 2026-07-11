@@ -25,7 +25,7 @@ from ytfactory.agents.prompts.script_writer import (
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository

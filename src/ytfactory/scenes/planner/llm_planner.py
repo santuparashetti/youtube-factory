@@ -3,7 +3,7 @@ import json
 from loguru import logger
 
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.scenes.models import ScenePlan
 from ytfactory.scenes.prompts.system_prompt import SYSTEM_PROMPT
 

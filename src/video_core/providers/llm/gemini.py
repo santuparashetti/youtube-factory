@@ -12,7 +12,7 @@ from tenacity import (
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse
-from ytfactory.providers.llm.base import LLMProvider
+from video_core.providers.llm.base import LLMProvider
 
 _RETRYABLE = (
     RuntimeError,

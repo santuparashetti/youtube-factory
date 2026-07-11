@@ -24,7 +24,7 @@ from ytfactory.agents.prompts.script_writer import (
     TARGET_IDEAL_MINUTES,
 )
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()

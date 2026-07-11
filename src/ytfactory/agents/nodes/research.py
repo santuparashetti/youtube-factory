@@ -19,7 +19,7 @@ from ytfactory.agents.prompts.research import (
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.providers.search.factory import get_search_provider
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository

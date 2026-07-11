@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from ytfactory.config.settings import Settings
 from ytfactory.domain.llm import LLMResponse
-from ytfactory.providers.llm.base import LLMProvider
+from video_core.providers.llm.base import LLMProvider
 
 
 class OpenAICompatibleProvider(LLMProvider):

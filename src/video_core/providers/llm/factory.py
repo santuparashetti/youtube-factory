@@ -1,6 +1,6 @@
 from ytfactory.config.settings import Settings
-from ytfactory.providers.llm.base import LLMProvider
-from ytfactory.providers.llm.gemini import GeminiProvider
+from video_core.providers.llm.base import LLMProvider
+from video_core.providers.llm.gemini import GeminiProvider
 
 
 def get_llm_provider(
@@ -13,17 +13,17 @@ def get_llm_provider(
             return GeminiProvider(settings)
 
         case "groq":
-            from ytfactory.providers.llm.groq_provider import GroqProvider
+            from video_core.providers.llm.groq_provider import GroqProvider
 
             return GroqProvider(settings)
 
         case "ollama":
-            from ytfactory.providers.llm.ollama import OllamaProvider
+            from video_core.providers.llm.ollama import OllamaProvider
 
             return OllamaProvider(settings)
 
         case "anthropic":
-            from ytfactory.providers.llm.openai_provider import OpenAICompatibleProvider
+            from video_core.providers.llm.openai_provider import OpenAICompatibleProvider
 
             return OpenAICompatibleProvider(settings)
 

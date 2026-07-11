@@ -17,7 +17,7 @@ from ytfactory.agents.state import VideoState
 from ytfactory.branding.config import get_brand_config
 from ytfactory.config.settings import Settings
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository

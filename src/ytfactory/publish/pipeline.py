@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ytfactory.config.settings import Settings
 from ytfactory.providers.image.factory import get_image_provider
-from ytfactory.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.publish.artifacts import publish_directory
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.generators.chapters import ChaptersGenerator

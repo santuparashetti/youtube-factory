@@ -21,7 +21,7 @@ def get_subtitle_editor_provider(settings) -> SubtitleEditorProvider:
 
     if name == "llm":
         from .providers.llm_provider import LLMSubtitleEditor
-        from ytfactory.providers.llm.factory import get_llm_provider
+        from video_core.providers.llm.factory import get_llm_provider
 
         return LLMSubtitleEditor(get_llm_provider(settings))
 

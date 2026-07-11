@@ -12,7 +12,7 @@ import re
 
 from loguru import logger
 
-from ytfactory.providers.llm.base import LLMProvider
+from video_core.providers.llm.base import LLMProvider
 
 from ..prompt import EDITORIAL_SYSTEM_PROMPT
 from ..provider import CueInput, CueOutput, EditResult, SubtitleEditorProvider
