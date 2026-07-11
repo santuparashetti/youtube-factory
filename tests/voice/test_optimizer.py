@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ytfactory.providers.tts.optimizer import SpeechOptimizer
+from video_core.providers.tts.optimizer import SpeechOptimizer
 
 
 @pytest.fixture()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ytfactory.providers.tts.formatter import SpeechFormatter
+from video_core.providers.tts.formatter import SpeechFormatter
 
 
 @pytest.fixture()

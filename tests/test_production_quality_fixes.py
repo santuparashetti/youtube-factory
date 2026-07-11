@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from ytfactory.providers.tts.optimizer import (
+from video_core.providers.tts.optimizer import (
     SpeechOptimizer,
     _EMPHASIS_VOCAB,
     _apply_keyword_emphasis,

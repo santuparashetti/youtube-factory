@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.providers.tts.capabilities import ProviderCapabilities
+from video_core.providers.tts.capabilities import ProviderCapabilities
 
 
 # ── Settings factory ──────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ def _make_settings(**overrides):
 
 def _make_provider(**settings_overrides):
     """Return a KokoroProvider with mocked settings."""
-    from ytfactory.providers.tts.kokoro import KokoroProvider
+    from video_core.providers.tts.kokoro import KokoroProvider
 
     return KokoroProvider(_make_settings(**settings_overrides))
 
@@ -253,8 +253,8 @@ class TestKokoroGenerate:
 class TestKokoroFactoryRegistration:
     def test_factory_returns_kokoro_provider(self):
         """get_tts_provider('kokoro') returns a KokoroProvider instance."""
-        from ytfactory.providers.tts.factory import get_tts_provider
-        from ytfactory.providers.tts.kokoro import KokoroProvider
+        from video_core.providers.tts.factory import get_tts_provider
+        from video_core.providers.tts.kokoro import KokoroProvider
 
         settings = _make_settings()
         settings.tts_provider = "kokoro"  # type: ignore[attr-defined]

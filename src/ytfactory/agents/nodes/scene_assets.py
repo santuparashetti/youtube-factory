@@ -10,10 +10,10 @@ from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
 from ytfactory.domain.image import ImageRequest
 from video_core.providers.image.factory import get_image_provider
-from ytfactory.providers.tts.debug import TTSDebugWriter
-from ytfactory.providers.tts.factory import get_tts_provider
-from ytfactory.providers.tts.optimizer import SpeechOptimizer
-from ytfactory.providers.tts.validator import AudioValidator
+from video_core.providers.tts.debug import TTSDebugWriter
+from video_core.providers.tts.factory import get_tts_provider
+from video_core.providers.tts.optimizer import SpeechOptimizer
+from video_core.providers.tts.validator import AudioValidator
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.subtitles import SubtitleEngine
 from ytfactory.subtitles.models import SubtitleFormat
@@ -29,7 +29,7 @@ _NEGATIVE_PROMPT = (
 
 
 def _get_audio_duration(path: Path) -> float:
-    from ytfactory.providers.tts.validator import _measure_duration
+    from video_core.providers.tts.validator import _measure_duration
 
     return _measure_duration(path)
 

@@ -8,11 +8,11 @@ from pathlib import Path
 from loguru import logger
 
 from ytfactory.config.settings import Settings
-from ytfactory.providers.tts.debug import TTSDebugWriter
-from ytfactory.providers.tts.factory import get_tts_provider
-from ytfactory.providers.tts.optimizer import SpeechOptimizer
+from video_core.providers.tts.debug import TTSDebugWriter
+from video_core.providers.tts.factory import get_tts_provider
+from video_core.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.pacing.injector import PauseInjector
-from ytfactory.providers.tts.validator import AudioValidator, ValidationResult
+from video_core.providers.tts.validator import AudioValidator, ValidationResult
 
 from .aligner import align as whisperx_align
 from .aligner import save_alignment

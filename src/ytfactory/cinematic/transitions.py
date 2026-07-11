@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from ytfactory.cinematic.profiles import RenderProfile
-from ytfactory.providers.tts.emotion import classify_scene
+from video_core.providers.tts.emotion import classify_scene
 
 
 @dataclass(frozen=True)

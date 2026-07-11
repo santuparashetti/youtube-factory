@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ytfactory.providers.tts.validator import (
+from video_core.providers.tts.validator import (
     AudioValidator,
     ValidationResult,
     _MIN_FILE_BYTES,
