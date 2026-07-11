@@ -41,7 +41,7 @@ class ImagePipeline:
         if not self._review_config.enabled:
             return None
         try:
-            from ytfactory.providers.vision.factory import get_vision_provider
+            from video_core.providers.vision.factory import get_vision_provider
 
             vision = get_vision_provider(
                 self._review_config.provider,

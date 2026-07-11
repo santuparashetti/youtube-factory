@@ -12,7 +12,7 @@ from ytfactory.prompts.prompt_remediation_builder import (
     _CORRECTION_HEADER,
     _FALLBACK_INSTRUCTION,
 )
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
+from video_core.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

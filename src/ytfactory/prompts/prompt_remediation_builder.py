@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
+from video_core.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
 # ── Rule-Based Prompt Library ─────────────────────────────────────────────────

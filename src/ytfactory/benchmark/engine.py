@@ -28,7 +28,7 @@ from ytfactory.domain.image import ImageRequest, ImageResponse
 from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.images.review_engine import ImageReviewEngine
 from video_core.providers.image.base import ImageProvider
-from ytfactory.providers.vision.factory import get_vision_provider
+from video_core.providers.vision.factory import get_vision_provider
 
 from .dataset import BenchmarkDataset
 from .hard_fails import detect_hard_fails
@@ -357,7 +357,7 @@ class BenchmarkEngine:
 
 def _dicts_to_vision_issues(raw: list[dict]):
     """Convert raw issue dicts from SceneReviewArtifact back to VisionIssue."""
-    from ytfactory.providers.vision.models import IssueSeverity, VisionIssue
+    from video_core.providers.vision.models import IssueSeverity, VisionIssue
 
     issues = []
     for d in raw:

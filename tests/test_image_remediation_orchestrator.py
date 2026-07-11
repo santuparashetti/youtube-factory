@@ -118,13 +118,13 @@ class TestQaScores:
 
 class TestDictToVisionIssue:
     def test_basic_conversion(self) -> None:
-        from ytfactory.providers.vision.models import IssueSeverity
+        from video_core.providers.vision.models import IssueSeverity
         issue = _dict_to_vision_issue({"category": "face", "description": "bad eye", "severity": "HIGH"})
         assert issue.category == "face"
         assert issue.severity == IssueSeverity.HIGH
 
     def test_unknown_severity_defaults_to_medium(self) -> None:
-        from ytfactory.providers.vision.models import IssueSeverity
+        from video_core.providers.vision.models import IssueSeverity
         issue = _dict_to_vision_issue({"severity": "UNKNOWN"})
         assert issue.severity == IssueSeverity.MEDIUM
 

@@ -15,8 +15,8 @@ from ytfactory.images.review_models import (
     SceneRemediationArtifact,
     SceneReviewArtifact,
 )
-from ytfactory.providers.vision.mock import MockVisionProvider
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
+from video_core.providers.vision.mock import MockVisionProvider
+from video_core.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

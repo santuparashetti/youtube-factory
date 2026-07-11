@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.providers.vision import (
+from video_core.providers.vision import (
     VisionProvider,
     VisionReviewResult,
     get_vision_provider,
 )
-from ytfactory.providers.vision.mock import MockVisionProvider
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue
+from video_core.providers.vision.mock import MockVisionProvider
+from video_core.providers.vision.models import IssueSeverity, VisionIssue
 
 
 # ── VisionReviewResult tests ──────────────────────────────────────────────────
@@ -123,12 +123,12 @@ class TestVisionProviderFactory:
         assert isinstance(provider, MockVisionProvider)
 
     def test_returns_local_provider_for_transformers_model(self) -> None:
-        from ytfactory.providers.vision.local import LocalVisionProvider
+        from video_core.providers.vision.local import LocalVisionProvider
         provider = get_vision_provider("local", local_model="minicpm_v2_6")
         assert isinstance(provider, LocalVisionProvider)
 
     def test_returns_llama_cpp_provider_for_gguf_model(self) -> None:
-        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
         provider = get_vision_provider("local", local_model="qwen2_5_vl_3b")
         assert isinstance(provider, LlamaCppVisionProvider)
 
@@ -143,7 +143,7 @@ class TestLocalVisionProviderParsing:
     """Unit tests for _parse_response — no model loading required."""
 
     def _provider(self) -> "LocalVisionProvider":
-        from ytfactory.providers.vision.local import LocalVisionProvider
+        from video_core.providers.vision.local import LocalVisionProvider
         return LocalVisionProvider(model_name="minicpm_v2_6")
 
     def test_parse_valid_json_pass(self) -> None:
@@ -233,7 +233,7 @@ class TestLlamaCppVisionProviderParsing:
     """Unit tests for _parse_response — same JSON contract as LocalVisionProvider."""
 
     def _provider(self) -> "LlamaCppVisionProvider":
-        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
         return LlamaCppVisionProvider(model_name="qwen2_5_vl_3b")
 
     def test_parse_valid_json_pass(self) -> None:
@@ -267,7 +267,7 @@ class TestLlamaCppVisionProviderParsing:
         assert result.issues[0].severity == IssueSeverity.HIGH
 
     def test_parse_markdown_fenced_json(self) -> None:
-        from ytfactory.providers.vision.models import IssueSeverity as _IS
+        from video_core.providers.vision.models import IssueSeverity as _IS
         provider = self._provider()
         raw = '```json\n{"status": "PASS", "score": 93, "confidence": 90, "issues": [], "recommend_regeneration": false}\n```'
         result = provider._parse_response(raw)
@@ -299,7 +299,7 @@ class TestLlamaCppVisionProviderParsing:
 
     def test_parse_shares_same_contract_as_local_provider(self) -> None:
         """Qwen and MiniCPM providers accept the same JSON schema."""
-        from ytfactory.providers.vision.local import LocalVisionProvider
+        from video_core.providers.vision.local import LocalVisionProvider
 
         raw = json.dumps({
             "status": "FAIL",
@@ -325,7 +325,7 @@ class TestLlamaCppVisionProviderParsing:
 class TestLlamaCppVisionProviderLoading:
     def test_skips_when_model_not_provisioned(self, tmp_path: Path) -> None:
         """Provider returns skipped result when model is not in LAMM cache."""
-        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
 
         provider = LlamaCppVisionProvider(model_name="qwen2_5_vl_3b", base_dir=tmp_path)
         dummy = tmp_path / "img.png"
@@ -346,7 +346,7 @@ class TestLlamaCppVisionProviderLoading:
         assert result.status == "SKIP"
 
     def test_error_when_image_missing(self, tmp_path: Path) -> None:
-        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
 
         provider = LlamaCppVisionProvider(model_name="qwen2_5_vl_3b", base_dir=tmp_path)
         missing_image = tmp_path / "nonexistent.png"
@@ -385,26 +385,26 @@ class TestIsHandFocal:
     """Unit tests for is_hand_focal() keyword detector."""
 
     def test_scene_034_palm_and_fingers_detected(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         assert is_hand_focal(_SCENE_034_PROMPT), "scene-034 prompt has palm/fingers/wrist"
 
     def test_scene_035_palms_detected(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         assert is_hand_focal(_SCENE_035_PROMPT), "scene-035 prompt has palms"
 
     def test_non_hand_scene_returns_false(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         assert not is_hand_focal(_NON_HAND_PROMPT), "no hand keywords in agora prompt"
 
     def test_each_hand_keyword_individually(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         keywords = ["hand", "hands", "palm", "palms", "finger", "fingers",
                     "knuckle", "knuckles", "digit", "digits", "fist", "wrist", "wrists"]
         for kw in keywords:
             assert is_hand_focal(f"A scene featuring {kw} prominently."), kw
 
     def test_no_false_positive_on_landscape_or_landmark(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         non_hand_prompts = [
             "Rocky landscape with no people",
             "A digital clock face on the wall",
@@ -415,7 +415,7 @@ class TestIsHandFocal:
             assert not is_hand_focal(p), f"false positive on: {p!r}"
 
     def test_case_insensitive_match(self) -> None:
-        from ytfactory.providers.vision.base import is_hand_focal
+        from video_core.providers.vision.base import is_hand_focal
         assert is_hand_focal("HAND reaching toward the sky")
         assert is_hand_focal("PALMS open wide")
         assert is_hand_focal("Fingers intertwined")
@@ -428,59 +428,59 @@ class TestBuildPromptHandAnatomy:
     """Verify that HAND_ANATOMY_PROMPT is injected iff the prompt is hand-focal."""
 
     def _local_provider(self):
-        from ytfactory.providers.vision.local import LocalVisionProvider
+        from video_core.providers.vision.local import LocalVisionProvider
         return LocalVisionProvider(model_name="minicpm_v2_6")
 
     def _llama_provider(self):
-        from ytfactory.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
+        from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
         return LlamaCppVisionProvider(model_name="qwen2_5_vl_3b")
 
     def test_local_provider_injects_hand_block_for_scene_034(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._local_provider()
         result = provider._build_prompt(_SCENE_034_PROMPT)
         assert HAND_ANATOMY_PROMPT in result
 
     def test_local_provider_injects_hand_block_for_scene_035(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._local_provider()
         result = provider._build_prompt(_SCENE_035_PROMPT)
         assert HAND_ANATOMY_PROMPT in result
 
     def test_local_provider_no_hand_block_for_non_hand_scene(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._local_provider()
         result = provider._build_prompt(_NON_HAND_PROMPT)
         assert HAND_ANATOMY_PROMPT not in result, "hand block must not appear in non-hand scene"
 
     def test_llama_provider_injects_hand_block_for_scene_034(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._llama_provider()
         result = provider._build_prompt(_SCENE_034_PROMPT)
         assert HAND_ANATOMY_PROMPT in result
 
     def test_llama_provider_injects_hand_block_for_scene_035(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._llama_provider()
         result = provider._build_prompt(_SCENE_035_PROMPT)
         assert HAND_ANATOMY_PROMPT in result
 
     def test_llama_provider_no_hand_block_for_non_hand_scene(self) -> None:
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         provider = self._llama_provider()
         result = provider._build_prompt(_NON_HAND_PROMPT)
         assert HAND_ANATOMY_PROMPT not in result
 
     def test_hand_block_contains_duplicated_thumb_criterion(self) -> None:
         """The HAND_ANATOMY_PROMPT must explicitly name the duplicated-thumb failure mode."""
-        from ytfactory.providers.vision.base import HAND_ANATOMY_PROMPT
+        from video_core.providers.vision.base import HAND_ANATOMY_PROMPT
         assert "duplicated thumb" in HAND_ANATOMY_PROMPT.lower() or \
                "both outer edges" in HAND_ANATOMY_PROMPT.lower(), \
                "duplicated-thumb criterion must be explicit in HAND_ANATOMY_PROMPT"
 
     def test_base_prompt_includes_hand_in_anatomy_section(self) -> None:
         """VISION_REVIEW_PROMPT base must mention 5 digits and thumb placement."""
-        from ytfactory.providers.vision.base import VISION_REVIEW_PROMPT
+        from video_core.providers.vision.base import VISION_REVIEW_PROMPT
         assert "5 digits" in VISION_REVIEW_PROMPT or "5 fingers" in VISION_REVIEW_PROMPT or \
                "thumb" in VISION_REVIEW_PROMPT.lower(), \
                "Base prompt must mention hand anatomy (5 digits / thumb)"

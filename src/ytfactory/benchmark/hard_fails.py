@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue
+from video_core.providers.vision.models import IssueSeverity, VisionIssue
 
 
 @dataclass(frozen=True)

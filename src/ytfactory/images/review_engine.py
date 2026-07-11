@@ -18,7 +18,7 @@ from pathlib import Path
 from loguru import logger
 
 from video_core.providers.image.base import ImageProvider
-from ytfactory.providers.vision import VisionProvider, VisionReviewResult
+from video_core.providers.vision import VisionProvider, VisionReviewResult
 
 from .review_config import ImageReviewConfig
 from .review_models import (

@@ -34,8 +34,8 @@ from ytfactory.prompts.prompt_remediation_builder import (
     RemediationInput,
 )
 from video_core.providers.image.base import ImageProvider
-from ytfactory.providers.vision.base import VisionProvider
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
+from video_core.providers.vision.base import VisionProvider
+from video_core.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
 # ── QA sub-score derivation ───────────────────────────────────────────────────

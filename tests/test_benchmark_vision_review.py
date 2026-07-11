@@ -19,7 +19,7 @@ from ytfactory.benchmark.models import (
     SceneResult,
 )
 from ytfactory.benchmark.reporter import BenchmarkReporter
-from ytfactory.providers.vision.models import IssueSeverity, VisionIssue
+from video_core.providers.vision.models import IssueSeverity, VisionIssue
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
