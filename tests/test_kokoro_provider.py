@@ -132,7 +132,7 @@ class TestKokoroPipelineLazyImport:
             p = _make_provider()
             result = p._get_pipeline("a")
 
-        mock_kpipeline_cls.assert_called_once_with(lang_code="a")
+        mock_kpipeline_cls.assert_called_once_with(lang_code="a", repo_id="hexgrad/Kokoro-82M")
         assert result is mock_pipeline
 
     def test_caches_pipeline_on_second_call(self):

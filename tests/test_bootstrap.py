@@ -240,7 +240,10 @@ class TestBootstrapEngine:
         engine = BootstrapEngine(tmp_root)
         # Save a current manifest
         save_manifest({"bootstrap_version": BOOTSTRAP_VERSION}, tmp_root)
-        result = engine.setup(force=False)
+        # Phase 0 (ML package checks) always runs; patch it out so the test
+        # focuses on the skip-remaining-phases behaviour.
+        with patch("ytfactory.bootstrap.engine.install_ml_packages", return_value=[]):
+            result = engine.setup(force=False)
         # Should return a single "already bootstrapped" check
         assert len(result.checks) == 1
         assert result.checks[0].status == CheckStatus.OK

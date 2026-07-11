@@ -146,15 +146,21 @@ class ImagePromptEngineV4:
                 prompt = s.get("visual_prompt", "")
                 shot_type = s.get("shot_type", "")
 
+                # Once _ANATOMY_REINFORCEMENT has been appended the prompt contains
+                # human-indicator words ("fingers", "body") from that text itself.
+                # Guard both human-quality and clothing blocks so a second call to
+                # enrich_for_provider does not falsely re-enter them.
+                _already_enriched = _ANATOMY_REINFORCEMENT in prompt
+
                 # Human quality reinforcement (positive prompt, all providers)
-                if prompt and detect_human_presence(prompt):
+                if prompt and not _already_enriched and detect_human_presence(prompt):
                     prompt = add_human_quality_reinforcement(prompt)
                     prompt = apply_subject_dominance_rule(prompt, shot_type)
                     prompt = add_anatomy_constraints(prompt)  # targeted: hand/foot/face
                     s["visual_prompt"] = prompt
 
                 # Clothing & cultural authenticity policy
-                if prompt:
+                if prompt and not _already_enriched:
                     clothing_result = apply_clothing_policy(prompt, s)
                     s["visual_prompt"] = clothing_result.final_prompt
                     prompt = clothing_result.final_prompt
@@ -166,7 +172,7 @@ class ImagePromptEngineV4:
                 if uses_negative:
                     s["negative_prompt"] = _DEFAULT_NEGATIVE_PROMPT
                 else:
-                    if prompt and not prompt.endswith(_ANATOMY_REINFORCEMENT):
+                    if prompt and _ANATOMY_REINFORCEMENT not in prompt:
                         s["visual_prompt"] = prompt + _ANATOMY_REINFORCEMENT
             enriched.append(s)
         return enriched
