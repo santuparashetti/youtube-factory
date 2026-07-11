@@ -33,7 +33,7 @@ from ytfactory.prompts.prompt_remediation_builder import (
     PromptRemediationBuilder,
     RemediationInput,
 )
-from ytfactory.providers.image.base import ImageProvider
+from video_core.providers.image.base import ImageProvider
 from ytfactory.providers.vision.base import VisionProvider
 from ytfactory.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
 

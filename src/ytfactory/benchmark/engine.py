@@ -27,7 +27,7 @@ from loguru import logger
 from ytfactory.domain.image import ImageRequest, ImageResponse
 from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.images.review_engine import ImageReviewEngine
-from ytfactory.providers.image.base import ImageProvider
+from video_core.providers.image.base import ImageProvider
 from ytfactory.providers.vision.factory import get_vision_provider
 
 from .dataset import BenchmarkDataset

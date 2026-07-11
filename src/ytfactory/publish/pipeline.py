@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ytfactory.config.settings import Settings
-from ytfactory.providers.image.factory import get_image_provider
+from video_core.providers.image.factory import get_image_provider
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.publish.artifacts import publish_directory
 from ytfactory.publish.config import PublishConfig
