@@ -6,7 +6,7 @@ Enforce the import direction rule:
 
 Exits with code 1 and prints violations if any file under src/video_core/
 imports from ytfactory, EXCEPT for the known Bucket-C dependencies listed
-below (deferred to Phase 1 — cannot move until Settings is split).
+below (deferred to Phase 2 — WORKSPACE_DIR move).
 """
 import re
 import sys
@@ -18,10 +18,10 @@ VIDEO_CORE = ROOT / "src" / "video_core"
 IMPORT_PATTERN = re.compile(r"(?:from|import)\s+(ytfactory\b[^\s]*)")
 
 # Bucket C items not yet moved — tracked here so any NEW violation is caught.
-# Remove entries from this list as Phase 1 resolves them.
+# Remove entries from this list as each phase resolves them.
+# ytfactory.config.settings resolved by Phase 1 (SharedSettings extraction).
 KNOWN_BUCKET_C = {
-    "ytfactory.config.settings",   # Settings monolith — Phase 1
-    "ytfactory.shared.constants",  # WORKSPACE_DIR — Phase 1
+    "ytfactory.shared.constants",  # WORKSPACE_DIR — Phase 2
 }
 
 violations = []
