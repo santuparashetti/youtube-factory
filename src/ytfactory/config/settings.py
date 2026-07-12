@@ -1,50 +1,14 @@
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from video_core.config.shared_settings import SharedSettings
 
 
-class Settings(BaseSettings):
-    """Application configuration."""
+class Settings(SharedSettings):
+    """ytfactory-specific configuration.
 
-    # ------------------------------------------------------------------
-    # API Keys
-    # ------------------------------------------------------------------
-
-    gemini_api_key: str = Field(default="")
-    tavily_api_key: str = Field(default="")
-    hf_token: str = Field(default="")
-    groq_api_key: str = Field(default="")
-    anthropic_api_key: str = Field(default="")
-    anthropic_base_url: str = Field(default="https://litellm.smarthubai.net")
-
-    # ------------------------------------------------------------------
-    # Providers
-    # ------------------------------------------------------------------
-
-    llm_provider: str = "anthropic"
-    search_provider: str = "tavily"
-    tts_provider: str = "kokoro"
-    image_provider: str = "huggingface"
-
-    # ------------------------------------------------------------------
-    # Models
-    # ------------------------------------------------------------------
-
-    gemini_text_model: str = "gemini-2.5-flash"
-    gemini_image_model: str = "gemini-3.1-flash-lite-image"
-
-    hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
-
-    groq_model: str = "llama-3.1-8b-instant"
-    anthropic_model: str = "claude-haiku-4-5"
-
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2"
-
-    # Automatic1111 / SD WebUI
-    a1111_base_url: str = "http://localhost:7860"
-    a1111_steps: int = 30
-    a1111_cfg_scale: float = 7.0
-    a1111_sampler: str = "DPM++ 2M Karras"
+    Extends SharedSettings with pipeline, quality, and content-specific
+    settings. API keys, provider selectors, model names, and the fields
+    accessed directly by video_core providers live in SharedSettings
+    (video_core.config.shared_settings).
+    """
 
     # ------------------------------------------------------------------
     # Image Defaults
@@ -193,18 +157,15 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------
+    # Reviewed 2026-07-12: intentionally factory-side — ytfactory's VoicePipeline
+    # owns debug/validate logic. tts_auto_retry and tts_max_retries moved to
+    # SharedSettings (accessed directly by KokoroProvider in video_core).
 
     # Write intermediate text files + metadata to workspace/jobs/<id>/tts-debug/
     tts_debug: bool = False
 
     # Validate every generated audio clip (file size, duration, word-count ratio)
     tts_validate_audio: bool = True
-
-    # Automatically retry synthesis when validation fails
-    tts_auto_retry: bool = True
-
-    # Maximum retry attempts per scene (exponential backoff between attempts)
-    tts_max_retries: int = 3
 
     # ------------------------------------------------------------------
     # Contemplative Pacing Engine
@@ -225,6 +186,8 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Video Encoding — FFmpeg H.264 parameters
     # ------------------------------------------------------------------
+    # Reviewed 2026-07-12: intentionally factory-side — values tuned for
+    # near-static YT slideshow content; a different factory would differ.
 
     # H.264 Constant Rate Factor (CRF) — 0=lossless, 51=worst.
     # 23 is the H.264 default ("visually lossless" for cinematic content).
@@ -356,25 +319,18 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Kokoro TTS Provider
     # ------------------------------------------------------------------
-
-    # API key for a hosted Kokoro endpoint (leave empty to use local model).
-    kokoro_api_key: str = Field(default="")
-
-    # Voice ID — Kokoro American English voices: am_michael, am_adam, af_sarah, etc.
-    kokoro_voice: str = "am_michael"
+    # kokoro_api_key, kokoro_voice, kokoro_speed, kokoro_sample_rate moved to
+    # SharedSettings (accessed by KokoroProvider in video_core).
 
     # BCP-47 language code passed to Kokoro.
+    # Reviewed 2026-07-12: zero call sites found — dead field, kept for cleanup pass.
     kokoro_language: str = "en-US"
-
-    # Speech speed multiplier (1.0 = natural).
-    kokoro_speed: float = 0.85
-
-    # Audio sample rate in Hz produced by Kokoro (native 24 kHz).
-    kokoro_sample_rate: int = 24000
 
     # ------------------------------------------------------------------
     # WhisperX Forced Alignment
     # ------------------------------------------------------------------
+    # Reviewed 2026-07-12: intentionally factory-side — only ytfactory's
+    # VoicePipeline uses WhisperX; a different factory would configure separately.
 
     # Enable WhisperX forced alignment after TTS generation.
     # When True, alignment.json is written to audio/ alongside timing.json.
@@ -382,8 +338,7 @@ class Settings(BaseSettings):
     whisperx_enabled: bool = True
 
     # Reserved for future Whisper-based transcription support.
-    # Forced alignment uses a fixed wav2vec2 phoneme model per language and
-    # does not have configurable sizes — this setting is currently unused.
+    # Reviewed 2026-07-12: zero call sites — dead field, kept for cleanup pass.
     whisperx_model: str = "base"
 
     # Device for WhisperX inference: "cpu" or "cuda".
@@ -443,9 +398,5 @@ class Settings(BaseSettings):
     # Runtime
     # ------------------------------------------------------------------
 
+    # Reviewed 2026-07-12: zero call sites found — dead field, kept for cleanup pass.
     request_timeout: int = 60
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore",
-    )
