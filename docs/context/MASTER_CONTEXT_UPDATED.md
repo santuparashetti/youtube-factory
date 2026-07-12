@@ -154,6 +154,12 @@ Generators (in pipeline order): ChaptersGenerator, TitleGenerator, SEOGenerator,
 Output: `workspace/jobs/<id>/publish/` — title.txt, alternate-titles.txt, description.md, keywords.txt, hashtags.txt, youtube-tags.txt, chapters.txt, **pinned-comment.txt**, thumbnail.png, thumbnail-variants/, youtube-metadata.json.  
 `PublishConfig(skip_thumbnail=True)` skips image API calls.
 
+**ChaptersGenerator** (`publish/generators/chapters.py`):  
+- Produces at most `publish_max_chapters` (default 10) chapters; adjacent scenes merged into balanced contiguous groups via `_make_chapter_groups()`.  
+- Short videos get fewer chapters — never padded up to the cap.  
+- `publish_min_chapter_seconds` (default 10s, YouTube's rule) enforced post-merge; further merges if needed (may produce fewer than cap).  
+- `ChaptersGenerator(settings=None)` — lazy `Settings()` read if no settings passed; `getattr(..., default)` used throughout for mock safety.
+
 **PinnedCommentGenerator** (`publish/generators/comment.py`):  
 - Generates an engaging first pinned comment (2–3 sentences, ≤500 chars) using the LLM.  
 - References a specific idea/emotion from the video — not generic.  
@@ -239,6 +245,8 @@ Hook → Channel Welcome (opening.text) → Teaching → Reflection
 **`get_brand_config()` singleton** — lazy load. Call `reset_brand_config_cache()` in tests that swap config files.
 
 **BrandValidator:** 6 checks (hook ≥10 words, welcome in first 30%, signature in last 45%, assertion in last 45%, assertion before CTA, tagline after CTA).
+
+**CTA overlay** (`config/brand_config.yaml → cta_overlay:`): visual call-to-action overlay distinct from the narrated `cta:` text block. **Currently enabled** (`enabled: true`, as of 2026-07-13). Template: `atma`, timing: `contextual`, duration: `6s`. BGM secondary duck: `−4 dB`. Config-driven — flip `enabled: false` to disable without code changes.
 
 ---
 
