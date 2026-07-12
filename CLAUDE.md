@@ -87,7 +87,7 @@ Business logic never imports a concrete provider directly — it calls a factory
 | TTS | `video_core/providers/tts/base.py` | Kokoro, Edge TTS | `TTS_PROVIDER` |
 | Vision | `video_core/providers/vision/base.py` | Local (Qwen2.5-VL via llama.cpp), Mock | `VISION_REVIEW_PROVIDER` |
 
-Providers live in `src/video_core/providers/` (Phase 0 extraction). `ytfactory` imports them as `video_core.providers.*`. LAMM (Local AI Model Manager) lives in `src/video_core/models/`.
+Base classes and factory functions live in `video_core.providers.*` as of Phase 0 (2026-07-12). Product-specific implementations (e.g. the Contemplative Pacing Engine) remain in `ytfactory.providers.tts.pacing`. LAMM (Local AI Model Manager) lives in `src/video_core/models/`.
 
 **Layering rule:** `video_core` must never import from `ytfactory`. Enforce with `python3 scripts/check_layering.py`. Known open exceptions: `ytfactory.config.settings` and `ytfactory.shared.constants` (Bucket C — deferred to Phase 1).
 

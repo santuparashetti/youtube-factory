@@ -11,8 +11,18 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2124 passing (as of 2026-07-10)  
+**Test count:** 2159 passing (as of 2026-07-12)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
+
+## 2026-07-12 — Phase 0 structural extraction complete (commit 06c358b)
+Moved to `video_core`: `providers/{llm,search,image,tts-excl-pacing,vision}`,
+`models/` (LAMM), `domain/{llm,search,image}.py`.
+Stayed in `ytfactory`: everything else (review, branding, publish, bgm,
+agents, build, scenes, `providers/tts/pacing/`, `domain/project.py`).
+Test baseline unchanged: **2159 passing, 0 failing**.
+Layering enforced via `scripts/check_layering.py`.
+Known allowlisted Bucket-C exceptions (tracked for Phase 1, not yet
+extracted): `ytfactory.config.settings`, `ytfactory.shared.constants`.
 
 ---
 
@@ -54,6 +64,24 @@ ytfactory publish <id>
 
 ---
 
+## Source Layout (post Phase 0)
+
+```
+src/
+├── video_core/          # Phase 0 extraction (2026-07-12, commit 06c358b)
+│   ├── providers/       # llm, search, image, tts (excl. pacing/), vision
+│   ├── models/          # LAMM: manager, registry, bundle, capabilities
+│   └── domain/          # LLMResponse, SearchResult, ImageRequest
+│
+└── ytfactory/           # unchanged product code — review, publish, bgm,
+                         # branding, agents, build, scenes, providers/tts/pacing/,
+                         # domain/project.py, config/, everything else
+```
+
+**Layering rule:** `video_core` must not import from `ytfactory`. Enforced by `scripts/check_layering.py`. Known open Bucket-C deps (Phase 1): `ytfactory.config.settings`, `ytfactory.shared.constants`.
+
+---
+
 ## Current Provider Stack (`.env` as of 2026-07-09)
 
 | Provider type | Setting | Current value |
@@ -70,6 +98,16 @@ ytfactory publish <id>
 | Render profile | `RENDER_PROFILE` | set per wizard run |
 
 **Provider factory pattern:** business logic calls `get_llm_provider(settings)` / `get_image_provider(settings)` / `get_tts_provider(settings)` — never imports a concrete provider directly.
+
+| Provider type | Base class | Implementations | Setting key |
+|---|---|---|---|
+| LLM | `video_core.providers.llm.base` | Gemini, Anthropic (OpenAI-compat), Groq, Ollama | `LLM_PROVIDER` |
+| Search | `video_core.providers.search.base` | Tavily | `SEARCH_PROVIDER` |
+| Image | `video_core.providers.image.base` | HuggingFace, Gemini | `IMAGE_PROVIDER` |
+| TTS | `video_core.providers.tts.base` (pacing engine stays at `ytfactory.providers.tts.pacing`) | Kokoro, Edge TTS | `TTS_PROVIDER` |
+| Vision | `video_core.providers.vision.base` | Local (Qwen2.5-VL via llama.cpp), Mock | `VISION_REVIEW_PROVIDER` |
+
+`get_<type>_provider()` factory functions moved with their base classes — call sites unchanged, only import paths changed.
 
 ---
 
@@ -465,14 +503,15 @@ docker exec youtube-factory ytfactory build <project-id>
 
 ### 13. LOCAL_AI_MODEL_MANAGER (LAMM)
 **Spec:** `docs/plug-and-play-setup/PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM_UPDATED.md`  
-**New files:** `src/ytfactory/models/` package (8 modules), `config/models-registry.yaml`, `tests/test_local_ai_model_manager.py`  
+**Moved to `video_core` in Phase 0 (2026-07-12).** Originally `src/ytfactory/models/`; now `src/video_core/models/`.  
+**New files:** `src/video_core/models/` package (8 modules), `config/models-registry.yaml`, `tests/test_local_ai_model_manager.py`  
 **Modified:** `src/ytfactory/bootstrap/model_bootstrap.py`
 
 #### Architecture
 LAMM is the **single authority** for all local AI model lifecycle. No feature pipeline may download or manage models directly.
 
 ```
-src/ytfactory/models/
+src/video_core/models/
 ├── __init__.py          # exports all types including BundleRuntime, FailureReason, ModelBundle, etc.
 ├── models.py            # ModelEntry, ModelState, ModelStatus, Backend, ProvisionResult + bundle types
 ├── registry.py          # load_registry() — reads config/models-registry.yaml via PyYAML
@@ -509,8 +548,8 @@ Three entries: `whisperx`, `silero_vad`, `minicpm_v2_6`. All have `auto_download
 
 ### 13a. MODEL_BUNDLE_ARCHITECTURE
 **Spec:** `docs/video/MODEL_BUNDLE_ARCHITECTURE.md`  
-**New files:** `src/ytfactory/models/capabilities.py`, `src/ytfactory/models/bundle.py`, `tests/test_model_bundle.py`  
-**Modified:** `models/models.py`, `models/registry.py`, `models/manifest.py`, `models/manager.py`, `models/__init__.py`, `providers/vision/local.py`, `config/models-registry.yaml`
+**New files:** `src/video_core/models/capabilities.py`, `src/video_core/models/bundle.py`, `tests/test_model_bundle.py`  
+**Modified:** `video_core/models/models.py`, `video_core/models/registry.py`, `video_core/models/manifest.py`, `video_core/models/manager.py`, `video_core/models/__init__.py`, `video_core/providers/vision/local.py`, `config/models-registry.yaml`
 
 Every model is now a **bundle** of artifacts; LAMM owns the full lifecycle; providers declare capabilities; LAMM validates the capability contract before marking READY.
 
@@ -549,12 +588,13 @@ Registry parses `runtime`, `capabilities`, `bundle.artifacts`, `bundle.warm_infe
 
 ### 14. IMAGE_REVIEW_PIPELINE_V1
 **Spec:** `docs/video-quality-review/IMAGE_REVIEW_PIPELINE.md`  
-**New files:** `src/ytfactory/providers/vision/` package (5 modules), `src/ytfactory/images/review_config.py`, `src/ytfactory/images/review_engine.py`, `src/ytfactory/images/review_models.py`, `src/ytfactory/review/validation/rules/vision_review.py`, `tests/test_vision_provider.py`, `tests/test_image_review_engine.py`  
+**New files:** `src/video_core/providers/vision/` package (6 modules, incl. `llama_cpp_provider.py` added 07-12), `src/ytfactory/images/review_config.py`, `src/ytfactory/images/review_engine.py`, `src/ytfactory/images/review_models.py`, `src/ytfactory/review/validation/rules/vision_review.py`, `tests/test_vision_provider.py`, `tests/test_image_review_engine.py`  
+**Moved to `video_core` in Phase 0 (2026-07-12).** Originally `src/ytfactory/providers/vision/`; now `src/video_core/providers/vision/`.  
 **Modified:** `src/ytfactory/images/pipeline.py`, `src/ytfactory/config/settings.py`, `src/ytfactory/review/validation/runner.py`, `src/ytfactory/review/validation/config.py`
 
 #### Vision Provider Abstraction
 ```
-src/ytfactory/providers/vision/
+src/video_core/providers/vision/
 ├── __init__.py      # exports VisionProvider, VisionReviewResult, get_vision_provider
 ├── base.py          # VisionProvider ABC + VISION_REVIEW_PROMPT (6-category checklist)
 ├── models.py        # VisionReviewResult, VisionIssue, IssueSeverity
@@ -642,6 +682,7 @@ IMAGE_REVIEW_DEBUG=false
 - Gemini providers (`llm/gemini.py`, `image/gemini.py`) now raise a clear `ValueError` if `GEMINI_API_KEY` is empty, with a message pointing to `.env` and CWD.
 - Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="anthropic"`) → crash with empty key. Always run from repo root.
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
+- **Domain model split (Phase 0):** Generic provider I/O shapes (`LLMResponse`, `SearchResult`, `ImageRequest`) live in `src/video_core/domain/`. Factory-specific models (`Project` + stage-status dict, audio/scene/video models) stay in `src/ytfactory/domain/`. `ProjectRepository` (`storage/project_repository.py`) is unchanged — still factory-owned.
 - **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
 - `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
 - **Capability contract:** call `manager.validate_capabilities(model_name, required)` before loading. Returns `[]` on success; non-empty means `MISSING_CAPABILITY(cap)` — treat as pre-condition failure.
