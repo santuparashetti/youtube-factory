@@ -52,6 +52,20 @@ Previously listed as Bucket C (ambiguous) in the Phase 0 spec. Inspected all 7 s
 
 The three-factory test fails immediately: `stickman_factory` has no `ImageReviewEngine`, `visual_prompt`, or clothing violation concept.
 
+### Phase 1 Settings Split (2026-07-12, commits `4df0ecf`–`6516da3`)
+
+Split monolithic `ytfactory.config.settings.Settings` (117 fields, one flat class) into:
+- `video_core.config.SharedSettings` — 27 fields (API keys, provider selectors, model names, and the provider-config values accessed directly by `video_core` providers: `a1111_*`, `kokoro_voice/speed/sample_rate`, `tts_auto_retry/max_retries`)
+- `ytfactory.config.Settings(SharedSettings)` — remaining ~90 fields (pipeline/quality/content-specific)
+
+Every existing `settings.<field>` call site in `ytfactory/` is unchanged — `Settings` inherits all `SharedSettings` fields via normal Python MRO. 15 `video_core` provider files had their import updated: `from ytfactory.config.settings import Settings` → `from video_core.config.shared_settings import SharedSettings` (annotation + import line only, zero logic changes).
+
+3 known-dead fields (`kokoro_language`, `whisperx_model`, `request_timeout`) were identified but left in place with review notes — separate cleanup pass, not part of the split.
+
+`scripts/check_layering.py`: `ytfactory.config.settings` removed from `KNOWN_BUCKET_C` allowlist. **One remaining Bucket-C exception: `ytfactory.shared.constants`** (WORKSPACE_DIR — tracked for Phase 2).
+
+Test count held at **2161 passing, 0 failing** throughout all 4 commits.
+
 ---
 
 ## Still Open

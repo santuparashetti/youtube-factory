@@ -89,7 +89,7 @@ Business logic never imports a concrete provider directly — it calls a factory
 
 Base classes and factory functions live in `video_core.providers.*` as of Phase 0 (2026-07-12). Product-specific implementations (e.g. the Contemplative Pacing Engine) remain in `ytfactory.providers.tts.pacing`. LAMM (Local AI Model Manager) lives in `src/video_core/models/`.
 
-**Layering rule:** `video_core` must never import from `ytfactory`. Enforce with `python3 scripts/check_layering.py`. Known open exceptions: `ytfactory.config.settings` and `ytfactory.shared.constants` (Bucket C — deferred to Phase 1).
+**Layering rule:** `video_core` must never import from `ytfactory`. Enforce with `python3 scripts/check_layering.py`. One remaining Bucket-C exception: `ytfactory.shared.constants` (WORKSPACE_DIR — deferred to Phase 2). `ytfactory.config.settings` resolved by Phase 1.
 
 To add a new provider: implement the abstract base, add a `case` in the factory, expose a setting.
 
@@ -164,6 +164,8 @@ TTS_PROVIDER=kokoro          # or edge
 ```
 
 Image output defaults to 1280×720 (HD 720p).
+
+`Settings` is split as of Phase 1 (2026-07-12): `video_core.config.SharedSettings` holds credentials/provider config; `ytfactory.config.Settings` extends it with pipeline-specific fields. Both load from this same `.env` — no workflow change for local development.
 
 ### Constants
 

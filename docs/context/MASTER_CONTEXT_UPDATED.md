@@ -11,8 +11,23 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2159 passing (as of 2026-07-12)  
+**Test count:** 2161 passing (as of 2026-07-12)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
+
+## 2026-07-12 — Phase 1 Settings split complete (commits 4df0ecf, e9f9183, 4e9d46b, 6516da3)
+Split monolithic `ytfactory.config.settings.Settings` (117 fields) into:
+  - `video_core.config.SharedSettings` — 27 fields (API keys, provider
+    selectors, model names, provider-config values consumed by
+    video_core providers)
+  - `ytfactory.config.Settings(SharedSettings)` — remaining ~90 fields
+    (pipeline/quality/content-specific), inherits all SharedSettings
+    fields so every existing `settings.<field>` call site is unchanged
+3 known-dead fields (kokoro_language, whisperx_model, request_timeout)
+intentionally left in place — separate cleanup, not part of this split.
+`check_layering.py`: `ytfactory.config.settings` removed from `KNOWN_BUCKET_C`
+allowlist. One remaining Bucket-C exception: `ytfactory.shared.constants`
+(tracked for Phase 2).
+Test count unchanged: 2161 passing, 0 failing throughout.
 
 ## 2026-07-12 — Phase 0 structural extraction complete (commit 06c358b)
 Moved to `video_core`: `providers/{llm,search,image,tts-excl-pacing,vision}`,
@@ -71,7 +86,8 @@ src/
 ├── video_core/          # Phase 0 extraction (2026-07-12, commit 06c358b)
 │   ├── providers/       # llm, search, image, tts (excl. pacing/), vision
 │   ├── models/          # LAMM: manager, registry, bundle, capabilities
-│   └── domain/          # LLMResponse, SearchResult, ImageRequest
+│   ├── domain/          # LLMResponse, SearchResult, ImageRequest
+│   └── config/          # SharedSettings (Phase 1, 2026-07-12)
 │
 └── ytfactory/           # unchanged product code — review, publish, bgm,
                          # branding, agents, build, scenes, providers/tts/pacing/,
@@ -683,6 +699,7 @@ IMAGE_REVIEW_DEBUG=false
 - Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="anthropic"`) → crash with empty key. Always run from repo root.
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
 - **Domain model split (Phase 0):** Generic provider I/O shapes (`LLMResponse`, `SearchResult`, `ImageRequest`) live in `src/video_core/domain/`. Factory-specific models (`Project` + stage-status dict, audio/scene/video models) stay in `src/ytfactory/domain/`. `ProjectRepository` (`storage/project_repository.py`) is unchanged — still factory-owned.
+- **Settings split (Phase 1):** `ytfactory.config.Settings` now inherits `video_core.config.SharedSettings`. Shared fields (API keys, provider selectors, model names, kokoro/a1111 provider config, `tts_auto_retry/max_retries`) live in `SharedSettings`; pipeline/quality/content fields stay in `Settings`. All existing `settings.<field>` call sites are unchanged. Both classes load from the same `.env` file — no `.env` change needed. One remaining Bucket-C layering exception: `ytfactory.shared.constants` (WORKSPACE_DIR, tracked for Phase 2).
 - **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
 - `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
 - **Capability contract:** call `manager.validate_capabilities(model_name, required)` before loading. Returns `[]` on success; non-empty means `MISSING_CAPABILITY(cap)` — treat as pre-condition failure.
