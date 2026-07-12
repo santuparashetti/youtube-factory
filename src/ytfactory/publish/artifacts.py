@@ -59,3 +59,7 @@ def pinned_comment_path(project_id: str) -> Path:
 
 def youtube_metadata_path(project_id: str) -> Path:
     return publish_directory(project_id) / "youtube-metadata.json"
+
+
+def scene_manifest_path(project_id: str) -> Path:
+    return publish_directory(project_id) / "scene-manifest.json"

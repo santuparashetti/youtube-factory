@@ -328,6 +328,24 @@ def mix_bgm(
         _console.print("[yellow]BGM skipped (disabled or no matching tracks).[/yellow]")
 
 
+@app.command(name="export-scene-manifest")
+def export_scene_manifest(
+    project_id: str = typer.Argument(..., help="Project ID to export manifest for"),
+) -> None:
+    """Export a generic per-scene manifest for downstream factories (e.g. shorts_factory).
+
+    Writes workspace/jobs/<project-id>/publish/scene-manifest.json with
+    absolute image_path, audio_path, narration_text, and duration_seconds
+    per scene.  Does not require publish to have run first.
+    """
+    from ytfactory.publish.generators.scene_manifest import SceneManifestGenerator
+
+    entries = SceneManifestGenerator().generate(project_id)
+    _console.print(
+        f"[green]Wrote {len(entries)} scene(s) → publish/scene-manifest.json[/green]"
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """YouTube Factory — run without arguments to open the interactive wizard."""
