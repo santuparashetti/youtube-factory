@@ -17,6 +17,16 @@ metadata:
 ## 2026-07-13 — Chapters capped at 10 (logical scene-merge); CTA overlay enabled
 `ChaptersGenerator` now caps output at `publish_max_chapters` (default 10), merging adjacent scenes into even contiguous groups when there are more natural chapter boundaries than the cap. Never pads short videos up to the cap. Minimum chapter duration `publish_min_chapter_seconds` (default 10s, YouTube's own rule) is enforced even if it means fewer than the cap. New settings: `publish_max_chapters`, `publish_min_chapter_seconds`. CTA overlay enabled in `config/brand_config.yaml` (`cta_overlay: enabled: true`).
 
+## 2026-07-13 — cinematic/ promoted to video_core (commits 4742590, 925f4f7, a0bd568)
+Moved motion.py, transitions.py, profiles.py, effects.py, config.py from
+ytfactory/cinematic/ to video_core/cinematic/ — zero prior Settings/
+workspace coupling, pure relocation. Extracted FFmpegRenderer._vf_spatial
+and _t_factor into standalone video_core.cinematic.ffmpeg_filters.
+build_zoompan_filter() — zero behavior change, FFmpegRenderer now
+delegates to it. Resolves AS-002 (agentic/sequential renderer
+duplication) — both paths now import from one canonical location.
+Test count unchanged: 2165 passing, 0 failing.
+
 ## 2026-07-12 — Phase 1 Settings split complete (commits 4df0ecf, e9f9183, 4e9d46b, 6516da3)
 Split monolithic `ytfactory.config.settings.Settings` (117 fields) into:
   - `video_core.config.SharedSettings` — 27 fields (API keys, provider
@@ -90,14 +100,18 @@ src/
 │   ├── providers/       # llm, search, image, tts (excl. pacing/), vision
 │   ├── models/          # LAMM: manager, registry, bundle, capabilities
 │   ├── domain/          # LLMResponse, SearchResult, ImageRequest
-│   └── config/          # SharedSettings (Phase 1, 2026-07-12)
+│   ├── config/          # SharedSettings (Phase 1, 2026-07-12)
+│   └── cinematic/       # MotionPlanner, TransitionPlanner, profiles, effects,
+│                        # ffmpeg_filters (promoted 2026-07-13; usable by any
+│                        # factory, no shim needed)
 │
 └── ytfactory/           # unchanged product code — review, publish, bgm,
                          # branding, agents, build, scenes, providers/tts/pacing/,
                          # domain/project.py, config/, everything else
 ```
 
-**Layering rule:** `video_core` must not import from `ytfactory`. Enforced by `scripts/check_layering.py`. Known open Bucket-C deps (Phase 1): `ytfactory.config.settings`, `ytfactory.shared.constants`.
+**Layering rule:** `video_core` must not import from `ytfactory`. Enforced by `scripts/check_layering.py`. Known open Bucket-C deps (Phase 1): `ytfactory.config.settings`, `ytfactory.shared.constants`.  
+**`video_core.cinematic`** — `MotionPlanner`, `TransitionPlanner`, `build_zoompan_filter` are clean `video_core` imports; any factory can use them directly with no shim (AS-002 resolved).
 
 ---
 

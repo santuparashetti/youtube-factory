@@ -7,7 +7,7 @@
 
 ## What each class actually does
 
-### `MotionPlanner` (`src/ytfactory/cinematic/motion.py`)
+### `MotionPlanner` (`src/video_core/cinematic/motion.py`)
 Pure data transformation — no I/O, no LLMs, no dimensions.
 
 1. Classifies dominant emotion per scene via `classify_scene(narration, position)` (already in `video_core`).
@@ -25,7 +25,7 @@ Where the actual zoompan filter string is built.
 - Pure math: ~45 lines, no I/O, no Settings access inside the method body.
 - **Only YT coupling:** it's a method on `FFmpegRenderer`, whose `__init__` does `self.settings = Settings()`. The method itself has zero Settings use.
 
-### `TransitionPlanner` (`src/ytfactory/cinematic/transitions.py`)
+### `TransitionPlanner` (`src/video_core/cinematic/transitions.py`)
 Purely about boundaries between consecutive scenes — emotion-pair matrix → fade type/duration. **Not relevant to shorts_factory** (single-image use case has no inter-scene transitions).
 
 ---

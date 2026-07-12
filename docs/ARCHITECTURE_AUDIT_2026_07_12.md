@@ -27,6 +27,7 @@ Key new modules introduced since last audit:
 | AS-004 | ValidationRunner docstrings said 11 / 8 validators (actual: 12) | `review/validation/runner.py:1` and `:42` both now read "12 category validators" |
 | AS-005 | `image_review_min_score` / `image_review_confidence` typed `int` in `settings.py`, `float` in `review_config.py` | `settings.py:419,422` now declare both as `float` — no implicit cast needed |
 | AS-006 | PublishPipeline progress labels stuck at `/6` (7 generators since PinnedComment added) | `publish/pipeline.py` — all labels now `[1/7]`–`[7/7]` |
+| AS-002 | `video_renderer_node` (agentic) duplicates `MotionPlanner`/`TransitionPlanner` instantiation from `VideoPipeline` (sequential) | RESOLVED 2026-07-13 (commits 4742590, 925f4f7, a0bd568). `cinematic/{motion,transitions,profiles,effects,config}.py` moved to `video_core/cinematic/`; `FFmpegRenderer._vf_spatial` extracted to `video_core/cinematic/ffmpeg_filters.build_zoompan_filter()`. Both `video/pipeline.py` and `agents/nodes/video_renderer.py` now import from `video_core.cinematic` — single canonical location. |
 | DC-003 | `silero_vad` missing from `_builtin_defaults()` in `registry.py` | `models/registry.py:169` — `silero_vad` `ModelEntry` added to `_builtin_defaults()` |
 | P4-F | CTA retry count hardcoded to 3 (only non-configurable retry) | `config/settings.py:440` — `cta_max_retries: int = 3`; `cta/pipeline.py:45` reads it via `getattr(settings, "cta_max_retries", 3)` |
 
@@ -74,7 +75,6 @@ Test count held at **2161 passing, 0 failing** throughout all 4 commits.
 |---|---|
 | MW-003 | BGM not independently controllable in incremental build — unchanged structural situation; BGM embedded in `VideoPipeline._apply_bgm()`, no named `bgm` stage in incremental engine |
 | AS-001 | BGM dual-path smell — `BGMPipeline` (standalone `mix-bgm`) vs `VideoPipeline._apply_bgm()` (build path) — unchanged |
-| AS-002 | `video_renderer_node` (agentic) duplicates `MotionPlanner`/`TransitionPlanner`/`EffectsPlanner` instantiation from `VideoPipeline` (sequential) — unchanged |
 | CI-001 – CI-006 | Code defaults vs documented `.env` values — unchanged; running system uses `.env` overrides, but fresh installs diverge |
 
 ---
