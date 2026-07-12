@@ -395,6 +395,22 @@ class Settings(SharedSettings):
     cta_max_retries: int = 3
 
     # ------------------------------------------------------------------
+    # Publish — Chapters
+    # ------------------------------------------------------------------
+
+    # Maximum number of chapters written to chapters.txt.
+    # When more natural scene boundaries exist, adjacent scenes are merged
+    # into even contiguous groups. Short videos get fewer chapters — never
+    # padded up to this cap.
+    publish_max_chapters: int = 10
+
+    # Minimum chapter duration in seconds (matches YouTube's own rule).
+    # If merging to publish_max_chapters still leaves a chapter below this
+    # threshold, groups are merged further until every chapter meets it —
+    # which may produce fewer than publish_max_chapters chapters.
+    publish_min_chapter_seconds: int = 10
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 

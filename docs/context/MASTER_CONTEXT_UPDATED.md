@@ -11,8 +11,11 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2161 passing (as of 2026-07-12)  
+**Test count:** 2165 passing (as of 2026-07-13)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
+
+## 2026-07-13 — Chapters capped at 10 (logical scene-merge); CTA overlay enabled
+`ChaptersGenerator` now caps output at `publish_max_chapters` (default 10), merging adjacent scenes into even contiguous groups when there are more natural chapter boundaries than the cap. Never pads short videos up to the cap. Minimum chapter duration `publish_min_chapter_seconds` (default 10s, YouTube's own rule) is enforced even if it means fewer than the cap. New settings: `publish_max_chapters`, `publish_min_chapter_seconds`. CTA overlay enabled in `config/brand_config.yaml` (`cta_overlay: enabled: true`).
 
 ## 2026-07-12 — Phase 1 Settings split complete (commits 4df0ecf, e9f9183, 4e9d46b, 6516da3)
 Split monolithic `ytfactory.config.settings.Settings` (117 fields) into:

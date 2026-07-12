@@ -264,6 +264,75 @@ class TestChaptersGenerator:
         txt = (tmp_path / project_id / "publish" / "chapters.txt").read_text()
         assert "0:00 Intro" in txt
 
+    # ── Chapter cap / merge tests ─────────────────────────────────────────────
+
+    def _fake_settings(self, max_chapters=10, min_seconds=10):
+        s = MagicMock()
+        s.publish_max_chapters = max_chapters
+        s.publish_min_chapter_seconds = min_seconds
+        return s
+
+    def test_under_cap_unchanged(self, tmp_path, monkeypatch):
+        """5 scenes (each 30s) → 5 chapters; not padded up to 10."""
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        project_id = "cap1"
+        (tmp_path / project_id / "publish").mkdir(parents=True)
+        scenes = [{"index": i, "title": f"Scene {i}", "duration_seconds": 30.0} for i in range(1, 6)]
+        entries = ChaptersGenerator(self._fake_settings()).generate(
+            project_id, tmp_path / project_id, scenes
+        )
+        assert len(entries) == 5
+
+    def test_over_cap_merged_to_max(self, tmp_path, monkeypatch):
+        """12 scenes (each 30s) → exactly 10 chapters after merge."""
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        project_id = "cap2"
+        (tmp_path / project_id / "publish").mkdir(parents=True)
+        scenes = [{"index": i, "title": f"Scene {i}", "duration_seconds": 30.0} for i in range(1, 13)]
+        entries = ChaptersGenerator(self._fake_settings(max_chapters=10)).generate(
+            project_id, tmp_path / project_id, scenes
+        )
+        assert len(entries) == 10
+
+    def test_sub_minimum_merged_further(self, tmp_path, monkeypatch):
+        """After grouping to 10 chapters a short-duration chapter triggers further merge.
+
+        12 scenes: scenes 11 and 12 are 4s each.  Grouped as 10 → some chapter ends
+        up < 10s → merged further → fewer than 10 chapters, all >= 10s.
+        """
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        project_id = "cap3"
+        (tmp_path / project_id / "publish").mkdir(parents=True)
+        scenes = [{"index": i, "title": f"S{i}", "duration_seconds": 30.0} for i in range(1, 11)]
+        # Two tiny scenes at the end
+        scenes += [
+            {"index": 11, "title": "S11", "duration_seconds": 4.0},
+            {"index": 12, "title": "S12", "duration_seconds": 4.0},
+        ]
+        entries = ChaptersGenerator(self._fake_settings(max_chapters=10, min_seconds=10)).generate(
+            project_id, tmp_path / project_id, scenes
+        )
+        # All chapters meet the minimum duration
+        from ytfactory.publish.generators.chapters import _make_chapter_groups
+        durations = [s["duration_seconds"] for s in scenes]
+        groups = _make_chapter_groups(len(scenes), durations, 10, 10)
+        for g in groups:
+            assert sum(durations[i] for i in g) >= 10
+        # Chapter count is <= cap
+        assert len(entries) <= 10
+
+    def test_first_chapter_always_zero(self, tmp_path, monkeypatch):
+        """First chapter timestamp must always be 0:00 regardless of input."""
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        project_id = "cap4"
+        (tmp_path / project_id / "publish").mkdir(parents=True)
+        scenes = [{"index": i, "title": f"S{i}", "duration_seconds": 20.0} for i in range(1, 8)]
+        entries = ChaptersGenerator(self._fake_settings()).generate(
+            project_id, tmp_path / project_id, scenes
+        )
+        assert entries[0].timestamp_seconds == 0.0
+        assert entries[0].timestamp_str == "0:00"
+
 
 # ── TitleGenerator ────────────────────────────────────────────────────────────
 

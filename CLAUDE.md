@@ -142,7 +142,7 @@ workspace/jobs/<project-id>/
 Runs after `remediate` (or `review`). Generators: ChaptersGenerator, TitleGenerator, SEOGenerator, DescriptionGenerator, **PinnedCommentGenerator**, ThumbnailGenerator, UploadPackageGenerator.
 Output: `workspace/jobs/<id>/publish/` — 10 files (includes `pinned-comment.txt`, `youtube-metadata.json`).
 `PublishConfig(skip_thumbnail=True)` skips image API calls. When adding LLM mock side_effects in publish tests, include a **4th response** for the pinned comment call.
-`ChaptersGenerator` reads audio duration from `timing.json` last `"end"` field (falls back to `scene["duration_seconds"]`).
+`ChaptersGenerator` reads audio duration from `timing.json` last `"end"` field (falls back to `scene["duration_seconds"]`). Produces at most `publish_max_chapters` (default 10) chapters, merging adjacent scenes into even contiguous groups when there are more natural scene boundaries than the cap. Short videos get fewer chapters — never padded up to the cap. Minimum chapter length `publish_min_chapter_seconds` (default 10s, matching YouTube's own rule) is enforced; if merging to the cap still leaves a chapter below this threshold, groups are merged further (which may produce fewer than the cap).
 
 ### Domain Models
 
