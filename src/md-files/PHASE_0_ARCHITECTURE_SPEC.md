@@ -202,10 +202,10 @@ a regression maps to exactly one change.
 
 - `factory_sdk` (lifecycle manager, plugin registry, CLI bootstrap, templates)
 - `stickman_factory` (or any) scaffold
-- Settings schema split (shared vs. factory config)
+- ~~Settings schema split (shared vs. factory config)~~ — **done 2026-07-12 (Phase 1), commits `4df0ecf`, `e9f9183`, `4e9d46b`, `6516da3`.** `video_core.config.SharedSettings` (27 fields) + `ytfactory.config.Settings(SharedSettings)` (90 fields incl. 5 reviewed-and-kept-factory + 3 still-dead pending cleanup). `ytfactory.config.settings` removed from the `check_layering.py` Bucket-C allowlist. Test count held at 2161 throughout.
 - Standardized workspace manifest format
 - Standardized artifact metadata schema (checksum/id/producer on every artifact)
-- Any of Bucket C, until proven by a second consumer
+- Any of Bucket C, until proven by a second consumer — **one remaining item: `ytfactory.shared.constants` (`WORKSPACE_DIR`/`PROJECT_FILE`), tracked for Phase 2**
 
 ## Appendix B — Original SDK/API ideas, preserved for later reference
 
