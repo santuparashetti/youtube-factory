@@ -344,7 +344,7 @@ class TestModelBootstrap:
     def test_vision_model_provisioned_when_image_review_enabled(self, tmp_path: Path) -> None:
         """Vision model must be provisioned when IMAGE_REVIEW_ENABLED=true."""
         from ytfactory.bootstrap.model_bootstrap import _provision_via_lamm
-        from ytfactory.models import ProvisionResult, ModelStatus
+        from video_core.models import ProvisionResult, ModelStatus
 
         fake_provision = ProvisionResult(
             name="minicpm_v2_6",
@@ -361,7 +361,7 @@ class TestModelBootstrap:
                 return_value="minicpm_v2_6",
             ),
             patch(
-                "ytfactory.models.manager.LocalAIModelManager.provision",
+                "video_core.models.manager.LocalAIModelManager.provision",
                 return_value=fake_provision,
             ),
         ):

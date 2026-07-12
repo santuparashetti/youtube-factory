@@ -333,7 +333,7 @@ class TestLlamaCppVisionProviderLoading:
 
         # Patch provision to return MISSING so model isn't loaded
         from unittest.mock import patch, MagicMock
-        from ytfactory.models.models import ModelStatus, ProvisionResult
+        from video_core.models.models import ModelStatus, ProvisionResult
 
         missing = ProvisionResult(
             name="qwen2_5_vl_3b",

@@ -16,8 +16,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from ytfactory.models import LocalAIModelManager, ModelStatus
-from ytfactory.models.backend import Backend, select_backend
+from video_core.models import LocalAIModelManager, ModelStatus
+from video_core.models.backend import Backend, select_backend
 
 from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
 from .models import IssueSeverity, VisionIssue, VisionReviewResult

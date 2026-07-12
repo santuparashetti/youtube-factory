@@ -119,7 +119,7 @@ def _scene_index(scene_id: str) -> int:
 
 def resolve_installed_vision_models() -> list[str]:
     """Return registry keys for all enabled models with image_review capability."""
-    from ytfactory.models import LocalAIModelManager
+    from video_core.models import LocalAIModelManager
 
     manager = LocalAIModelManager()
     return [

@@ -32,7 +32,7 @@ def bootstrap_models(base_dir: Path | None = None) -> list[CheckResult]:
 def _check_lamm_available() -> list[CheckResult]:
     """Verify the Local AI Model Manager package is importable."""
     try:
-        from ytfactory.models import LocalAIModelManager  # noqa: F401
+        from video_core.models import LocalAIModelManager  # noqa: F401
 
         return [
             CheckResult(
@@ -55,7 +55,7 @@ def _check_lamm_available() -> list[CheckResult]:
 def _provision_via_lamm(root: Path) -> list[CheckResult]:
     """Provision all models through the LAMM and map results to CheckResult."""
     try:
-        from ytfactory.models import LocalAIModelManager, ModelStatus
+        from video_core.models import LocalAIModelManager, ModelStatus
     except ImportError:
         return []
 

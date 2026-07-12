@@ -30,8 +30,8 @@ def get_vision_provider(
             return MockVisionProvider()
 
         case "local":
-            from ytfactory.models import LocalAIModelManager
-            from ytfactory.models.models import BundleRuntime
+            from video_core.models import LocalAIModelManager
+            from video_core.models.models import BundleRuntime
 
             manager = LocalAIModelManager(base_dir)
             entry = manager._registry.get(local_model)

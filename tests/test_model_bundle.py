@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.models import (
+from video_core.models import (
     BundleArtifact,
     BundleRuntime,
     FailureReason,
@@ -28,20 +28,20 @@ from ytfactory.models import (
     ProvisionResult,
     WarmInferenceConfig,
 )
-from ytfactory.models.bundle import (
+from video_core.models.bundle import (
     BundleProvisioner,
     ContentAddressedCache,
     compute_sha256,
     get_bundle_lock,
     verify_checksum,
 )
-from ytfactory.models.capabilities import (
+from video_core.models.capabilities import (
     capability_error_message,
     format_missing,
     validate_capabilities,
 )
-from ytfactory.models.manifest import load_manifest, save_manifest
-from ytfactory.models.registry import _builtin_defaults, load_registry
+from video_core.models.manifest import load_manifest, save_manifest
+from video_core.models.registry import _builtin_defaults, load_registry
 
 
 # ── BundleRuntime enum ────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ class TestProvisionResultBundleFields:
 
 class TestPackageExports:
     def test_all_new_types_exported(self) -> None:
-        import ytfactory.models as mod
+        import video_core.models as mod
         for name in (
             "BundleRuntime",
             "FailureReason",
@@ -232,7 +232,7 @@ class TestPackageExports:
             assert hasattr(mod, name), f"Missing export: {name}"
 
     def test_existing_exports_still_present(self) -> None:
-        import ytfactory.models as mod
+        import video_core.models as mod
         for name in ("LocalAIModelManager", "Backend", "ModelEntry", "ModelState", "ModelStatus", "ProvisionResult"):
             assert hasattr(mod, name)
 
@@ -440,7 +440,7 @@ class TestBundleProvisionerTransformers:
         )
         fake_cache = str(tmp_path / "hf_cache")
         Path(fake_cache).mkdir()
-        with patch("ytfactory.models.bundle.snapshot_download", return_value=fake_cache, create=True):
+        with patch("video_core.models.bundle.snapshot_download", return_value=fake_cache, create=True):
             with patch("huggingface_hub.snapshot_download", return_value=fake_cache, create=True):
                 status, msg, paths, _ = provisioner.provision(
                     "minicpm", bundle, hf_repo="org/model", revision=None
@@ -681,13 +681,13 @@ class TestManifestV2:
 
 class TestManagerValidateCapabilities:
     def _make_manager(self, tmp_path: Path, registry_yaml: str):
-        from ytfactory.models import LocalAIModelManager
+        from video_core.models import LocalAIModelManager
         reg = tmp_path / "registry.yaml"
         reg.write_text(registry_yaml)
         return LocalAIModelManager(base_dir=tmp_path, registry_path=reg)
 
     def test_all_satisfied_returns_empty(self, tmp_path: Path) -> None:
-        from ytfactory.models import LocalAIModelManager
+        from video_core.models import LocalAIModelManager
         manager = self._make_manager(tmp_path, """
 models:
   vision_m:
@@ -745,7 +745,7 @@ models:
 
 class TestManagerGetBundle:
     def _make_manager(self, tmp_path: Path, registry_yaml: str):
-        from ytfactory.models import LocalAIModelManager
+        from video_core.models import LocalAIModelManager
         reg = tmp_path / "registry.yaml"
         reg.write_text(registry_yaml)
         return LocalAIModelManager(base_dir=tmp_path, registry_path=reg)
@@ -795,7 +795,7 @@ models:
 
 class TestManagerProvisionBundleRouting:
     def _make_manager(self, tmp_path: Path, registry_yaml: str):
-        from ytfactory.models import LocalAIModelManager
+        from video_core.models import LocalAIModelManager
         reg = tmp_path / "registry.yaml"
         reg.write_text(registry_yaml)
         return LocalAIModelManager(base_dir=tmp_path, registry_path=reg)

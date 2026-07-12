@@ -8,16 +8,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.models import LocalAIModelManager, ModelStatus, ProvisionResult
-from ytfactory.models.backend import Backend, select_backend
-from ytfactory.models.manifest import (
+from video_core.models import LocalAIModelManager, ModelStatus, ProvisionResult
+from video_core.models.backend import Backend, select_backend
+from video_core.models.manifest import (
     get_state,
     load_manifest,
     save_manifest,
     update_state,
 )
-from ytfactory.models.models import ModelState
-from ytfactory.models.registry import load_registry
+from video_core.models.models import ModelState
+from video_core.models.registry import load_registry
 
 
 # ── Registry tests ─────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ models:
 
     def test_builtin_defaults_when_no_yaml(self) -> None:
         """load_registry falls back to builtin defaults if yaml is missing."""
-        from ytfactory.models.registry import _builtin_defaults
+        from video_core.models.registry import _builtin_defaults
         defaults = _builtin_defaults()
         assert "minicpm_v2_6" in defaults
         assert "whisperx" in defaults
@@ -71,22 +71,22 @@ class TestBackendSelection:
         assert backend == Backend.CPU
 
     def test_prefers_cuda_when_available(self) -> None:
-        with patch("ytfactory.models.backend._cuda_available", return_value=True):
+        with patch("video_core.models.backend._cuda_available", return_value=True):
             backend = select_backend(["cuda", "cpu"])
         assert backend == Backend.CUDA
 
     def test_falls_back_to_cpu_without_cuda(self) -> None:
         with (
-            patch("ytfactory.models.backend._cuda_available", return_value=False),
-            patch("ytfactory.models.backend._mps_available", return_value=False),
+            patch("video_core.models.backend._cuda_available", return_value=False),
+            patch("video_core.models.backend._mps_available", return_value=False),
         ):
             backend = select_backend(["cuda", "mps", "cpu"])
         assert backend == Backend.CPU
 
     def test_mps_selected_when_cuda_unavailable(self) -> None:
         with (
-            patch("ytfactory.models.backend._cuda_available", return_value=False),
-            patch("ytfactory.models.backend._mps_available", return_value=True),
+            patch("video_core.models.backend._cuda_available", return_value=False),
+            patch("video_core.models.backend._mps_available", return_value=True),
         ):
             backend = select_backend(["cuda", "mps", "cpu"])
         assert backend == Backend.MPS
