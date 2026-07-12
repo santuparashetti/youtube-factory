@@ -8,10 +8,10 @@ from rich.console import Console
 from rich.progress import track
 
 from ytfactory.agents.state import VideoState
-from ytfactory.cinematic.config import CinematicConfig
-from ytfactory.cinematic.effects import EffectsPlanner
-from ytfactory.cinematic.motion import MotionPlanner
-from ytfactory.cinematic.transitions import TransitionPlanner
+from video_core.cinematic.config import CinematicConfig
+from video_core.cinematic.effects import EffectsPlanner
+from video_core.cinematic.motion import MotionPlanner
+from video_core.cinematic.transitions import TransitionPlanner
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.video.ffmpeg import FFmpegRenderer

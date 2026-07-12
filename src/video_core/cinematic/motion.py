@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from ytfactory.cinematic.profiles import ProfileConfig, get_profile_config
+from video_core.cinematic.profiles import ProfileConfig, get_profile_config
 from video_core.providers.tts.emotion import classify_scene
 
 

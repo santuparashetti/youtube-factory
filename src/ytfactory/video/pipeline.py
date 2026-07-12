@@ -7,9 +7,9 @@ from pathlib import Path
 from loguru import logger
 from rich.progress import track
 
-from ytfactory.cinematic.effects import EffectsPlanner
-from ytfactory.cinematic.motion import MotionPlanner
-from ytfactory.cinematic.transitions import TransitionPlanner
+from video_core.cinematic.effects import EffectsPlanner
+from video_core.cinematic.motion import MotionPlanner
+from video_core.cinematic.transitions import TransitionPlanner
 from ytfactory.config.settings import Settings
 
 from .artifacts import video_directory
