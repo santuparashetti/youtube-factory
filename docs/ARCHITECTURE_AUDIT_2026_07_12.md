@@ -40,6 +40,18 @@ Providers, LAMM, and generic domain models extracted to `src/video_core/`:
 - Layering rule enforced by `scripts/check_layering.py`; known open Bucket-C deps: `ytfactory.config.settings`, `ytfactory.shared.constants` (Phase 1)
 - Test baseline held at **2159 passing, 0 failing** throughout every move step.
 
+### `benchmark/` bucket classification resolved — Bucket B (confirmed factory-specific)
+
+Previously listed as Bucket C (ambiguous) in the Phase 0 spec. Inspected all 7 source files. Verdict: **Bucket B — stays in `ytfactory/benchmark/`**. Key evidence:
+
+- `engine.py` directly imports `ImageReviewEngine` and `ImageReviewConfig` from `ytfactory.images.*`; `_NullImageProvider` exists solely to satisfy `ImageReviewEngine`'s constructor
+- `BenchmarkScene.visual_prompt` and the `scene_dict` built in `_run_scene()` use ytfactory's scene schema verbatim
+- `hard_fails.py` RULE_MATCHERS mirror ytfactory's anatomy/clothing policy categories (`clothing_violation`, `hands_invalid`, anatomy/face issue categories)
+- `resolve_installed_vision_models()` filters LAMM by `"image_review"` capability — specific to this use case
+- No abstraction layer: cannot benchmark a TTS stage or LLM latency without rewriting `engine.py` from scratch
+
+The three-factory test fails immediately: `stickman_factory` has no `ImageReviewEngine`, `visual_prompt`, or clothing violation concept.
+
 ---
 
 ## Still Open
