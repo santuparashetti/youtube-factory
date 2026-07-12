@@ -81,10 +81,15 @@ Business logic never imports a concrete provider directly — it calls a factory
 
 | Provider type | Base class | Implementations | Setting key |
 |---|---|---|---|
-| LLM | `providers/llm/base.py` | Gemini, Anthropic (OpenAI-compat), Groq, Ollama | `LLM_PROVIDER` |
-| Search | `providers/search/base.py` | Tavily | `SEARCH_PROVIDER` |
-| Image | `providers/image/base.py` | HuggingFace, Gemini | `IMAGE_PROVIDER` |
-| TTS | `providers/tts/base.py` | Kokoro, Edge TTS | `TTS_PROVIDER` |
+| LLM | `video_core/providers/llm/base.py` | Gemini, Anthropic (OpenAI-compat), Groq, Ollama | `LLM_PROVIDER` |
+| Search | `video_core/providers/search/base.py` | Tavily | `SEARCH_PROVIDER` |
+| Image | `video_core/providers/image/base.py` | HuggingFace, Gemini | `IMAGE_PROVIDER` |
+| TTS | `video_core/providers/tts/base.py` | Kokoro, Edge TTS | `TTS_PROVIDER` |
+| Vision | `video_core/providers/vision/base.py` | Local (Qwen2.5-VL via llama.cpp), Mock | `VISION_REVIEW_PROVIDER` |
+
+Providers live in `src/video_core/providers/` (Phase 0 extraction). `ytfactory` imports them as `video_core.providers.*`. LAMM (Local AI Model Manager) lives in `src/video_core/models/`.
+
+**Layering rule:** `video_core` must never import from `ytfactory`. Enforce with `python3 scripts/check_layering.py`. Known open exceptions: `ytfactory.config.settings` and `ytfactory.shared.constants` (Bucket C — deferred to Phase 1).
 
 To add a new provider: implement the abstract base, add a `case` in the factory, expose a setting.
 
@@ -141,7 +146,7 @@ Output: `workspace/jobs/<id>/publish/` — 10 files (includes `pinned-comment.tx
 
 ### Domain Models
 
-`src/ytfactory/domain/` — `Project` (metadata + stage status dict), `LLMResponse`, `SearchResult`, `ImageRequest`. `ProjectRepository` (`storage/project_repository.py`) → `project.json`; statuses: `pending` / `running` / `completed`.
+Generic provider I/O shapes (`LLMResponse`, `SearchResult`, `ImageRequest`) live in `src/video_core/domain/`. Factory-specific models (`Project` + stage-status dict, `AudioRequest`, `SceneRequest`, etc.) stay in `src/ytfactory/domain/`. `ProjectRepository` (`storage/project_repository.py`) → `project.json`; statuses: `pending` / `running` / `completed`.
 
 ### Configuration
 
