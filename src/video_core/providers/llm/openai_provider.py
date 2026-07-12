@@ -6,7 +6,7 @@ from loguru import logger
 from openai import OpenAI
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.llm import LLMResponse
+from video_core.domain.llm import LLMResponse
 from video_core.providers.llm.base import LLMProvider
 
 

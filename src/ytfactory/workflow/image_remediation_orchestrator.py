@@ -235,7 +235,7 @@ class ImageRemediationOrchestrator:
 
     def _regenerate(self, scene: dict, refined_prompt: str, image_path: Path) -> None:
         """Delete existing image and regenerate with the refined prompt."""
-        from ytfactory.domain.image import ImageRequest
+        from video_core.domain.image import ImageRequest
 
         image_path.unlink(missing_ok=True)
         request = ImageRequest(

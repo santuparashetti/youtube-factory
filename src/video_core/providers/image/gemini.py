@@ -17,7 +17,7 @@ from tenacity import (
 )
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.image import ImageRequest, ImageResponse
+from video_core.domain.image import ImageRequest, ImageResponse
 
 from .base import ImageProvider
 

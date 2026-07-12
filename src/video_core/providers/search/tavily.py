@@ -3,7 +3,7 @@ from tavily import TavilyClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.search import SearchResult
+from video_core.domain.search import SearchResult
 from video_core.providers.search.base import SearchProvider
 
 

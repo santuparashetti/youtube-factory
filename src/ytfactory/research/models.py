@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ytfactory.domain.search import SearchResult
+from video_core.domain.search import SearchResult
 
 
 @dataclass(slots=True)

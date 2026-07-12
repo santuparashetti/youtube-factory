@@ -237,7 +237,7 @@ class ImageReviewEngine:
         image_path: Path,
     ) -> None:
         """Delete existing image and regenerate with refined prompt."""
-        from ytfactory.domain.image import ImageRequest
+        from video_core.domain.image import ImageRequest
 
         image_path.unlink(missing_ok=True)
         request = ImageRequest(

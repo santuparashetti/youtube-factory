@@ -11,7 +11,7 @@ from loguru import logger
 from PIL import Image
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.image import ImageRequest, ImageResponse
+from video_core.domain.image import ImageRequest, ImageResponse
 
 from .base import ImageProvider
 

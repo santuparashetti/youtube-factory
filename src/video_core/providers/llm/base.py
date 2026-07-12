@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from ytfactory.domain.llm import LLMResponse
+from video_core.domain.llm import LLMResponse
 
 
 class LLMProvider(ABC):

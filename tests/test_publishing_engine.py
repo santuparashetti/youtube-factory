@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.domain.llm import LLMResponse
+from video_core.domain.llm import LLMResponse
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.generators.chapters import ChaptersGenerator, _format_timestamp
 from ytfactory.publish.generators.description import DescriptionGenerator

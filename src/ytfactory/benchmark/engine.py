@@ -24,7 +24,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ytfactory.domain.image import ImageRequest, ImageResponse
+from video_core.domain.image import ImageRequest, ImageResponse
 from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.images.review_engine import ImageReviewEngine
 from video_core.providers.image.base import ImageProvider

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.image import ImageRequest
+from video_core.domain.image import ImageRequest
 from ytfactory.images.human_detector import compute_sharpness, detect_human_presence
 from ytfactory.images.models import (
     ImageArtifact,

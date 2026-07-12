@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from ytfactory.domain.image import (
+from video_core.domain.image import (
     ImageRequest,
     ImageResponse,
 )

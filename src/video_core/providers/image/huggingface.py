@@ -7,7 +7,7 @@ from huggingface_hub import InferenceClient
 from PIL import Image
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.image import (
+from video_core.domain.image import (
     ImageRequest,
     ImageResponse,
 )

@@ -11,7 +11,7 @@ from tenacity import (
 )
 
 from ytfactory.config.settings import Settings
-from ytfactory.domain.llm import LLMResponse
+from video_core.domain.llm import LLMResponse
 from video_core.providers.llm.base import LLMProvider
 
 _RETRYABLE = (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ytfactory.domain.image import ImageRequest
+from video_core.domain.image import ImageRequest
 from ytfactory.publish.artifacts import thumbnail_path, thumbnail_variants_directory
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.models import ThumbnailResult

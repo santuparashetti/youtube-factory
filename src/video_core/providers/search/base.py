@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from ytfactory.domain.search import SearchResult
+from video_core.domain.search import SearchResult
 
 
 class SearchProvider(ABC):

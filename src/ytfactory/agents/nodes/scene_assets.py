@@ -8,7 +8,7 @@ from loguru import logger
 
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from ytfactory.domain.image import ImageRequest
+from video_core.domain.image import ImageRequest
 from video_core.providers.image.factory import get_image_provider
 from video_core.providers.tts.debug import TTSDebugWriter
 from video_core.providers.tts.factory import get_tts_provider
