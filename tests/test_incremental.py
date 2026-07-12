@@ -6,6 +6,7 @@ Coverage:
   - SceneWorkspace: state transitions, locked guard, persistence
   - IncrementalBuildEngine: analyze, needs_run, record_stage_outputs, lock guard
   - IncrementalReporter: print_change_report (smoke test), write_scene_review_md
+  - BuildPipeline.run_incremental: script stage called when dirty, skipped when clean (MW-005)
   - deps: downstream_stages, stages_to_run
 """
 
@@ -502,3 +503,97 @@ class TestChangeReport:
     def test_invalidated_stages_default_empty(self):
         report = ChangeReport()
         assert report.invalidated_stages == set()
+
+
+# ── BuildPipeline.run_incremental — script stage (MW-005) ─────────────────────
+
+
+def _make_project_json(project_dir: Path, title: str = "Test Topic") -> None:
+    import json
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.json").write_text(
+        json.dumps({"id": project_dir.name, "title": title, "stages": {}})
+    )
+
+
+class TestBuildPipelineIncrementalScript:
+    """Verify run_incremental() runs/skips the script stage correctly (MW-005)."""
+
+    def _build_pipeline_with_mocks(self, monkeypatch):
+        """Return a BuildPipeline whose sub-pipelines are all mocked."""
+        from unittest.mock import MagicMock, patch
+
+        # Patch each sub-pipeline class so __init__ never touches real APIs
+        patches = [
+            patch("ytfactory.build.pipeline.Settings"),
+            patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),
+            patch("ytfactory.build.pipeline.ScenePipeline"),
+            patch("ytfactory.build.pipeline.ImagePipeline"),
+            patch("ytfactory.build.pipeline.VoicePipeline"),
+            patch("ytfactory.build.pipeline.CaptionPipeline"),
+            patch("ytfactory.build.pipeline.VideoPipeline"),
+            patch("ytfactory.build.pipeline.CTAPipeline"),
+            patch("ytfactory.build.pipeline.ReviewPipeline"),
+            patch("ytfactory.build.pipeline.PublishPipeline"),
+        ]
+        for p in patches:
+            p.start()
+
+        from ytfactory.build.pipeline import BuildPipeline
+        bp = BuildPipeline()
+
+        for p in patches:
+            p.stop()
+
+        # Replace all sub-pipelines with fresh MagicMocks
+        bp.script_enhancer = MagicMock()
+        bp.scenes = MagicMock()
+        bp.images = MagicMock()
+        bp.voice = MagicMock()
+        bp.captions = MagicMock()
+        bp.video = MagicMock()
+        bp.cta = MagicMock()
+        bp.review = MagicMock()
+        bp.publish = MagicMock()
+        bp.review.run.return_value = MagicMock(verdict="PASS")
+        return bp
+
+    def test_script_stage_runs_when_dirty(self, tmp_path, monkeypatch):
+        project_id = "proj-001"
+        project_dir = tmp_path / project_id
+        _make_project_json(project_dir, title="My Topic")
+        (project_dir / "script").mkdir(parents=True)
+        (project_dir / "script" / "script.md").write_text("# Script")
+        # No manifest entry → engine sees script.md as new → stage is dirty
+
+        monkeypatch.setattr("ytfactory.build.pipeline.WORKSPACE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            "ytfactory.build.pipeline.ProjectRepository",
+            lambda: type("R", (), {"load": lambda self, pid: type("P", (), {"title": "My Topic"})()})(),
+        )
+
+        bp = self._build_pipeline_with_mocks(monkeypatch)
+        bp.run_incremental(project_id)
+
+        bp.script_enhancer.run.assert_called_once_with(project_id, topic="My Topic")
+
+    def test_script_stage_skipped_when_clean(self, tmp_path, monkeypatch):
+        project_id = "proj-002"
+        project_dir = tmp_path / project_id
+        _make_project_json(project_dir, title="My Topic")
+        (project_dir / "script").mkdir(parents=True)
+        script_file = project_dir / "script" / "script.md"
+        script_file.write_text("# Script")
+
+        # Record script.md in the manifest so the engine sees it as clean
+        from ytfactory.incremental.manifest import PipelineManifest
+        manifest = PipelineManifest(project_dir)
+        manifest.record("script/script.md", "script")
+        manifest.save()
+
+        monkeypatch.setattr("ytfactory.build.pipeline.WORKSPACE_DIR", str(tmp_path))
+
+        bp = self._build_pipeline_with_mocks(monkeypatch)
+        bp.run_incremental(project_id)
+
+        bp.script_enhancer.run.assert_not_called()

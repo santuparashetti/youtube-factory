@@ -146,6 +146,12 @@ class BuildPipeline:
 
         console.print(Rule("[bold cyan]Incremental Build — Change Detection[/bold cyan]"))
 
+        # script enhancement — skipped when script.md is unchanged
+        if _should_run("script"):
+            project = ProjectRepository().load(project_id)
+            self.script_enhancer.run(project_id, topic=project.title)
+            engine.record_stage_outputs("script")
+
         # scenes — always skipped if scene-plan.json exists and unchanged
         if _should_run("scenes"):
             self.scenes.run(project_id)
@@ -202,7 +208,7 @@ class BuildPipeline:
             engine.print_debug_report(report, reused, rebuilt)
         else:
             console.print(Rule("[bold green]Incremental Build Complete[/bold green]"))
-            for stage in ["scenes", "images", "voice", "captions", "video", "cta", "review", "publish"]:
+            for stage in ["script", "scenes", "images", "voice", "captions", "video", "cta", "review", "publish"]:
                 label = stage.title()
                 if stage in rebuilt:
                     console.print(f"  [yellow]⚠[/yellow]  {label} rebuilt")
