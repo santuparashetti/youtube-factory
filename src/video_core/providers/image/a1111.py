@@ -34,7 +34,7 @@ import requests
 from loguru import logger
 from PIL import Image
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.image import ImageRequest, ImageResponse
 
 from .base import ImageProvider
@@ -46,7 +46,7 @@ class A1111ImageProvider(ImageProvider):
     Requires local A1111 running with --api flag.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._base_url = settings.a1111_base_url.rstrip("/")
         self._steps = settings.a1111_steps
         self._cfg_scale = settings.a1111_cfg_scale

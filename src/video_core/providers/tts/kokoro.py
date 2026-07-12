@@ -28,7 +28,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 
 from .base import TTSProvider
 from .capabilities import ProviderCapabilities
@@ -53,7 +53,7 @@ _RETRY_DELAY_S = 2.0
 class KokoroProvider(TTSProvider):
     """Kokoro TTS provider — local neural inference."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: SharedSettings) -> None:
         self._settings = settings
         self._voice = settings.kokoro_voice
         self._speed = settings.kokoro_speed

@@ -10,7 +10,7 @@ import requests
 from loguru import logger
 from PIL import Image
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.image import ImageRequest, ImageResponse
 
 from .base import ImageProvider
@@ -32,7 +32,7 @@ class PollinationsImageProvider(ImageProvider):
     Backed by FLUX.1 — same model as HuggingFace's paid inference endpoint.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._settings = settings
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "youtube-factory/0.1"})

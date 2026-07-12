@@ -6,7 +6,7 @@ import time
 from huggingface_hub import InferenceClient
 from PIL import Image
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.image import (
     ImageRequest,
     ImageResponse,
@@ -18,7 +18,7 @@ from .base import ImageProvider
 class HuggingFaceImageProvider(ImageProvider):
     """Hugging Face image generation provider (InferenceClient, provider=auto)."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._settings = settings
 
         self._client = InferenceClient(

@@ -1,4 +1,4 @@
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 
 from .base import ImageProvider
 from .gemini import GeminiImageProvider
@@ -6,7 +6,7 @@ from .huggingface import HuggingFaceImageProvider
 from .pollinations import PollinationsImageProvider
 
 
-def get_image_provider(settings: Settings) -> ImageProvider:
+def get_image_provider(settings: SharedSettings) -> ImageProvider:
     """Return configured image provider."""
 
     match settings.image_provider.lower():

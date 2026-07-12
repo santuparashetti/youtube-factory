@@ -1,10 +1,10 @@
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.providers.llm.base import LLMProvider
 from video_core.providers.llm.gemini import GeminiProvider
 
 
 def get_llm_provider(
-    settings: Settings,
+    settings: SharedSettings,
 ) -> LLMProvider:
     """Return configured LLM provider."""
 

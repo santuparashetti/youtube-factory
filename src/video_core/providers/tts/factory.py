@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 
 from .base import TTSProvider
 from .edge_tts import EdgeTTSProvider
 
 
-def get_tts_provider(settings: Settings) -> TTSProvider:
+def get_tts_provider(settings: SharedSettings) -> TTSProvider:
     """Return configured TTS provider."""
 
     match settings.tts_provider.lower():

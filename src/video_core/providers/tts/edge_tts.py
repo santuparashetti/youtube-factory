@@ -24,7 +24,7 @@ from pathlib import Path
 import edge_tts
 from loguru import logger
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 
 from .base import TTSProvider
 from .capabilities import ProviderCapabilities
@@ -83,7 +83,7 @@ class EdgeTTSProvider(TTSProvider):
         "it": "it-IT-DiegoNeural",
     }
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._settings = settings
 
     # ── Voice selection ───────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.image import ImageRequest, ImageResponse
 
 from .base import ImageProvider
@@ -28,7 +28,7 @@ class GeminiImageProvider(ImageProvider):
     Works with gemini-3.1-flash-lite-image, gemini-2.0-flash-preview-image-generation, etc.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._settings = settings
         if not settings.gemini_api_key:
             raise ValueError(

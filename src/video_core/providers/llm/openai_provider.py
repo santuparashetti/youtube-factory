@@ -5,7 +5,7 @@ from __future__ import annotations
 from loguru import logger
 from openai import OpenAI
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.llm import LLMResponse
 from video_core.providers.llm.base import LLMProvider
 
@@ -13,7 +13,7 @@ from video_core.providers.llm.base import LLMProvider
 class OpenAICompatibleProvider(LLMProvider):
     """Calls any OpenAI-compatible endpoint (LiteLLM proxy, OpenRouter, etc.)."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._settings = settings
         self._client = OpenAI(
             base_url=settings.anthropic_base_url,

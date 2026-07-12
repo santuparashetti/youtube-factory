@@ -11,7 +11,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.llm import LLMResponse
 
 from .base import LLMProvider
@@ -26,7 +26,7 @@ class GroqProvider(LLMProvider):
     Default model: llama-3.3-70b-versatile (best free option, 128k context).
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._model = settings.groq_model
         self._session = requests.Session()
         self._session.headers.update(

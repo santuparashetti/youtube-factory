@@ -2,7 +2,7 @@ from loguru import logger
 from tavily import TavilyClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.search import SearchResult
 from video_core.providers.search.base import SearchProvider
 
@@ -10,7 +10,7 @@ from video_core.providers.search.base import SearchProvider
 class TavilySearchProvider(SearchProvider):
     """Tavily Search implementation."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._client = TavilyClient(api_key=settings.tavily_api_key)
 
     @retry(

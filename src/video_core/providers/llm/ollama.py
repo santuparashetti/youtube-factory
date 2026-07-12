@@ -11,7 +11,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from ytfactory.config.settings import Settings
+from video_core.config.shared_settings import SharedSettings
 from video_core.domain.llm import LLMResponse
 
 from .base import LLMProvider
@@ -33,7 +33,7 @@ class OllamaProvider(LLMProvider):
         OLLAMA_BASE_URL=http://localhost:11434   # default
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: SharedSettings):
         self._model = settings.ollama_model
         self._base_url = settings.ollama_base_url.rstrip("/")
         self._session = requests.Session()
