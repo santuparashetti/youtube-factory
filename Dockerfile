@@ -55,7 +55,7 @@ COPY src/ src/
 COPY pyproject.toml ./
 # config/ contains brand_config.yaml and models-registry.yaml — both required at runtime
 COPY config/ config/
-
+COPY README.md ./
 # Install the project itself (editable install in the existing venv)
 RUN uv pip install -e . --no-deps
 

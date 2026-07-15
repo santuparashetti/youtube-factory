@@ -6,13 +6,13 @@ Complete step-by-step guide to replicate the current production environment on a
 
 ## System Requirements
 
-| Component | Minimum | Current system |
-|---|---|---|
-| OS | Ubuntu 20.04+ / Debian 11+ | Ubuntu 22.04 |
-| Python | 3.10+ | 3.10.12 |
-| RAM | 8 GB | 8 GB |
-| Storage | 10 GB free | — |
-| GPU | Optional | CPU-only |
+| Component | Minimum                    | Current system |
+| --------- | -------------------------- | -------------- |
+| OS        | Ubuntu 20.04+ / Debian 11+ | Ubuntu 22.04   |
+| Python    | 3.10+                      | 3.10.12        |
+| RAM       | 8 GB                       | 8 GB           |
+| Storage   | 10 GB free                 | —              |
+| GPU       | Optional                   | CPU-only       |
 
 > **Windows / macOS:** Use the [Docker path](#option-b-docker-recommended-for-any-os) instead.
 
@@ -36,6 +36,7 @@ sudo apt update && sudo apt install -y \
 ```
 
 Verify:
+
 ```bash
 python3 --version     # must be 3.10+
 ffmpeg -version       # must succeed
@@ -151,6 +152,7 @@ TTS_PACING_PROFILE=spiritual
 ```
 
 > **Other LLM providers:**
+>
 > - `LLM_PROVIDER=gemini` → `GEMINI_API_KEY=...`
 > - `LLM_PROVIDER=groq` → `GROQ_API_KEY=...`
 
@@ -163,6 +165,7 @@ uv run ytfactory setup
 ```
 
 This will:
+
 - Verify Python, FFmpeg, Git, Torch, fonts
 - Create all required directories (`workspace/`, `cache/`, `models/`, `logs/`, `temp/`)
 - Validate your API keys
@@ -182,6 +185,7 @@ uv run ytfactory doctor
 ```
 
 All checks should show `✓`. Common warnings that are OK:
+
 - `env:torch (CPU only)` — normal on machines without CUDA
 - `provider:edge-tts connectivity check failed` — Edge TTS only needs connectivity when generating audio
 
@@ -224,7 +228,7 @@ ytfactory mix-bgm PROJECT_ID
 Edit `config/brand_config.yaml` to match your channel:
 
 ```yaml
-channel_name: "Your Channel Name"
+channel_name: 'Your Channel Name'
 
 opening:
   enabled: true
@@ -258,11 +262,12 @@ branding:
   opening_position: after_hook
   closing_position: before_final_quote
   max_opening_seconds: 10
-  asset_path: "assets/branding/your-brand.png"
-  asset_animation: "slow_zoom"
+  asset_path: 'assets/branding/your-brand.png'
+  asset_animation: 'slow_zoom'
 ```
 
 Place your brand card image at `assets/branding/your-brand.png`:
+
 - Size: 1280×720 (or 1920×1080 for Full HD)
 - Format: PNG (transparency supported)
 - This image appears as a scene during the closing narration
@@ -284,6 +289,7 @@ uv run ytfactory build test-video
 ```
 
 Or run the full agentic pipeline with a topic:
+
 ```bash
 uv run ytfactory run "The Power of Stillness" --auto
 ```
@@ -317,6 +323,12 @@ cp .env.example .env
 docker compose up -d
 ```
 
+That rebuilds the image first, then starts the container.
+
+```bash
+docker compose up -d --build
+```
+
 The image is built on first run (~5–10 min). Subsequent starts are instant.
 
 ### Step 4 — Bootstrap Inside the Container
@@ -329,12 +341,20 @@ docker exec youtube-factory ytfactory doctor
 ### Step 5 — Music Library
 
 Mount your music library or copy files:
+
 ```bash
 # Copy local music into the container's volume
 docker cp workspace/music/. youtube-factory:/app/workspace/music/
 ```
 
+Enter into docker root /app/:
+
+```bash
+docker exec -it youtube-factory bash
+```
+
 Or add a bind mount in `docker-compose.yml`:
+
 ```yaml
 volumes:
   - ./workspace/music:/app/workspace/music:ro
@@ -359,14 +379,14 @@ Requires NVIDIA drivers and `nvidia-container-toolkit` installed on the host.
 
 ## Provider API Keys — Where to Get Them
 
-| Key | Provider | URL | Notes |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic | console.anthropic.com | Powers LLM (script, research, publish) |
-| `ANTHROPIC_BASE_URL` | LiteLLM proxy | your proxy URL | Set to `https://api.anthropic.com` for direct |
-| `TAVILY_API_KEY` | Tavily | app.tavily.com | Web search for research stage |
-| `HF_TOKEN` | HuggingFace | huggingface.co/settings/tokens | Image generation (FLUX.1) |
-| `GEMINI_API_KEY` | Google | aistudio.google.com | Alternative LLM or image provider |
-| `GROQ_API_KEY` | Groq | console.groq.com | Fast/cheap alternative LLM |
+| Key                  | Provider      | URL                            | Notes                                         |
+| -------------------- | ------------- | ------------------------------ | --------------------------------------------- |
+| `ANTHROPIC_API_KEY`  | Anthropic     | console.anthropic.com          | Powers LLM (script, research, publish)        |
+| `ANTHROPIC_BASE_URL` | LiteLLM proxy | your proxy URL                 | Set to `https://api.anthropic.com` for direct |
+| `TAVILY_API_KEY`     | Tavily        | app.tavily.com                 | Web search for research stage                 |
+| `HF_TOKEN`           | HuggingFace   | huggingface.co/settings/tokens | Image generation (FLUX.1)                     |
+| `GEMINI_API_KEY`     | Google        | aistudio.google.com            | Alternative LLM or image provider             |
+| `GROQ_API_KEY`       | Groq          | console.groq.com               | Fast/cheap alternative LLM                    |
 
 ---
 
@@ -482,10 +502,10 @@ No feature pipeline downloads or manages models directly.
 
 **Model registry:** `config/models-registry.yaml` — defines every local model:
 
-| Model | Used by | Auto-download |
-|---|---|---|
-| `whisperx` | Subtitle alignment | Lazy (downloads on first use) |
-| `silero_vad` | BGM VAD analysis | Lazy (downloads on first use) |
+| Model          | Used by              | Auto-download                                 |
+| -------------- | -------------------- | --------------------------------------------- |
+| `whisperx`     | Subtitle alignment   | Lazy (downloads on first use)                 |
+| `silero_vad`   | BGM VAD analysis     | Lazy (downloads on first use)                 |
 | `minicpm_v2_6` | Image quality review | Opt-in (requires `IMAGE_REVIEW_ENABLED=true`) |
 
 The model manifest (`models/model-manifest.json`) persists download state across runs.
@@ -501,6 +521,7 @@ Enables per-scene AI vision quality review using MiniCPM-V 2.6 (~10 GB disk).
 **Disk requirement:** ~10 GB free space for the vision model.
 
 **Enable it in `.env`:**
+
 ```bash
 IMAGE_REVIEW_ENABLED=true
 VISION_REVIEW_PROVIDER=local
@@ -512,11 +533,13 @@ IMAGE_REVIEW_AUTO_REMEDIATE=true
 ```
 
 Then run setup to trigger model download:
+
 ```bash
 uv run ytfactory setup
 ```
 
 **What it does per scene:**
+
 1. Technical QA (file size + sharpness check)
 2. Vision model review against 6 quality categories
 3. On FAIL: appends targeted prompt corrections and regenerates with a new seed
@@ -583,48 +606,60 @@ ytfactory update             # re-validate after code updates
 ## Troubleshooting
 
 ### `ModuleNotFoundError: No module named 'kokoro'` / `No module named 'whisperx'`
+
 These packages are auto-installed by `ytfactory setup`. Re-run setup:
+
 ```bash
 uv run ytfactory setup --force
 ```
+
 If that still fails (e.g. torch conflict), install manually:
+
 ```bash
 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 uv pip install kokoro soundfile whisperx
 ```
 
 ### `GEMINI_API_KEY is empty` or `ANTHROPIC_API_KEY is empty`
+
 - You are running from the wrong directory. Always run from the repo root.
 - Or your `.env` file is missing / has empty values.
 
 ### `Settings defaults fall back to llm_provider="anthropic"` (unexpected)
+
 - You ran `ytfactory` from a subdirectory. The `.env` was not found.
 - Fix: `cd /path/to/youtube-factory` then re-run.
 
 ### FFmpeg not found
+
 ```bash
 sudo apt install ffmpeg
 ffmpeg -version    # should print version
 ```
 
 ### Kokoro first run is slow
+
 - First invocation downloads ~300 MB of model weights to `~/.cache/huggingface/`.
 - Subsequent runs use the cache and start instantly.
 
 ### WhisperX alignment fails
+
 - Ensure `WHISPERX_ENABLED=true` and `uv pip install whisperx` was run.
 - The wav2vec2 model downloads on first use (~100 MB).
 - If on CPU and it's slow: `WHISPERX_DEVICE=cpu` is correct but alignment takes 10–30 seconds per scene.
 
 ### BGM not playing in output video
+
 - Check `BGM_ENABLED=true` in `.env`.
 - Check `workspace/music/` has at least one `.mp3` file in the right category folder.
 - Run `ytfactory doctor` to see the provider status.
 
 ### `BGM mix failed` / `Option 'hold' not found`
+
 Occurs on FFmpeg 4.x (Ubuntu 22.04 ships **4.4.2**). The `hold` option in the `agate` filter was added in FFmpeg 5.x.
 
 **No manual fix needed** — the pipeline auto-detects FFmpeg version at runtime and omits `hold` when not supported. BGM ducking still works; you may notice slight inter-word music pumping. To eliminate it, upgrade FFmpeg:
+
 ```bash
 sudo add-apt-repository ppa:savoury1/ffmpeg5
 sudo apt update && sudo apt install ffmpeg
@@ -633,23 +668,28 @@ sudo apt update && sudo apt install ffmpeg
 > Note: If the error message shows only the FFmpeg version banner and no clear error text, check `/home/<user>/.local/share/ytfactory/` logs — the full error is in the last 800 chars of FFmpeg stderr, not the first.
 
 ### Image review fails / vision model not found
+
 ```bash
 # Ensure IMAGE_REVIEW_ENABLED=true in .env, then re-run setup to trigger download
 uv run ytfactory setup
 ```
+
 - The model downloads ~10 GB to `~/.cache/huggingface/` on first use.
 - Requires `torch` and `transformers`: `uv pip install torch transformers pillow`
 - Check model status: model-manifest.json under `models/`
 
 ### `ytfactory setup` reports errors
+
 - Fix each error one by one (they are self-explanatory).
 - Re-run `ytfactory setup` after each fix — it is fully idempotent.
 
 ### Docker: API keys not loading
+
 - The `.env` file must exist at the repo root before running `docker compose up -d`.
 - The compose file bind-mounts `.env` at container startup.
 
 ### Docker: Cannot exec into container (exited)
+
 ```bash
 docker compose logs youtube-factory   # see why it exited
 docker compose up -d                  # restart
@@ -660,6 +700,7 @@ docker compose up -d                  # restart
 ## Updating the Installation
 
 After pulling new code:
+
 ```bash
 git pull
 uv sync                       # sync any new Python deps
@@ -667,6 +708,7 @@ uv run ytfactory update       # re-validate environment + update manifest
 ```
 
 After changing `.env` provider settings:
+
 ```bash
 uv run ytfactory validate     # check new provider config
 ```
@@ -692,17 +734,17 @@ uv run pytest -k "test_workspace"
 
 The current system uses:
 
-| Stage | Provider | Notes |
-|---|---|---|
-| LLM (script, research, publish) | Anthropic via LiteLLM proxy | `claude-haiku-4-5` model |
-| Web search | Tavily | Used in research stage |
-| Image generation | HuggingFace FLUX.1-schnell | ~30 sec/image on CPU |
-| TTS | Kokoro (local) | Voice: `am_michael`, speed: 0.85 |
-| Subtitle alignment | WhisperX (local) | `cpu` device |
-| BGM | Local MP3 library | Sidechain ducking via FFmpeg |
-| Subtitles | ASS format | Arial/DejaVu font, bottom-center |
-| Output resolution | 1280×720 | YouTube HD |
-| Render profile | `balanced` | Ken Burns motion + cross-dissolves |
-| Pacing profile | `spiritual` | 800–2500 ms thought-block pauses |
+| Stage                           | Provider                    | Notes                              |
+| ------------------------------- | --------------------------- | ---------------------------------- |
+| LLM (script, research, publish) | Anthropic via LiteLLM proxy | `claude-haiku-4-5` model           |
+| Web search                      | Tavily                      | Used in research stage             |
+| Image generation                | HuggingFace FLUX.1-schnell  | ~30 sec/image on CPU               |
+| TTS                             | Kokoro (local)              | Voice: `am_michael`, speed: 0.85   |
+| Subtitle alignment              | WhisperX (local)            | `cpu` device                       |
+| BGM                             | Local MP3 library           | Sidechain ducking via FFmpeg       |
+| Subtitles                       | ASS format                  | Arial/DejaVu font, bottom-center   |
+| Output resolution               | 1280×720                    | YouTube HD                         |
+| Render profile                  | `balanced`                  | Ken Burns motion + cross-dissolves |
+| Pacing profile                  | `spiritual`                 | 800–2500 ms thought-block pauses   |
 
 To exactly replicate this stack, copy the settings above into your `.env`.

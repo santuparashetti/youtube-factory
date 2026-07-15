@@ -24,15 +24,26 @@ services:
 
     # Named volumes persist across image rebuilds
     volumes:
-      - workspace:/app/workspace
+      # Bind mount (not a named volume) so job outputs land directly in
+      # ./workspace on the host — browsable/copyable without `docker cp`.
+      - ./workspace:/app/workspace
       - cache:/app/cache
       - models:/app/models
       - logs:/app/logs
+      # env_file only injects vars into the process env — it does NOT put an
+      # actual .env file on disk. ytfactory's setup check looks for a literal
+      # /app/.env file, so bind-mount it explicitly as well.
+      - ./.env:/app/.env:ro
       # Optional: mount local music library
       # - ./music:/app/workspace/music:ro
 
+    # Image's ENTRYPOINT is set to `ytfactory`, which overrides `command`
+    # unless we clear it here — otherwise Docker runs `ytfactory python -c ...`
+    # and fails with "No such command 'python'".
+    entrypoint: []
+
     # Keep the container running for exec-based usage
-    command: ["python", "-c", "import time; time.sleep(1e9)"]
+    command: ['python', '-c', 'import time; time.sleep(1e9)']
 
     # Resource limits (adjust for your hardware)
     deploy:
@@ -59,12 +70,14 @@ services:
       - WHISPERX_DEVICE=cuda
 
     volumes:
-      - workspace:/app/workspace
+      - ./workspace:/app/workspace
       - cache:/app/cache
       - models:/app/models
       - logs:/app/logs
+      - ./.env:/app/.env:ro
 
-    command: ["python", "-c", "import time; time.sleep(1e9)"]
+    entrypoint: []
+    command: ['python', '-c', 'import time; time.sleep(1e9)']
 
     deploy:
       resources:
@@ -75,8 +88,6 @@ services:
               capabilities: [gpu]
 
 volumes:
-  workspace:
-    name: ytfactory_workspace
   cache:
     name: ytfactory_cache
   models:
