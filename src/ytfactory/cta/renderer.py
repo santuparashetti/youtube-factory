@@ -251,12 +251,10 @@ def _apply_overlay_ffmpeg(
     fade_in = config.fade_in_seconds
     fade_out = config.fade_out_seconds
 
-    # Use the fade filter (alpha=1 mode) on the looped PNG — times are relative
-    # to the PNG stream which starts at 0, so fade-in begins at t=0 and fade-out
-    # starts at (cta_duration - fade_out). overlay enable='between(...)' then
-    # gates the composite to the correct window in the video timeline.
-    # This avoids geq entirely (geq's expression evaluator has limited function
-    # support across FFmpeg versions and doesn't reliably expose 't').
+    # Limit the PNG to exactly the CTA duration, fade in/out relative to its
+    # own stream (PTS starts at 0), then shift PTS forward to cta_start so
+    # the overlay stream naturally spans [cta_start, cta_end] in the video
+    # timeline. This avoids processing the full video worth of PNG frames.
     cta_duration = cta_end - cta_start
     fade_out_start = max(0.0, cta_duration - fade_out)
 
@@ -269,12 +267,13 @@ def _apply_overlay_ffmpeg(
 
     # Build filter_complex
     filter_complex_parts = [
-        # Fade PNG alpha in from stream-start, out near stream-end
+        # Fade PNG alpha in/out, then shift its PTS to [cta_start, cta_end]
         f"[1:v]format=rgba,"
         f"fade=in:st=0:d={fade_in:.4f}:alpha=1,"
-        f"fade=out:st={fade_out_start:.4f}:d={fade_out:.4f}:alpha=1[ovr]",
-        # Composite — enable only during the CTA window in the video timeline
-        f"[0:v][ovr]overlay=0:0:enable='between(t,{cta_start:.4f},{cta_end:.4f})'[vout]",
+        f"fade=out:st={fade_out_start:.4f}:d={fade_out:.4f}:alpha=1,"
+        f"setpts=PTS+{cta_start:.4f}/TB[ovr]",
+        # Composite — overlay stream naturally spans the right window
+        "[0:v][ovr]overlay=0:0[vout]",
     ]
 
     filter_complex = ";".join(filter_complex_parts)
@@ -287,6 +286,8 @@ def _apply_overlay_ffmpeg(
         str(video_path),
         "-loop",
         "1",
+        "-t",
+        f"{cta_duration:.4f}",  # limit PNG to CTA duration — avoids processing full video
         "-i",
         str(overlay_png),
         "-filter_complex",
