@@ -272,8 +272,8 @@ def _apply_overlay_ffmpeg(
         f"fade=in:st=0:d={fade_in:.4f}:alpha=1,"
         f"fade=out:st={fade_out_start:.4f}:d={fade_out:.4f}:alpha=1,"
         f"setpts=PTS+{cta_start:.4f}/TB[ovr]",
-        # Composite — overlay stream naturally spans the right window
-        "[0:v][ovr]overlay=0:0[vout]",
+        # Composite — eof_action=pass so base video continues after PNG ends
+        "[0:v][ovr]overlay=0:0:eof_action=pass[vout]",
     ]
 
     filter_complex = ";".join(filter_complex_parts)
@@ -301,14 +301,13 @@ def _apply_overlay_ffmpeg(
         "-c:v",
         "libx264",
         "-preset",
-        "medium",
+        "ultrafast",  # overlay pass — speed over compression; original quality already encoded
         "-crf",
         "23",
         "-c:a",
         "aac",
         "-b:a",
         "192k",
-        "-shortest",
         str(output_path),
     ]
 
@@ -319,7 +318,7 @@ def _apply_overlay_ffmpeg(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=1800,  # 30 min — full video re-encode; ultrafast preset keeps this << 5 min
         )
         if result.returncode != 0:
             logger.error(
@@ -328,7 +327,7 @@ def _apply_overlay_ffmpeg(
             return False
         return True
     except subprocess.TimeoutExpired:
-        logger.error("CTA FFmpeg timed out after 300s")
+        logger.error("CTA FFmpeg timed out after 1800s")
         return False
     except Exception as exc:
         logger.error("CTA FFmpeg exception: {}", exc)
