@@ -18,6 +18,7 @@ class PlacementPath(str, Enum):
 
     PRIMARY_CONTEXTUAL = "primary_contextual"  # insight-tier pause found, subtitle-safe
     FALLBACK_TIMING = "fallback_timing"  # no safe pause found → fixed fallback_timing %
+    POST_HOOK = "post_hook"  # placed immediately after scene 1 (hook) ends
 
 
 class CTAZone(str, Enum):

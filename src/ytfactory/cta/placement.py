@@ -104,6 +104,40 @@ def _get_video_duration(project_dir: Path) -> float:
     return total
 
 
+# ── Hook end timestamp ─────────────────────────────────────────────────────────
+
+
+def _get_hook_end_timestamp(
+    project_dir: Path, min_seconds: float = 8.0
+) -> float | None:
+    """Return the end timestamp of scene 1 (the hook), or None if unavailable.
+
+    Prefers alignment.json (WhisperX word-level) over timing.json (TTS).
+    Returns None when neither file exists so the caller can fall back gracefully.
+    Clamps to min_seconds so the CTA never appears in the very first seconds.
+    """
+    audio_dir = project_dir / "audio"
+    for filename in ("scene-001.alignment.json", "scene-001.timing.json"):
+        path = audio_dir / filename
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                # timing.json: list of word dicts with "end" field
+                end = float(data[-1].get("end", 0.0))
+                return max(end, min_seconds)
+            if isinstance(data, dict):
+                # alignment.json: {"words": [...], ...}
+                words = data.get("words", [])
+                if words:
+                    end = float(words[-1].get("end", 0.0))
+                    return max(end, min_seconds)
+        except Exception:
+            pass
+    return None
+
+
 # ── Zone selection ─────────────────────────────────────────────────────────────
 
 
@@ -150,6 +184,14 @@ class CTAPlacementEngine:
         if video_duration <= 0:
             # No timing data yet — place at 65% fallback
             return self._fallback_placement(video_duration or 300.0, subtitle_windows)
+
+        if self._config.timing_mode == "post_hook":
+            hook_end = _get_hook_end_timestamp(project_dir)
+            if hook_end is not None:
+                return self._post_hook_placement(project_dir, subtitle_windows, hook_end)
+            logger.warning(
+                "CTA post_hook: no scene-001 timing data found — falling back to contextual"
+            )
 
         midpoint = video_duration / 2.0
         search_limit = video_duration * self._config.max_placement_search_pct
@@ -231,6 +273,45 @@ class CTAPlacementEngine:
             subtitle_safe=not subtitle_active,
             zone=zone,
             pause_type=None,
+            pause_duration=0.0,
+        )
+
+    def _post_hook_placement(
+        self,
+        project_dir: Path,
+        subtitle_windows: list[tuple[float, float]],
+        hook_end: float,
+    ) -> CTAPlacement:
+        """Place CTA immediately after scene 1 (hook) ends.
+
+        Uses FULL variant when the bottom zone is subtitle-free; falls back to
+        COMPACT at upper-right when subtitles are still active at that timestamp.
+        """
+        cta_dur = self._config.duration
+        subtitle_active = _subtitle_active_at(subtitle_windows, hook_end, cta_dur)
+        zone, safe = _choose_zone(subtitle_active, self._config)
+
+        if subtitle_active:
+            variant = CTAVariant.COMPACT
+            cta_dur = min(self._config.duration * 0.6, self._config.duration)
+        else:
+            variant = CTAVariant.FULL
+
+        logger.info(
+            "CTA placement: post_hook {} at {:.1f}s (zone={}, subtitle_active={})",
+            variant.value,
+            hook_end,
+            zone.value,
+            subtitle_active,
+        )
+        return CTAPlacement(
+            timestamp=hook_end,
+            duration=cta_dur,
+            variant=variant,
+            placement_path=PlacementPath.POST_HOOK,
+            subtitle_safe=safe,
+            zone=zone,
+            pause_type="post_hook",
             pause_duration=0.0,
         )
 

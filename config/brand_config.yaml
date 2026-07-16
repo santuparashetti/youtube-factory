@@ -46,7 +46,7 @@ branding:
 cta_overlay:
   enabled: true            # set to true to enable per-video CTA overlay
   template: atma           # glass | minimal | atma | premium
-  timing_mode: contextual  # contextual (insight-tier pauses) | fixed
+  timing_mode: post_hook   # post_hook | contextual (insight-tier pauses) | fixed
   fallback_timing: 65%     # fallback position if no safe pause found
   duration: 6s             # target duration for full CTA
   min_pause_ms_for_full_cta: 3000   # below this threshold → compact variant
