@@ -257,7 +257,7 @@ def _apply_overlay_ffmpeg(
         f"(t-{cta_start:.4f})/{fade_in:.4f},"
         f"if(gt(t,{cta_end - fade_out:.4f}),"
         f"({cta_end:.4f}-t)/{fade_out:.4f},1))"
-        f"*between(t,{cta_start:.4f},{cta_end:.4f})"
+        f"*gte(t,{cta_start:.4f})*lte(t,{cta_end:.4f})"
     )
 
     # BGM secondary duck: attenuate audio by bgm_secondary_duck_db at CTA window
