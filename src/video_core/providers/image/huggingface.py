@@ -22,7 +22,7 @@ class HuggingFaceImageProvider(ImageProvider):
         self._settings = settings
 
         self._client = InferenceClient(
-            provider="hf-inference",  # HuggingFace's own free serverless inference
+            provider=settings.hf_inference_provider,
             api_key=os.environ.get("HF_TOKEN", settings.hf_token),
         )
 

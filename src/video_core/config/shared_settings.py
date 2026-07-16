@@ -40,6 +40,7 @@ class SharedSettings(BaseSettings):
     gemini_image_model: str = "gemini-3.1-flash-lite-image"
 
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
+    hf_inference_provider: str = "auto"  # "auto" | "together" | "fal-ai" | "nebius" | "hf-inference"
 
     groq_model: str = "llama-3.1-8b-instant"
     anthropic_model: str = "claude-haiku-4-5"
