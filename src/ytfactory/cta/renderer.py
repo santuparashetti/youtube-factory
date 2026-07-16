@@ -250,13 +250,7 @@ def _apply_overlay_ffmpeg(
     cta_end = placement.cta_end
     fade_in = config.fade_in_seconds
     fade_out = config.fade_out_seconds
-
-    # Limit the PNG to exactly the CTA duration, fade in/out relative to its
-    # own stream (PTS starts at 0), then shift PTS forward to cta_start so
-    # the overlay stream naturally spans [cta_start, cta_end] in the video
-    # timeline. This avoids processing the full video worth of PNG frames.
     cta_duration = cta_end - cta_start
-    fade_out_start = max(0.0, cta_duration - fade_out)
 
     # BGM secondary duck: attenuate audio by bgm_secondary_duck_db at CTA window
     duck_db = config.bgm_secondary_duck_db
@@ -265,15 +259,17 @@ def _apply_overlay_ffmpeg(
         f"volume={_db_to_linear(-duck_db):.4f}"
     )
 
-    # Build filter_complex
+    # Use -itsoffset to shift the PNG stream so its PTS starts at cta_start.
+    # The fade filter then uses absolute timestamps (matching the video timeline)
+    # rather than stream-relative ones, which avoids timebase mismatch with setpts.
+    fade_out_abs = max(cta_start, cta_end - fade_out)
+
     filter_complex_parts = [
-        # Fade PNG alpha in/out, then shift its PTS to [cta_start, cta_end]
         f"[1:v]format=rgba,"
-        f"fade=in:st=0:d={fade_in:.4f}:alpha=1,"
-        f"fade=out:st={fade_out_start:.4f}:d={fade_out:.4f}:alpha=1,"
-        f"setpts=PTS+{cta_start:.4f}/TB[ovr]",
-        # Composite — eof_action=pass so base video continues after PNG ends
-        "[0:v][ovr]overlay=0:0:eof_action=pass[vout]",
+        f"fade=in:st={cta_start:.4f}:d={fade_in:.4f}:alpha=1,"
+        f"fade=out:st={fade_out_abs:.4f}:d={fade_out:.4f}:alpha=1"
+        f"[ovr]",
+        "[0:v][ovr]overlay=0:0:eof_action=pass:format=auto[vout]",
     ]
 
     filter_complex = ";".join(filter_complex_parts)
@@ -284,10 +280,12 @@ def _apply_overlay_ffmpeg(
         "-y",
         "-i",
         str(video_path),
+        "-itsoffset",
+        f"{cta_start:.4f}",  # shift PNG stream to [cta_start, cta_end] in video timeline
         "-loop",
         "1",
         "-t",
-        f"{cta_duration:.4f}",  # limit PNG to CTA duration — avoids processing full video
+        f"{cta_duration:.4f}",
         "-i",
         str(overlay_png),
         "-filter_complex",
@@ -301,7 +299,7 @@ def _apply_overlay_ffmpeg(
         "-c:v",
         "libx264",
         "-preset",
-        "ultrafast",  # overlay pass — speed over compression; original quality already encoded
+        "ultrafast",
         "-crf",
         "23",
         "-c:a",

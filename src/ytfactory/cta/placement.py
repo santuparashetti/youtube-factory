@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from loguru import logger
@@ -88,20 +89,37 @@ def _subtitle_active_at(
 
 
 def _get_video_duration(project_dir: Path) -> float:
-    """Estimate video duration from timing.json files (sum of all scene durations)."""
+    """Estimate video duration from timing.json files, falling back to ffprobe on final.mp4."""
     audio_dir = project_dir / "audio"
-    if not audio_dir.exists():
-        return 0.0
+    if audio_dir.exists():
+        total = 0.0
+        for timing_path in sorted(audio_dir.glob("scene-*.timing.json")):
+            try:
+                data = json.loads(timing_path.read_text(encoding="utf-8"))
+                if isinstance(data, list) and data:
+                    total += float(data[-1].get("end", 0.0)) + 0.1
+            except Exception:
+                pass
+        if total > 0:
+            return total
 
-    total = 0.0
-    for timing_path in sorted(audio_dir.glob("scene-*.timing.json")):
+    # Fallback: probe the rendered video directly
+    final_mp4 = project_dir / "video" / "final.mp4"
+    if final_mp4.exists():
         try:
-            data = json.loads(timing_path.read_text(encoding="utf-8"))
-            if isinstance(data, list) and data:
-                total += float(data[-1].get("end", 0.0)) + 0.1
+            r = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(final_mp4)],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            dur = float(json.loads(r.stdout)["format"]["duration"])
+            if dur > 0:
+                return dur
         except Exception:
             pass
-    return total
+    return 0.0
 
 
 # ── Hook end timestamp ─────────────────────────────────────────────────────────
@@ -124,17 +142,33 @@ def _get_hook_end_timestamp(
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, list) and data:
-                # timing.json: list of word dicts with "end" field
                 end = float(data[-1].get("end", 0.0))
                 return max(end, min_seconds)
             if isinstance(data, dict):
-                # alignment.json: {"words": [...], ...}
                 words = data.get("words", [])
                 if words:
                     end = float(words[-1].get("end", 0.0))
                     return max(end, min_seconds)
         except Exception:
             pass
+
+    # Fallback: probe the hook audio file directly
+    for ext in (".mp3", ".wav", ".ogg"):
+        audio_file = audio_dir / f"scene-001{ext}"
+        if audio_file.exists():
+            try:
+                r = subprocess.run(
+                    ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(audio_file)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=15,
+                )
+                dur = float(json.loads(r.stdout)["format"]["duration"])
+                if dur > 0:
+                    return max(dur, min_seconds)
+            except Exception:
+                pass
     return None
 
 
@@ -179,12 +213,9 @@ class CTAPlacementEngine:
         compact variant when no suitable pause is found (spec: guaranteed render).
         """
         subtitle_windows = _build_subtitle_windows(project_dir)
-        video_duration = _get_video_duration(project_dir)
 
-        if video_duration <= 0:
-            # No timing data yet — place at 65% fallback
-            return self._fallback_placement(video_duration or 300.0, subtitle_windows)
-
+        # post_hook does not need full video_duration — check it first so missing
+        # timing.json files don't silently bypass the mode.
         if self._config.timing_mode == "post_hook":
             hook_end = _get_hook_end_timestamp(project_dir)
             if hook_end is not None:
@@ -192,6 +223,11 @@ class CTAPlacementEngine:
             logger.warning(
                 "CTA post_hook: no scene-001 timing data found — falling back to contextual"
             )
+
+        video_duration = _get_video_duration(project_dir)
+
+        if video_duration <= 0:
+            return self._fallback_placement(300.0, subtitle_windows)
 
         midpoint = video_duration / 2.0
         search_limit = video_duration * self._config.max_placement_search_pct
@@ -253,24 +289,21 @@ class CTAPlacementEngine:
         video_duration: float,
         subtitle_windows: list[tuple[float, float]],
     ) -> CTAPlacement:
-        """Fixed-percentage placement with compact variant.
+        """Fixed-percentage placement.
 
-        Renders regardless of subtitle state (spec: guaranteed render).
-        Uses upper-right corner to minimise subtitle overlap risk.
+        Always renders FULL variant. Uses upper-right zone when subtitles
+        are active to avoid overlap.
         """
         ts = video_duration * self._config.fallback_timing
-        cta_dur = min(
-            self._config.duration * 0.6,  # compact is shorter
-            self._config.duration,
-        )
+        cta_dur = self._config.duration
         subtitle_active = _subtitle_active_at(subtitle_windows, ts, cta_dur)
         zone = CTAZone.UPPER_RIGHT if subtitle_active else CTAZone.BOTTOM_CENTER
         return CTAPlacement(
             timestamp=ts,
             duration=cta_dur,
-            variant=CTAVariant.COMPACT,
+            variant=CTAVariant.FULL,
             placement_path=PlacementPath.FALLBACK_TIMING,
-            subtitle_safe=not subtitle_active,
+            subtitle_safe=True,
             zone=zone,
             pause_type=None,
             pause_duration=0.0,
@@ -291,15 +324,8 @@ class CTAPlacementEngine:
         subtitle_active = _subtitle_active_at(subtitle_windows, hook_end, cta_dur)
         zone, safe = _choose_zone(subtitle_active, self._config)
 
-        if subtitle_active:
-            variant = CTAVariant.COMPACT
-            cta_dur = min(self._config.duration * 0.6, self._config.duration)
-        else:
-            variant = CTAVariant.FULL
-
         logger.info(
-            "CTA placement: post_hook {} at {:.1f}s (zone={}, subtitle_active={})",
-            variant.value,
+            "CTA placement: post_hook full at {:.1f}s (zone={}, subtitle_active={})",
             hook_end,
             zone.value,
             subtitle_active,
@@ -307,7 +333,7 @@ class CTAPlacementEngine:
         return CTAPlacement(
             timestamp=hook_end,
             duration=cta_dur,
-            variant=variant,
+            variant=CTAVariant.FULL,
             placement_path=PlacementPath.POST_HOOK,
             subtitle_safe=safe,
             zone=zone,
