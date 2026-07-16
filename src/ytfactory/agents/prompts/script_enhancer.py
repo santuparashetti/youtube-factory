@@ -44,12 +44,12 @@ LANGUAGE: Plain, direct, occasionally playful. Define jargon the moment you use 
 
 _ENHANCER_TEMPLATE = """\
 You are a careful editor, not a rewriter.
-Your task: take the author's raw script and expand it to reach the target duration
-while preserving their voice, rhythm, and message as completely as possible.
+{task_instruction}
 
 TOPIC: {topic}
 TARGET DURATION: {target_minutes} minutes of spoken narration
 ACCEPTABLE RANGE: {min_m}–{max_m} minutes ({min_words}–{max_words} words at ~130 wpm)
+CURRENT SCRIPT: {raw_words} words (~{raw_est:.1f} min) — you must {direction_verb} by ~{word_gap} words
 
 {voice_guide}
 
@@ -81,9 +81,56 @@ the main idea, insert the welcome between the first and second paragraph — do 
 write bridging sentences around it. The welcome must stand on its own, not be
 woven into the author's sentences.
 
+{strategy_section}
+
+───────────────────────────────────────────────────────────────
+HOW TO THINK ABOUT DURATION
+───────────────────────────────────────────────────────────────
+A narrator speaking at a meditative pace does not rush between ideas.
+The audience thinks during the space between paragraphs.
+That thinking time is part of the duration.
+
+A three-sentence paragraph spoken without breathing = fast.
+The same three sentences each given their own paragraph = slow, contemplative.
+
+You are writing for thinking, not just listening.
+The objective is to make the audience think — not to increase the word count.
+
+───────────────────────────────────────────────────────────────
+VOICEOVER TECHNICAL RULES
+───────────────────────────────────────────────────────────────
+- Write ONLY natural spoken English — absolutely no markdown of any kind
+- No asterisks, no pound signs, no dashes as bullets, no bold, no headers
+- Spell out numbers: "forty-two" not "42", "the nineteen eighties" not "the 1980s"
+- Expand abbreviations: "for example" not "e.g.", "that is" not "i.e."
+- Every word must be immediately pronounceable
+- Use commas rhythmically — they create breathing space in the voice
+- Use ellipsis (...) only for intentional dramatic pause moments (maximum 5 per script)
+- Contractions are natural: "it's", "you're", "we've", "don't"
+- Avoid parentheses, brackets, semicolons — use periods and commas instead
+
+───────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+───────────────────────────────────────────────────────────────
+Return ONLY the narration text. Nothing else.
+No title. No "Here is the script:". No explanations. No section labels.
+Separate major narrative sections with ONE blank line.
+The text will be read aloud word-for-word.
+
+───────────────────────────────────────────────────────────────
+AUTHOR'S SCRIPT (preserve — do not rewrite):
+───────────────────────────────────────────────────────────────
+{script}\
+"""
+
+
+_EXPAND_STRATEGY = """\
 ───────────────────────────────────────────────────────────────
 EXPANSION STRATEGY — follow this priority order exactly
 ───────────────────────────────────────────────────────────────
+CRITICAL: The script is UNDER the target. You must ONLY add content — never remove or
+shorten existing sentences. The final output MUST be longer than the original script.
+
 Work through these priorities in order. Do not reach for a lower priority
 until the higher ones are exhausted.
 
@@ -139,46 +186,50 @@ PRIORITY 7 — NEVER ADD ANY OF THE FOLLOWING
     ✗  Generic motivational language: "You have the strength", "Believe in yourself"
     ✗  Unnecessary introductions: "In this journey, we will explore..."
     ✗  Summaries of what was just said
-    ✗  Transitions that announce themselves: "Now let's turn to..."
+    ✗  Transitions that announce themselves: "Now let's turn to..."\
+"""
 
+_SHORTEN_STRATEGY = """\
 ───────────────────────────────────────────────────────────────
-HOW TO THINK ABOUT DURATION
+SHORTENING STRATEGY — follow this priority order exactly
 ───────────────────────────────────────────────────────────────
-A narrator speaking at a meditative pace does not rush between ideas.
-The audience thinks during the space between paragraphs.
-That thinking time is part of the duration.
+CRITICAL: The script is OVER the target. You must remove content — but preserve
+the author's voice, core message, and narrative arc completely.
 
-A three-sentence paragraph spoken without breathing = fast.
-The same three sentences each given their own paragraph = slow, contemplative.
+Work through these priorities in order:
 
-You are writing for thinking, not just listening.
-The objective is to make the audience think — not to increase the word count.
+PRIORITY 1 — CUT REDUNDANT EXAMPLES AND REPETITION
+  Identify ideas the author explains more than once. Keep the sharpest version;
+  cut the rest. Cut entire paragraphs before cutting individual sentences.
 
-───────────────────────────────────────────────────────────────
-VOICEOVER TECHNICAL RULES
-───────────────────────────────────────────────────────────────
-- Write ONLY natural spoken English — absolutely no markdown of any kind
-- No asterisks, no pound signs, no dashes as bullets, no bold, no headers
-- Spell out numbers: "forty-two" not "42", "the nineteen eighties" not "the 1980s"
-- Expand abbreviations: "for example" not "e.g.", "that is" not "i.e."
-- Every word must be immediately pronounceable
-- Use commas rhythmically — they create breathing space in the voice
-- Use ellipsis (...) only for intentional dramatic pause moments (maximum 5 per script)
-- Contractions are natural: "it's", "you're", "we've", "don't"
-- Avoid parentheses, brackets, semicolons — use periods and commas instead
+PRIORITY 2 — TIGHTEN VERBOSE PASSAGES
+  Find passages where 3 sentences say what 1 could. Distil to the essential idea.
+  Keep the author's exact wording for the surviving sentence.
 
-───────────────────────────────────────────────────────────────
-OUTPUT FORMAT
-───────────────────────────────────────────────────────────────
-Return ONLY the narration text. Nothing else.
-No title. No "Here is the script:". No explanations. No section labels.
-Separate major narrative sections with ONE blank line.
-The text will be read aloud word-for-word.
+PRIORITY 3 — REMOVE LOW-VALUE TRANSITIONS
+  Cut sentences that merely announce what comes next ("Now let us look at...",
+  "With that in mind..."). Move directly from idea to idea.
 
+PRIORITY 4 — PRESERVE THE CORE
+  Never cut: the opening hook, the central argument, any unique insight, the closing.
+  Never rephrase what you keep — only decide what stays and what goes.
+
+PRIORITY 5 — NEVER ADD ANY OF THE FOLLOWING
+    ✗  New content of any kind
+    ✗  Filler commentary or summaries
+    ✗  Rephrased versions of cut sentences\
+"""
+
+_POLISH_STRATEGY = """\
 ───────────────────────────────────────────────────────────────
-AUTHOR'S SCRIPT (preserve — do not rewrite):
+POLISH STRATEGY — minimal changes only
 ───────────────────────────────────────────────────────────────
-{script}\
+The script is already within the target duration range. Do NOT add or remove
+significant content. Your only job is to insert the channel frame elements
+below and ensure the script reads cleanly for voiceover.
+
+Do not rewrite sentences. Do not restructure paragraphs. Make no changes
+beyond inserting the channel frame elements at the specified positions.\
 """
 
 
@@ -192,6 +243,8 @@ def build_enhance_script_prompt(
     topic_transition: str | None = None,
     cta: str | None = None,
     closing_brand: str | None = None,
+    mode: str = "expand",  # "expand" | "shorten" | "polish"
+    raw_words: int = 0,
 ) -> str:
     from ytfactory.agents.prompts.branding import (
         get_closing,
@@ -207,10 +260,36 @@ def build_enhance_script_prompt(
     min_words = min_m * NARRATION_WPM
     max_words = max_m * NARRATION_WPM
 
+    raw_est = raw_words / NARRATION_WPM if raw_words else 0.0
+    word_gap = abs(target_words - raw_words)
+
+    if mode == "shorten":
+        task_instruction = (
+            "Your task: take the author's raw script and SHORTEN it to fit the target duration "
+            "while preserving their voice and core message."
+        )
+        direction_verb = "remove"
+        strategy_section = _SHORTEN_STRATEGY
+    elif mode == "polish":
+        task_instruction = (
+            "Your task: insert the channel frame elements into the author's script "
+            "with minimal changes. The script is already within the target duration range."
+        )
+        direction_verb = "preserve"
+        strategy_section = _POLISH_STRATEGY
+    else:  # expand
+        task_instruction = (
+            "Your task: take the author's raw script and EXPAND it to reach the target duration "
+            "while preserving their voice, rhythm, and message as completely as possible."
+        )
+        direction_verb = "add"
+        strategy_section = _EXPAND_STRATEGY
+
     voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
     voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
 
     return _ENHANCER_TEMPLATE.format(
+        task_instruction=task_instruction,
         topic=topic,
         target_minutes=target_minutes,
         min_m=min_m,
@@ -218,7 +297,12 @@ def build_enhance_script_prompt(
         target_words=target_words,
         min_words=min_words,
         max_words=max_words,
+        raw_words=raw_words,
+        raw_est=raw_est,
+        direction_verb=direction_verb,
+        word_gap=int(word_gap),
         voice_guide=voice_guide,
+        strategy_section=strategy_section,
         welcome=welcome or get_welcome(),
         closing=closing or get_closing(),
         topic_transition=topic_transition or get_transition(),

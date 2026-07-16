@@ -84,16 +84,28 @@ class ScriptEnhancerPipeline:
         target_words = target_minutes * NARRATION_WPM
         min_minutes = target_minutes - DURATION_TOLERANCE_MINUTES
         max_minutes = target_minutes + DURATION_TOLERANCE_MINUTES
+        raw_est = raw_words / NARRATION_WPM
+
+        # Determine direction: only shorten when over target, expand when under.
+        if raw_est > max_minutes:
+            mode = "shorten"
+            mode_label = "shortening to target"
+        elif _duration_ok(raw_est, target_minutes):
+            mode = "polish"
+            mode_label = "already in range — polishing"
+        else:
+            mode = "expand"
+            mode_label = "expanding to target"
 
         style_label = f" [{style}]" if style else ""
         console.print(
             f"\n[bold magenta]✍  Script Enhancer[/bold magenta]{style_label} — "
-            f"expanding through pacing and reflection "
+            f"{mode_label} "
             f"(target: {target_minutes} min ±{DURATION_TOLERANCE_MINUTES} min)..."
         )
         console.print(
-            f"  [dim]Input:[/dim] {raw_words} words → target {target_minutes} min "
-            f"(~{target_words} words, range {min_minutes}–{max_minutes} min)"
+            f"  [dim]Input:[/dim] {raw_words} words (~{raw_est:.1f} min) → "
+            f"target {target_minutes} min (~{target_words} words, range {min_minutes}–{max_minutes} min)"
         )
 
         prompt = build_enhance_script_prompt(
@@ -106,6 +118,8 @@ class ScriptEnhancerPipeline:
             topic_transition=get_transition(),
             cta=get_cta(),
             closing_brand=get_closing_brand(),
+            mode=mode,
+            raw_words=raw_words,
         )
         response = self._llm.generate(prompt, temperature=0.6)
         enhanced = response.text.strip()
