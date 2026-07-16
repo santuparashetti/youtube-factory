@@ -251,17 +251,14 @@ def _apply_overlay_ffmpeg(
     fade_in = config.fade_in_seconds
     fade_out = config.fade_out_seconds
 
-    # Fade alpha expression for the overlay: ramp in, hold, ramp out.
-    # geq evaluator only supports lt/gt/if — no gte/lte/between.
-    # Outer if-guards clamp to zero outside [cta_start, cta_end].
-    alpha_expr = (
-        f"if(lt(t,{cta_start:.4f}),0,"
-        f"if(gt(t,{cta_end:.4f}),0,"
-        f"if(lt(t,{cta_start:.4f}+{fade_in:.4f}),"
-        f"(t-{cta_start:.4f})/{fade_in:.4f},"
-        f"if(gt(t,{cta_end:.4f}-{fade_out:.4f}),"
-        f"({cta_end:.4f}-t)/{fade_out:.4f},1))))"
-    )
+    # Use the fade filter (alpha=1 mode) on the looped PNG — times are relative
+    # to the PNG stream which starts at 0, so fade-in begins at t=0 and fade-out
+    # starts at (cta_duration - fade_out). overlay enable='between(...)' then
+    # gates the composite to the correct window in the video timeline.
+    # This avoids geq entirely (geq's expression evaluator has limited function
+    # support across FFmpeg versions and doesn't reliably expose 't').
+    cta_duration = cta_end - cta_start
+    fade_out_start = max(0.0, cta_duration - fade_out)
 
     # BGM secondary duck: attenuate audio by bgm_secondary_duck_db at CTA window
     duck_db = config.bgm_secondary_duck_db
@@ -272,12 +269,12 @@ def _apply_overlay_ffmpeg(
 
     # Build filter_complex
     filter_complex_parts = [
-        # Load overlay PNG (input 1), apply alpha fade
-        f"[1:v]format=rgba,geq="
-        f"r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':"
-        f"a='alpha(X\\,Y)*({alpha_expr})'[ovr]",
-        # Composite overlay onto base video
-        "[0:v][ovr]overlay=0:0:format=auto[vout]",
+        # Fade PNG alpha in from stream-start, out near stream-end
+        f"[1:v]format=rgba,"
+        f"fade=in:st=0:d={fade_in:.4f}:alpha=1,"
+        f"fade=out:st={fade_out_start:.4f}:d={fade_out:.4f}:alpha=1[ovr]",
+        # Composite — enable only during the CTA window in the video timeline
+        f"[0:v][ovr]overlay=0:0:enable='between(t,{cta_start:.4f},{cta_end:.4f})'[vout]",
     ]
 
     filter_complex = ";".join(filter_complex_parts)
