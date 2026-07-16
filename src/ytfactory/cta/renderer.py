@@ -251,13 +251,16 @@ def _apply_overlay_ffmpeg(
     fade_in = config.fade_in_seconds
     fade_out = config.fade_out_seconds
 
-    # Fade alpha expression for the overlay: ramp in, hold, ramp out
+    # Fade alpha expression for the overlay: ramp in, hold, ramp out.
+    # geq evaluator only supports lt/gt/if — no gte/lte/between.
+    # Outer if-guards clamp to zero outside [cta_start, cta_end].
     alpha_expr = (
-        f"if(lt(t-{cta_start:.4f},{fade_in:.4f}),"
+        f"if(lt(t,{cta_start:.4f}),0,"
+        f"if(gt(t,{cta_end:.4f}),0,"
+        f"if(lt(t,{cta_start:.4f}+{fade_in:.4f}),"
         f"(t-{cta_start:.4f})/{fade_in:.4f},"
-        f"if(gt(t,{cta_end - fade_out:.4f}),"
-        f"({cta_end:.4f}-t)/{fade_out:.4f},1))"
-        f"*gte(t,{cta_start:.4f})*lte(t,{cta_end:.4f})"
+        f"if(gt(t,{cta_end:.4f}-{fade_out:.4f}),"
+        f"({cta_end:.4f}-t)/{fade_out:.4f},1))))"
     )
 
     # BGM secondary duck: attenuate audio by bgm_secondary_duck_db at CTA window
