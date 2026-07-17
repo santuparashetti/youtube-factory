@@ -5,6 +5,9 @@ Your task is to convert a narration script into a sequence of cinematic scenes.
 
 Rules:
 
+- If the script begins with a markdown heading (a line starting with # …) or a standalone
+  ALL-CAPS title line, treat it as a document label — do NOT include it in any scene's narration.
+  The first scene's narration must begin with the actual spoken content that follows the heading.
 - Split the narration into logical scenes.
 - Each scene should be approximately 5–10 seconds.
 - Every scene must have:

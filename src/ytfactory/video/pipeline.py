@@ -359,7 +359,17 @@ class VideoPipeline:
             duration_hint = _actual_audio_duration(audio, timing_path, plan_duration)
             durations.append(duration_hint)
 
-            if not output.exists():
+            # Re-render if the output is absent OR the audio/subtitle source is newer.
+            # This prevents stale per-scene clips from persisting when voice or captions
+            # are regenerated (e.g. after fixing the H1-heading narration issue).
+            output_mtime = output.stat().st_mtime if output.exists() else 0.0
+            source_mtime = max(
+                audio.stat().st_mtime if audio.is_file() else 0.0,
+                subtitle.stat().st_mtime if subtitle.is_file() else 0.0,
+            )
+            needs_render = not output.exists() or source_mtime > output_mtime
+
+            if needs_render:
                 try:
                     self.renderer.render(
                         image=image,

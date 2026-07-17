@@ -70,8 +70,8 @@ class Settings(SharedSettings):
     # Font family (must be installed on the render machine)
     subtitle_ass_font: str = "Arial"
 
-    # Font size in pixels at PlayResX × PlayResY (1920 × 1080)
-    subtitle_ass_font_size: int = 52
+    # Font size in pixels at PlayResX × PlayResY (1280 × 720)
+    subtitle_ass_font_size: int = 35
 
     # Bold text (-1 = bold, 0 = not bold in ASS convention)
     subtitle_ass_bold: bool = True
@@ -89,10 +89,10 @@ class Settings(SharedSettings):
     subtitle_ass_outline: float = 2.0
     subtitle_ass_shadow: float = 1.0
 
-    # Safe margins from the video edges in pixels (1920 × 1080 reference)
-    subtitle_ass_margin_l: int = 80
-    subtitle_ass_margin_r: int = 80
-    subtitle_ass_margin_v: int = 60
+    # Safe margins from the video edges in pixels (1280 × 720 reference)
+    subtitle_ass_margin_l: int = 56
+    subtitle_ass_margin_r: int = 56
+    subtitle_ass_margin_v: int = 40
 
     # Subtitle alignment (numpad layout: 2 = bottom-center)
     subtitle_ass_alignment: int = 2
@@ -101,8 +101,8 @@ class Settings(SharedSettings):
     subtitle_ass_border_style: int = 1
 
     # Script resolution — must match video dimensions
-    subtitle_ass_play_res_x: int = 1920
-    subtitle_ass_play_res_y: int = 1080
+    subtitle_ass_play_res_x: int = 1280
+    subtitle_ass_play_res_y: int = 720
 
     # Extend the last subtitle cue by this many seconds so it remains visible
     # through the fade-to-black transition at the end of each scene.

@@ -427,7 +427,12 @@ class FFmpegRenderer:
             transition_in, transition_out, fps, duration_hint
         )
 
-        vf = ",".join([spatial] + effect_parts + fade_parts + [sub_part])
+        # 5. Explicit duration cap — prevents zoompan's fixed `d=` frame count from
+        #    producing extra silent frames beyond the audio end when -shortest doesn't
+        #    fire early enough on a filter-graph-limited video stream.
+        trim_part = f"trim=duration={duration_hint:.4f},setpts=PTS-STARTPTS"
+
+        vf = ",".join([spatial] + effect_parts + fade_parts + [trim_part, sub_part])
 
         # Build the encoder argument list from settings so CRF, preset, tune,
         # keyframe interval, and audio bitrate are all configurable.

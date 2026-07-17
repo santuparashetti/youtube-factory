@@ -28,9 +28,19 @@ class ScenePipeline:
 
         script = script_file.read_text(encoding="utf-8")
         # Strip any leading H1 title heading — it is a structural label, not narration.
-        script, _ = strip_script_heading(script)
+        script, heading = strip_script_heading(script)
 
         scene_plan = self._planner.generate(script)
+
+        # Defensive post-process: if the LLM still included the heading text at the
+        # start of scene 1's narration, strip it.  This covers cases where the model
+        # treats the heading as part of the script body despite the system prompt rule.
+        if heading:
+            heading_text = heading.strip()
+            for scene in scene_plan.get("scenes", []):
+                narration = scene.get("narration", "")
+                if narration.startswith(heading_text):
+                    scene["narration"] = narration[len(heading_text):].lstrip(" ,.:;")
 
         self._repository.save(project_dir, scene_plan)
 
