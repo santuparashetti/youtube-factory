@@ -27,7 +27,7 @@ class NormalizationValidator:
 
     def __init__(
         self,
-        change_ratio_threshold: float = 0.15,
+        change_ratio_threshold: float = 0.10,  # ADR-0010 addendum: tightened from 0.15 — calibrate against real transcripts
         paragraph_anchor_chars: int = 50,
         min_sentence_overlap: float = 0.30,
     ) -> None:

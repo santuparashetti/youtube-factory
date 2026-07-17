@@ -296,6 +296,21 @@ WHAT PASS 1 MUST NOT DO:
 - Do not rewrite sentences that are already clear
 - If retention and fidelity ever conflict, fidelity always wins — no exceptions
 
+───────────────────────────────────────────────────────────────
+AMBIGUITY FLAGS FROM LIGHT NORMALIZATION ([FLAG:...] markers)
+───────────────────────────────────────────────────────────────
+The input may contain [FLAG: <reason>]...[/FLAG] spans. These were inserted by the
+upstream normalization stage to mark spans it could not confidently classify as either
+an artifact or intentional speech.
+
+Your handling:
+  - If you can resolve the ambiguity with high confidence (clearly intentional speech OR
+    clearly a transcription artifact), resolve it and remove the [FLAG:...][/FLAG] tags.
+  - If you cannot resolve it with confidence, leave the flagged span unchanged and remove
+    only the [FLAG:...][/FLAG] wrapper tags (keep the content, drop the markers).
+  - Never silently remove or alter the flagged content without resolving the ambiguity.
+  - Never forward [FLAG:...][/FLAG] tags into your output — either resolve or unwrap them.
+
 {strategy_section}
 
 {voiceover_rules}

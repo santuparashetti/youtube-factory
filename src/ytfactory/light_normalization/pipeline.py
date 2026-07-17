@@ -92,6 +92,13 @@ class LightNormalizationPipeline:
             console.print(
                 f"  [dim]Detected {len(placeholders)} scripture span(s) — protected from modification[/dim]"
             )
+        else:
+            console.print(
+                "  [dim]No Unicode scripture spans detected. "
+                "If this script contains romanized Sanskrit or other sacred text without "
+                "diacritics, wrap those spans in <scripture>...</scripture> tags before "
+                "normalization to ensure they are protected.[/dim]"
+            )
 
         # LLM normalization pass
         prompt = build_light_normalization_prompt(placeholder_text, placeholders)
@@ -152,6 +159,7 @@ class LightNormalizationPipeline:
             "warnings": validation.warnings,
             "scripture_spans_detected": len(placeholders),
             "ambiguous_flags": len(flags),
+            "romanized_scripture_undetected": len(placeholders) == 0,
             "input_words": raw_words,
             "output_words": out_words,
             "fallback_used": not validation.passed,
