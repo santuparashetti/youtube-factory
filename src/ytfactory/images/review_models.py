@@ -20,6 +20,13 @@ class SceneReviewArtifact:
     backend: str = ""
     recommend_regeneration: bool = False
     error: str = ""
+    # Subject Specialist Review (ADR-0013) — populated when a critical subject
+    # is detected in the visual prompt.
+    subject_critical: bool = False
+    specialist_subject: str = ""   # "hand" | "face" | "eye" | "body" | "gesture" | ""
+    specialist_status: str = ""    # PASS | FAIL | SKIP | ""
+    specialist_score: float = 0.0
+    specialist_issues: list[dict] = field(default_factory=list)
 
 
 @dataclass

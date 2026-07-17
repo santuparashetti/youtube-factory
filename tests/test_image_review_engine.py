@@ -436,3 +436,153 @@ class TestImagePipelineReviewDisabled:
                 mock_cfg.return_value = ImageReviewConfig(enabled=False)
                 pipeline = ImagePipeline(mock_settings)
                 assert pipeline._orchestrator is None
+
+
+# ── Subject Specialist Review (ADR-0013) ──────────────────────────────────────
+
+class TestSubjectSpecialistReview:
+    """Tests for the two-pass review: Overall → Specialist → BOTH must pass."""
+
+    def _pass_result(self) -> "VisionReviewResult":
+        return VisionReviewResult(status="PASS", score=95.0, confidence=90.0)
+
+    def _fail_result(self) -> "VisionReviewResult":
+        return VisionReviewResult(
+            status="FAIL", score=40.0, confidence=90.0,
+            recommend_regeneration=True,
+            issues=[VisionIssue("anatomy", "fused fingers", IssueSeverity.HIGH)],
+        )
+
+    def test_non_critical_prompt_skips_specialist(self, tmp_path: Path) -> None:
+        """A landscape scene has no critical subject — specialist review not called."""
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._pass_result()
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="mountain range at dawn, cinematic fog")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        assert artifact.status == "PASS"
+        assert artifact.subject_critical is False
+        assert artifact.specialist_subject == ""
+        # Overall review: 1 call; no specialist call
+        assert vision.review.call_count == 1
+
+    def test_hand_prompt_triggers_specialist_review(self, tmp_path: Path) -> None:
+        """A hand prompt fires both overall and specialist reviews on success."""
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._pass_result()
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="close-up of an outstretched hand")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        assert artifact.subject_critical is True
+        assert artifact.specialist_subject == "hand"
+        # Overall review + specialist review = 2 calls
+        assert vision.review.call_count == 2
+
+    def test_hand_specialist_checklist_used_in_second_call(self, tmp_path: Path) -> None:
+        """The second vision.review call receives the hand checklist context."""
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._pass_result()
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="a palm resting on a worn book")
+        image_path = _make_image(tmp_path, 1)
+        engine.review_scene(scene, image_path, tmp_path)
+
+        # Second call's visual_prompt should contain the hand checklist
+        second_call_kwargs = vision.review.call_args_list[1][1]
+        assert "five fingers" in second_call_kwargs["visual_prompt"]
+        assert "fused fingers" in second_call_kwargs["visual_prompt"]
+
+    def test_specialist_fail_causes_overall_fail(self, tmp_path: Path) -> None:
+        """Overall passes but specialist fails → artifact status FAIL."""
+        config = _make_config(max_attempts=1)
+
+        call_count = 0
+        def side_effect(image_path, visual_prompt, scene_context=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return self._pass_result()  # overall passes
+            return self._fail_result()      # specialist fails
+
+        vision = MagicMock()
+        vision.review.side_effect = side_effect
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="close-up of a hand holding a flame")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        assert artifact.subject_critical is True
+        assert artifact.specialist_status == "FAIL"
+
+    def test_specialist_pass_recorded_in_artifact(self, tmp_path: Path) -> None:
+        """When specialist passes, its score is recorded in the artifact."""
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._pass_result()
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="hands clasped in meditation pose")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        assert artifact.specialist_status == "PASS"
+        assert artifact.specialist_score == 95.0
+
+    def test_specialist_fail_drives_refinement_from_specialist_issues(
+        self, tmp_path: Path
+    ) -> None:
+        """When specialist fails, _refine_prompt is called with specialist issues."""
+        config = _make_config(max_attempts=2)
+
+        call_count = 0
+        def side_effect(image_path, visual_prompt, scene_context=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return self._pass_result()   # overall pass attempt 1
+            if call_count == 2:
+                return self._fail_result()   # specialist fail attempt 1
+            return self._pass_result()       # overall pass attempt 2
+
+        def fake_generate(request):
+            request.output_path.write_bytes(b"\x89PNG" + b"\x00" * 500)
+
+        mock_provider = MagicMock()
+        mock_provider.generate.side_effect = fake_generate
+        vision = MagicMock()
+        vision.review.side_effect = side_effect
+        engine = ImageReviewEngine(config, vision, mock_provider)
+
+        scene = _make_scene(1, prompt="open hand reaching toward the camera")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        # Regeneration was triggered by the specialist failure
+        assert mock_provider.generate.call_count >= 1
+        # Refined prompt should contain anatomy correction from specialist issues
+        assert "fingers" in artifact.final_prompt or "anatomically" in artifact.final_prompt
+
+    def test_face_prompt_triggers_specialist_review(self, tmp_path: Path) -> None:
+        """A face/portrait prompt triggers specialist review."""
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._pass_result()
+        engine = ImageReviewEngine(config, vision, MagicMock())
+
+        scene = _make_scene(1, prompt="close-up portrait of an elder's face")
+        image_path = _make_image(tmp_path, 1)
+        artifact = engine.review_scene(scene, image_path, tmp_path)
+
+        assert artifact.specialist_subject == "face"
+        assert vision.review.call_count == 2

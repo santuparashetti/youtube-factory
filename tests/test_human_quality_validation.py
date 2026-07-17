@@ -17,7 +17,9 @@ from ytfactory.images.human_detector import (
     _WIDE_SHOT_TYPES,
     add_human_quality_reinforcement,
     apply_subject_dominance_rule,
+    build_specialist_context,
     compute_sharpness,
+    detect_critical_subject,
     detect_human_presence,
     has_human_quality_reinforcement,
 )
@@ -488,3 +490,76 @@ class TestHumanValidatorMultiScene:
         results = v.validate(Path("/fake"), [scene], {})
         hum001 = [r for r in results if r.rule_id == "HUM_001"]
         assert len(hum001) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestDetectCriticalSubject (ADR-0013)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectCriticalSubject:
+    def test_hand_keyword_returns_hand(self):
+        assert detect_critical_subject("close-up of an outstretched hand") == "hand"
+
+    def test_fingers_keyword_returns_hand(self):
+        assert detect_critical_subject("five fingers reaching toward the light") == "hand"
+
+    def test_face_keyword_returns_face(self):
+        assert detect_critical_subject("close-up portrait of a wise elder's face") == "face"
+
+    def test_eye_keyword_returns_eye(self):
+        assert detect_critical_subject("extreme close-up of an eye, reflective iris") == "eye"
+
+    def test_gesture_keyword_returns_gesture(self):
+        assert detect_critical_subject("a pointing gesture toward the horizon") == "gesture"
+
+    def test_body_keyword_returns_body(self):
+        assert detect_critical_subject("full body silhouette against twilight") == "body"
+
+    def test_no_critical_subject_returns_none(self):
+        assert detect_critical_subject("a vast mountain range at dawn, cinematic") is None
+
+    def test_hand_wins_over_gesture_priority(self):
+        # "hand" is higher priority than "gesture" in the _CRITICAL_SUBJECT_KEYWORDS order
+        result = detect_critical_subject("a clasped hand gesture outstretched")
+        assert result == "hand"
+
+    def test_case_insensitive(self):
+        assert detect_critical_subject("HANDS reaching toward dawn") == "hand"
+
+    def test_no_false_positive_on_word_boundary(self):
+        # "handsome" must not match "hand"
+        assert detect_critical_subject("a handsome warrior on horseback") is None
+
+
+# ---------------------------------------------------------------------------
+# TestBuildSpecialistContext (ADR-0013)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSpecialistContext:
+    def test_hand_context_contains_checklist(self):
+        ctx = build_specialist_context("hand")
+        assert "five fingers" in ctx
+        assert "fused fingers" in ctx
+        assert "wrist" in ctx
+        assert "thumb" in ctx
+
+    def test_face_context_contains_checklist(self):
+        ctx = build_specialist_context("face")
+        assert "symmetry" in ctx or "symmetric" in ctx.lower()
+        assert "eyes" in ctx
+
+    def test_eye_context_contains_checklist(self):
+        ctx = build_specialist_context("eye")
+        assert "iris" in ctx
+        assert "pupil" in ctx
+
+    def test_body_context_not_empty(self):
+        assert build_specialist_context("body") != ""
+
+    def test_gesture_context_not_empty(self):
+        assert build_specialist_context("gesture") != ""
+
+    def test_unknown_subject_returns_empty(self):
+        assert build_specialist_context("unknown_subject") == ""

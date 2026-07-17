@@ -148,6 +148,80 @@ _HAND_ANATOMY_SENTINEL = "exactly five anatomically correct fingers"
 _FOOT_ANATOMY_SENTINEL = "exactly five toes per visible foot"
 _FACE_ANATOMY_SENTINEL = "natural facial symmetry"
 
+# ── Subject Criticality (ADR-0013) ─────────────────────────────────────────────
+# When a prompt's PRIMARY storytelling subject is one of these critical body-part
+# types, the image must pass a Subject Specialist Review in addition to the overall
+# vision review.  Priority order (most defect-prone first) determines which type
+# is returned when multiple keywords are present.
+
+_CRITICAL_SUBJECT_KEYWORDS: dict[str, frozenset[str]] = {
+    "hand": frozenset({"hand", "hands", "finger", "fingers", "palm", "fist", "knuckle", "grip"}),
+    "gesture": frozenset({"gesture", "gestures", "reaching", "pointing", "outstretched", "clasped"}),
+    "face": frozenset({"face", "faces", "portrait", "expression", "lips", "mouth"}),
+    "eye": frozenset({"eye", "eyes", "gaze", "stare"}),
+    "body": frozenset({"body", "figure", "torso", "silhouette"}),
+}
+
+# Specialist review context strings — passed as visual_prompt to the vision model
+# for the second, focused review pass.  Each checklist maps directly to the
+# Subject Criticality Rule checklist in ADR-0013.
+_SPECIALIST_CONTEXT: dict[str, str] = {
+    "hand": (
+        "SUBJECT SPECIALIST REVIEW — Human hand anatomy (ADR-0013).\n"
+        "Inspect the hand(s) against every item below. Any failure = FAIL.\n"
+        "1. Exactly five fingers (unless intentionally hidden behind another surface)\n"
+        "2. Natural thumb attachment on the correct lateral side of the palm\n"
+        "3. Correct palm proportions — not too wide, too narrow, or disproportionate\n"
+        "4. Natural wrist transition — no abrupt seam or anatomical break\n"
+        "5. Correct finger joint placement — three joints per finger, two per thumb\n"
+        "6. No fused fingers — every digit is individually distinct\n"
+        "7. No duplicated fingers — total count is exactly five\n"
+        "8. No stretched, melted, or otherwise distorted anatomy anywhere on the hand\n"
+        "9. Natural pose — resting or active but within the human range of motion\n"
+        "10. Photorealistic skin texture — visible knuckle creases, natural color gradient"
+    ),
+    "gesture": (
+        "SUBJECT SPECIALIST REVIEW — Human gesture / hand anatomy (ADR-0013).\n"
+        "A gesture scene requires correct hand anatomy. Inspect against every item.\n"
+        "1. Exactly five fingers visible, or consistently hidden behind another surface\n"
+        "2. Natural thumb attachment — on the correct lateral side of the palm\n"
+        "3. No fused or duplicated fingers\n"
+        "4. Natural wrist and forearm alignment consistent with the gesture direction\n"
+        "5. Gesture falls within the natural human range of motion — no impossible angles\n"
+        "6. No stretched or melted anatomy anywhere on the hand or wrist"
+    ),
+    "face": (
+        "SUBJECT SPECIALIST REVIEW — Human face anatomy (ADR-0013).\n"
+        "Inspect the face against every item below. Any failure = FAIL.\n"
+        "1. Natural bilateral facial symmetry — eyes, ears, and nose correctly placed\n"
+        "2. Exactly two eyes — no missing, extra, or asymmetrically-sized eyes\n"
+        "3. Realistic iris and pupil — no distorted shape or unnatural color\n"
+        "4. Natural nose structure — correct bridge height, no melted or misplaced nostrils\n"
+        "5. Mouth and lips correctly shaped — no fused lips, no impossible tooth rows\n"
+        "6. Natural skin texture — no patchwork blending, smoothing artifacts, or seams\n"
+        "7. No duplicated or extra facial features anywhere on the face"
+    ),
+    "eye": (
+        "SUBJECT SPECIALIST REVIEW — Human eye anatomy (ADR-0013).\n"
+        "Inspect the eye(s) against every item below. Any failure = FAIL.\n"
+        "1. Exactly two eyes visible (unless clearly a single-eye close-up shot)\n"
+        "2. Realistic iris with natural color variation and limbal ring\n"
+        "3. Correct pupil — circular in normal light, not distorted or rectangular\n"
+        "4. Natural sclera (white) — no unnatural coloring, veining is acceptable\n"
+        "5. Natural eyelid and lash rendering — no melted lids or missing lashes\n"
+        "6. No melted, missing, or extra eye structures anywhere in the frame"
+    ),
+    "body": (
+        "SUBJECT SPECIALIST REVIEW — Human body anatomy (ADR-0013).\n"
+        "Inspect the full body against every item below. Any failure = FAIL.\n"
+        "1. Correct head-to-body proportions — realistic for the depicted age/build\n"
+        "2. Natural limb attachment — no floating, disconnected, or phasing limbs\n"
+        "3. Natural posture — no impossible joint angles or contorted positions\n"
+        "4. Consistent clothing where present — no clipping or phasing through the body\n"
+        "5. No extra or missing limbs"
+    ),
+}
+
 
 def add_anatomy_constraints(prompt: str) -> str:
     """Append targeted anatomy constraints based on body parts mentioned in the prompt.
@@ -213,6 +287,31 @@ def apply_subject_dominance_rule(prompt: str, shot_type: str = "") -> str:
     if hint in prompt:
         return prompt
     return prompt + _SUBJECT_DOMINANCE_PHRASE
+
+
+def detect_critical_subject(prompt: str) -> str | None:
+    """Return the primary critical subject type found in *prompt*, or None.
+
+    Critical subjects (ADR-0013): hand, gesture, face, eye, body.
+    Returns the first matching type in priority order (most defect-prone first)
+    so that when multiple keywords are present the highest-risk subject drives
+    the specialist review.
+    """
+    lower = prompt.lower()
+    for subject_type, keywords in _CRITICAL_SUBJECT_KEYWORDS.items():
+        if any(re.search(r"\b" + re.escape(kw) + r"\b", lower) for kw in keywords):
+            return subject_type
+    return None
+
+
+def build_specialist_context(subject: str) -> str:
+    """Return the specialist review checklist context string for *subject*.
+
+    The returned string is prepended to the original visual prompt and passed
+    as *visual_prompt* to the VisionProvider for the specialist review call.
+    Returns an empty string for unknown subject types.
+    """
+    return _SPECIALIST_CONTEXT.get(subject, "")
 
 
 def compute_sharpness(image_path: Path) -> float:

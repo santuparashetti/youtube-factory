@@ -20,6 +20,7 @@ from loguru import logger
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision import VisionProvider, VisionReviewResult
 
+from .human_detector import build_specialist_context, detect_critical_subject
 from .review_config import ImageReviewConfig
 from .review_models import (
     ImageQualitySummary,
@@ -81,6 +82,8 @@ class ImageReviewEngine:
 
         current_prompt = visual_prompt
         final_result: VisionReviewResult | None = None
+        final_specialist_result: VisionReviewResult | None = None
+        final_specialist_subject: str = ""
 
         for attempt in range(1, self._config.max_attempts + 1):
             if not image_path.exists():
@@ -91,7 +94,7 @@ class ImageReviewEngine:
             if not tqa_ok:
                 logger.debug("Scene {}: technical QA failed — {}", idx, tqa_msg)
 
-            # Vision review
+            # ── Overall vision review ─────────────────────────────────────────
             result = self._vision.review(
                 image_path=image_path,
                 visual_prompt=current_prompt,
@@ -105,18 +108,56 @@ class ImageReviewEngine:
                 result.score, result.confidence, high_count, medium_count
             )
 
-            remediation.attempt_history.append(
-                {
-                    "attempt": attempt,
-                    "status": result.status,
-                    "score": result.score,
-                    "confidence": result.confidence,
-                    "high_issues": high_count,
-                    "medium_issues": medium_count,
-                    "passed": passes,
-                    "prompt_length": len(current_prompt),
-                }
-            )
+            attempt_record: dict = {
+                "attempt": attempt,
+                "status": result.status,
+                "score": result.score,
+                "confidence": result.confidence,
+                "high_issues": high_count,
+                "medium_issues": medium_count,
+                "passed": passes,
+                "prompt_length": len(current_prompt),
+            }
+
+            # ── Subject Specialist Review (ADR-0013) ──────────────────────────
+            # Only runs when the overall review passes — "BOTH must pass" rule.
+            specialist_result: VisionReviewResult | None = None
+            specialist_subject = ""
+            if passes and result.status not in ("SKIP", "ERROR"):
+                specialist_subject = detect_critical_subject(current_prompt) or ""
+                if specialist_subject:
+                    specialist_result = self._specialist_review(
+                        image_path, current_prompt, specialist_subject, scene, attempt
+                    )
+                    final_specialist_result = specialist_result
+                    final_specialist_subject = specialist_subject
+
+                    spec_high = len(specialist_result.high_severity_issues)
+                    spec_medium = len(specialist_result.medium_severity_issues)
+                    specialist_passes = self._config.passes(
+                        specialist_result.score,
+                        specialist_result.confidence,
+                        spec_high,
+                        spec_medium,
+                    )
+                    attempt_record.update(
+                        {
+                            "specialist_subject": specialist_subject,
+                            "specialist_score": specialist_result.score,
+                            "specialist_passed": specialist_passes,
+                        }
+                    )
+
+                    if not specialist_passes:
+                        passes = False
+                        logger.info(
+                            "Scene {}: specialist review FAIL subject='{}' score={:.0f}",
+                            idx,
+                            specialist_subject,
+                            specialist_result.score,
+                        )
+
+            remediation.attempt_history.append(attempt_record)
             remediation.total_attempts = attempt
 
             if self._config.debug:
@@ -131,10 +172,16 @@ class ImageReviewEngine:
 
             # FAIL → refine prompt and regenerate (if more attempts remain)
             if attempt < self._config.max_attempts:
-                current_prompt = self._refine_prompt(current_prompt, result)
+                # When specialist failed, drive refinement from its issues
+                refinement_result = (
+                    specialist_result
+                    if specialist_result is not None and specialist_subject
+                    else result
+                )
+                current_prompt = self._refine_prompt(current_prompt, refinement_result)
                 remediation.remediation_applied = True
                 logger.info(
-                    "Scene {}: vision review FAIL (score={:.0f}) — refining prompt, attempt {}/{}",
+                    "Scene {}: review FAIL (score={:.0f}) — refining prompt, attempt {}/{}",
                     idx,
                     result.score,
                     attempt + 1,
@@ -159,6 +206,14 @@ class ImageReviewEngine:
             backend=final_result.backend,
             recommend_regeneration=final_result.recommend_regeneration,
             error=final_result.error,
+            subject_critical=bool(final_specialist_subject),
+            specialist_subject=final_specialist_subject,
+            specialist_status=final_specialist_result.status if final_specialist_result else "",
+            specialist_score=final_specialist_result.score if final_specialist_result else 0.0,
+            specialist_issues=(
+                [i.__dict__ for i in final_specialist_result.issues]
+                if final_specialist_result else []
+            ),
         )
         remediation.final_status = final_result.status
 
@@ -168,6 +223,27 @@ class ImageReviewEngine:
         return artifact
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _specialist_review(
+        self,
+        image_path: Path,
+        original_prompt: str,
+        subject: str,
+        scene: dict,
+        attempt: int,
+    ) -> VisionReviewResult:
+        """Run a focused specialist vision review for a critical subject (ADR-0013).
+
+        The vision model is given the subject-specific checklist as primary context
+        so it evaluates anatomy precisely rather than general scene quality.
+        """
+        checklist = build_specialist_context(subject)
+        specialist_prompt = f"{checklist}\n\nORIGINAL SCENE DESCRIPTION: {original_prompt}"
+        return self._vision.review(
+            image_path=image_path,
+            visual_prompt=specialist_prompt,
+            scene_context={"specialist_subject": subject, "attempt": attempt, **scene},
+        )
 
     def _technical_qa(self, image_path: Path) -> tuple[bool, str]:
         """Fast OpenCV-based checks: file size, sharpness."""
