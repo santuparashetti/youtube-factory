@@ -25,6 +25,10 @@ from rich.panel import Panel
 
 from ytfactory.agents.prompts.light_normalization import build_light_normalization_prompt
 from ytfactory.config.settings import Settings
+from ytfactory.shared.scripture import (
+    extract_scripture_spans,
+    restore_scripture_spans,
+)
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 
@@ -33,76 +37,8 @@ from .validator import NormalizationValidator, ValidationResult
 console = Console()
 
 
-# ── Scripture detection ────────────────────────────────────────────────────────
-
-# Unicode ranges for scripts commonly used in Indic discourse
-_SCRIPTURE_RANGES = (
-    ("ऀ", "ॿ"),  # Devanagari (Sanskrit, Hindi, Marathi)
-    ("ಀ", "೿"),  # Kannada
-    ("஀", "௿"),  # Tamil
-    ("ఀ", "౿"),  # Telugu
-    ("਀", "੿"),  # Gurmukhi (Punjabi)
-    ("ঀ", "৿"),  # Bengali
-    ("ഀ", "ൿ"),  # Malayalam
-)
-
-# Explicit source-side markers (highest priority)
-_EXPLICIT_MARKER_RE = re.compile(
-    r"<scripture>(.*?)</scripture>|"
-    r"\[scripture\](.*?)\[/scripture\]",
-    re.DOTALL | re.IGNORECASE,
-)
-
-
-def _build_indic_range_re() -> re.Pattern[str]:
-    parts = []
-    for lo, hi in _SCRIPTURE_RANGES:
-        parts.append(f"[{lo}-{hi}]")
-    combined = "|".join(parts)
-    # Match a run of Indic chars plus surrounding ASCII (transliteration, diacritics)
-    return re.compile(
-        rf"(?:{combined})[\w\s,;:।॥।॥‌‍'\"]*(?:{combined})[\w\s,;:।॥।॥‌‍'\"]*"
-        r"|(?:" + combined + r")+"
-    )
-
-
-_INDIC_RE = _build_indic_range_re()
-
-
-def _extract_scripture_spans(text: str) -> tuple[str, dict[str, str]]:
-    """Replace scripture/sacred-text spans with {{SCRIPTURE_N}} placeholders.
-
-    Returns:
-        (placeholder_text, {placeholder_key: original_span}) mapping.
-    """
-    placeholders: dict[str, str] = {}
-    counter = 0
-
-    def _replace(span: str) -> str:
-        nonlocal counter
-        counter += 1
-        key = f"SCRIPTURE_{counter}"
-        placeholders[key] = span
-        return f"{{{{{key}}}}}"
-
-    # 1. Explicit markers first (highest reliability)
-    def _marker_replace(m: re.Match[str]) -> str:
-        inner = m.group(1) or m.group(2) or ""
-        return _replace(m.group(0))  # preserve full marker + content
-
-    result = _EXPLICIT_MARKER_RE.sub(_marker_replace, text)
-
-    # 2. Unicode Indic runs (already-replaced spans won't match since {{...}} has no Indic chars)
-    result = _INDIC_RE.sub(lambda m: _replace(m.group(0)), result)
-
-    return result, placeholders
-
-
-def _restore_scripture_spans(text: str, placeholders: dict[str, str]) -> str:
-    """Replace {{SCRIPTURE_N}} placeholders with their original text."""
-    for key, original in placeholders.items():
-        text = text.replace(f"{{{{{key}}}}}", original)
-    return text
+# Scripture extraction is provided by ytfactory.shared.scripture
+# (extract_scripture_spans, restore_scripture_spans imported above)
 
 
 # ── Pipeline ───────────────────────────────────────────────────────────────────
@@ -151,7 +87,7 @@ class LightNormalizationPipeline:
         )
 
         # Protect scripture spans from LLM
-        placeholder_text, placeholders = _extract_scripture_spans(script_text)
+        placeholder_text, placeholders = extract_scripture_spans(script_text)
         if placeholders:
             console.print(
                 f"  [dim]Detected {len(placeholders)} scripture span(s) — protected from modification[/dim]"
@@ -184,7 +120,7 @@ class LightNormalizationPipeline:
             normalized_final = script_text
         else:
             # Restore scripture spans
-            normalized_final = _restore_scripture_spans(
+            normalized_final = restore_scripture_spans(
                 normalized_with_placeholders, placeholders
             )
 

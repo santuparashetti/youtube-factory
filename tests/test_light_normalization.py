@@ -13,10 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.light_normalization.pipeline import (
-    LightNormalizationPipeline,
-    _extract_scripture_spans,
-    _restore_scripture_spans,
+from ytfactory.light_normalization.pipeline import LightNormalizationPipeline
+from ytfactory.shared.scripture import (
+    extract_scripture_spans as _extract_scripture_spans,
+    restore_scripture_spans as _restore_scripture_spans,
 )
 from ytfactory.light_normalization.validator import NormalizationValidator
 

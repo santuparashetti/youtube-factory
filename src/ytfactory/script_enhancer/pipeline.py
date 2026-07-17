@@ -1,12 +1,18 @@
 """DocumentaryScriptEnhancerPipeline — transform a normalized transcript into a
 cinematic documentary narration. Formerly ScriptEnhancerPipeline (renamed per ADR-0010).
 
+Two-pass structure per ADR-0011:
+  Pass 1 (temp=0.4): Faithful Enhancement — fidelity gate before any retention work.
+  Pass 2 (temp=0.7): Viewer Retention Optimization — cinematic storytelling, Narrative Score loop.
+
+Scripture protection is a hard constraint across both passes.
 ScriptEnhancerPipeline is preserved as a backward-compatible alias.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from loguru import logger
@@ -20,39 +26,142 @@ from ytfactory.agents.prompts.branding import (
     get_transition,
     get_welcome,
 )
-from ytfactory.agents.prompts.script_enhancer import build_enhance_script_prompt
+from ytfactory.agents.prompts.script_enhancer import build_pass1_prompt, build_pass2_prompt
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
     NARRATION_WPM,
     TARGET_IDEAL_MINUTES,
 )
 from ytfactory.config.settings import Settings
+from ytfactory.shared.scripture import (
+    check_scripture_verbatim,
+    extract_scripture_spans,
+    restore_scripture_spans,
+)
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()
+
+# Pass 2 Narrative Score parsing
+_SCORE_BLOCK_RE = re.compile(
+    r"\s*---NARRATIVE SCORE---\n(.*?)\n---END SCORE---\s*$",
+    re.DOTALL,
+)
+_OVERALL_RE = re.compile(r"Overall:\s*(\d+(?:\.\d+)?)/10", re.IGNORECASE)
+
+_MAX_PASS2_ITERATIONS = 2
+_NARRATIVE_SCORE_THRESHOLD = 8.5
+_COVERAGE_THRESHOLD = 0.80  # Pass 1 and final: output must be ≥ 80% word count of input
 
 
 def _duration_ok(estimated_minutes: float, target_minutes: int) -> bool:
     return abs(estimated_minutes - target_minutes) <= DURATION_TOLERANCE_MINUTES
 
 
+def _parse_narrative_score(text: str) -> tuple[str, float | None]:
+    """Split the LLM output into (script_text, overall_score).
+
+    The LLM appends a score block at the end of Pass 2 output:
+      ---NARRATIVE SCORE---
+      Overall: X/10
+      ---END SCORE---
+    Returns (text_without_block, score) or (text, None) if no block found.
+    """
+    m = _SCORE_BLOCK_RE.search(text)
+    if not m:
+        return text, None
+    block = m.group(1)
+    script = text[: m.start()].rstrip()
+    overall_m = _OVERALL_RE.search(block)
+    score = float(overall_m.group(1)) if overall_m else None
+    return script, score
+
+
+class DocumentaryEnhancerValidator:
+    """Objective validation checks for ADR-0011."""
+
+    def validate_pass1(
+        self,
+        original_ph_text: str,
+        pass1_ph_text: str,
+    ) -> tuple[bool, list[str]]:
+        """Check Pass 1 output for scripture placeholder preservation and coverage.
+
+        Returns (ok, errors).
+        """
+        errors: list[str] = []
+
+        # Scripture placeholder preservation
+        for key in re.findall(r"\{\{(SCRIPTURE_\d+)\}\}", original_ph_text):
+            if f"{{{{{key}}}}}" not in pass1_ph_text:
+                errors.append(f"Pass 1 dropped scripture placeholder: {{{{{key}}}}}")
+
+        # Coverage check (word count)
+        orig_words = len(original_ph_text.split())
+        pass1_words = len(pass1_ph_text.split())
+        coverage = pass1_words / orig_words if orig_words > 0 else 1.0
+        if coverage < _COVERAGE_THRESHOLD:
+            errors.append(
+                f"Pass 1 coverage too low: {coverage:.0%} "
+                f"({pass1_words} / {orig_words} words). "
+                f"Minimum: {_COVERAGE_THRESHOLD:.0%}"
+            )
+
+        return len(errors) == 0, errors
+
+    def validate_final(
+        self,
+        original_text: str,
+        final_text: str,
+        placeholders: dict[str, str],
+    ) -> tuple[bool, list[str], list[str]]:
+        """Check final output for scripture verbatim match, coverage, and fabrication signals.
+
+        Returns (ok, errors, warnings).
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # Scripture verbatim check (hard failure)
+        missing = check_scripture_verbatim(original_text, final_text, placeholders)
+        for span in missing:
+            errors.append(f"Scripture span missing from final output: {span!r}")
+
+        # Coverage check
+        orig_words = len(original_text.split())
+        final_words = len(final_text.split())
+        coverage = final_words / orig_words if orig_words > 0 else 1.0
+        if coverage < _COVERAGE_THRESHOLD:
+            errors.append(
+                f"Final coverage too low: {coverage:.0%} "
+                f"({final_words} / {orig_words} words)"
+            )
+
+        # Unattributed facts heuristic — years in final not in original
+        orig_years = set(re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", original_text))
+        final_years = set(re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", final_text))
+        new_years = final_years - orig_years
+        if new_years:
+            warnings.append(
+                f"Possible unattributed years introduced: {sorted(new_years)} — "
+                f"review for fabricated facts before publishing"
+            )
+
+        return len(errors) == 0, errors, warnings
+
+
 class DocumentaryScriptEnhancerPipeline:
     """Transform a normalized transcript into a cinematic YouTube documentary narration.
 
-    This stage assumes its input has already been cleaned by LightNormalizationPipeline.
-    Its sole responsibility is narrative optimization — not artifact cleanup.
-
-    Enhancement priority order (applied by the LLM prompt):
-      1. Preserve meaning, philosophy, and emotional intent
-      2. Improve narrative flow for a documentary audience
-      3. Increase viewer retention through storytelling
-      4. Improve cinematic pacing and rhythm
-      5. Produce memorable shareable lines
+    Two-pass structure per ADR-0011:
+    - Pass 1 (fidelity gate): preserves philosophy, stories, emotional intent
+    - Pass 2 (retention loop): cinematic storytelling, Narrative Score self-assessment
     """
 
     def __init__(self, settings: Settings) -> None:
         self._llm = get_llm_provider(settings)
+        self._validator = DocumentaryEnhancerValidator()
 
     def run(
         self,
@@ -63,11 +172,11 @@ class DocumentaryScriptEnhancerPipeline:
         target_minutes: int = TARGET_IDEAL_MINUTES,
         script_text: str | None = None,
     ) -> str:
-        """Enhance a script and return the enhanced text.
+        """Enhance a script via two-pass documentary writing and return the final text.
 
         Args:
             project_id: Project identifier used to locate / write workspace files.
-            topic: Video topic — passed to brand prompts.
+            topic: Video topic — passed to prompts and brand elements.
             style: Narrative style hint ("spiritual", "documentary", etc.).
             target_minutes: Target narration duration in minutes.
             script_text: Raw script text. When None, read from
@@ -80,7 +189,7 @@ class DocumentaryScriptEnhancerPipeline:
             script_file = script_dir / "script.md"
             if not script_file.exists():
                 raise FileNotFoundError(
-                    f"ScriptEnhancerPipeline: no script found at {script_file}"
+                    f"DocumentaryScriptEnhancerPipeline: no script found at {script_file}"
                 )
             script_text = script_file.read_text(encoding="utf-8")
 
@@ -90,7 +199,6 @@ class DocumentaryScriptEnhancerPipeline:
         max_minutes = target_minutes + DURATION_TOLERANCE_MINUTES
         raw_est = raw_words / NARRATION_WPM
 
-        # Determine direction: only shorten when over target, expand when under.
         if raw_est > max_minutes:
             mode = "shorten"
             mode_label = "shortening to target"
@@ -103,40 +211,133 @@ class DocumentaryScriptEnhancerPipeline:
 
         style_label = f" [{style}]" if style else ""
         console.print(
-            f"\n[bold magenta]✍  Script Enhancer[/bold magenta]{style_label} — "
+            f"\n[bold magenta]✍  Documentary Script Enhancer[/bold magenta]{style_label} — "
             f"{mode_label} "
             f"(target: {target_minutes} min ±{DURATION_TOLERANCE_MINUTES} min)..."
         )
         console.print(
             f"  [dim]Input:[/dim] {raw_words} words (~{raw_est:.1f} min) → "
-            f"target {target_minutes} min (~{target_words} words, range {min_minutes}–{max_minutes} min)"
+            f"target {target_minutes} min (~{target_words} words, "
+            f"range {min_minutes}–{max_minutes} min)"
         )
 
-        prompt = build_enhance_script_prompt(
-            topic,
-            script_text,
-            style,
+        # ── Scripture extraction ────────────────────────────────────────────────
+        placeholder_text, placeholders = extract_scripture_spans(script_text)
+        if placeholders:
+            console.print(
+                f"  [dim]Scripture protection: {len(placeholders)} span(s) extracted[/dim]"
+            )
+
+        # ── Pass 1: Faithful Enhancement ───────────────────────────────────────
+        console.print("  [cyan]Pass 1:[/cyan] Faithful Enhancement (temp=0.4)...")
+        pass1_prompt = build_pass1_prompt(
+            topic=topic,
+            script=placeholder_text,
+            style=style,
             target_minutes=target_minutes,
-            welcome=get_welcome(),
-            closing=get_closing(),
-            topic_transition=get_transition(),
-            cta=get_cta(),
-            closing_brand=get_closing_brand(),
             mode=mode,
             raw_words=raw_words,
+            placeholders=placeholders,
         )
-        response = self._llm.generate(prompt, temperature=0.6)
-        enhanced = response.text.strip()
+        pass1_response = self._llm.generate(pass1_prompt, temperature=0.4)
+        pass1_ph_text = pass1_response.text.strip()
 
-        enhanced_words = len(enhanced.split())
-        enhanced_est = enhanced_words / NARRATION_WPM
+        pass1_ok, pass1_errors = self._validator.validate_pass1(
+            placeholder_text, pass1_ph_text
+        )
+        pass1_fallback = False
+
+        if not pass1_ok:
+            logger.warning(
+                "Documentary enhancer Pass 1 validation failed: {}", pass1_errors
+            )
+            console.print(
+                "  [yellow]⚠ Pass 1 validation failed — using normalized input as fallback[/yellow]"
+            )
+            for err in pass1_errors:
+                console.print(f"    [dim red]{err}[/dim red]")
+            pass1_ph_text = placeholder_text
+            pass1_fallback = True
+        else:
+            console.print("  [green]✓ Pass 1 validation passed[/green]")
+
+        pass1_restored = restore_scripture_spans(pass1_ph_text, placeholders)
+        (script_dir / "script_pass1.md").write_text(pass1_restored, encoding="utf-8")
+
+        # ── Pass 2: Viewer Retention Optimization ──────────────────────────────
         console.print(
-            f"  [green]✓[/green] Enhanced: {enhanced_words} words "
-            f"(~{enhanced_est:.1f} min at {NARRATION_WPM} wpm)"
+            f"  [cyan]Pass 2:[/cyan] Viewer Retention Optimization "
+            f"(temp=0.7, max {_MAX_PASS2_ITERATIONS} iterations)..."
+        )
+        pass2_ph_text = pass1_ph_text
+        narrative_score: float | None = None
+        pass2_iterations = 0
+
+        for iteration in range(_MAX_PASS2_ITERATIONS):
+            pass2_iterations = iteration + 1
+            pass2_prompt = build_pass2_prompt(
+                topic=topic,
+                script=pass2_ph_text,
+                style=style,
+                target_minutes=target_minutes,
+                placeholders=placeholders,
+                welcome=get_welcome(),
+                closing=get_closing(),
+                topic_transition=get_transition(),
+                cta=get_cta(),
+                closing_brand=get_closing_brand(),
+            )
+            pass2_response = self._llm.generate(pass2_prompt, temperature=0.7)
+            raw_output = pass2_response.text.strip()
+
+            pass2_ph_text, narrative_score = _parse_narrative_score(raw_output)
+            pass2_ph_text = pass2_ph_text.strip()
+
+            score_label = f"{narrative_score:.1f}/10" if narrative_score is not None else "no score"
+            console.print(
+                f"    Iteration {pass2_iterations}: Narrative Score = {score_label}"
+            )
+
+            if narrative_score is not None and narrative_score >= _NARRATIVE_SCORE_THRESHOLD:
+                break
+
+        if narrative_score is not None and narrative_score < _NARRATIVE_SCORE_THRESHOLD:
+            console.print(
+                f"  [yellow]⚠ Narrative Score {narrative_score:.1f} below threshold "
+                f"{_NARRATIVE_SCORE_THRESHOLD} after {_MAX_PASS2_ITERATIONS} iterations — "
+                f"using best attempt[/yellow]"
+            )
+
+        # ── Final validation ────────────────────────────────────────────────────
+        final_restored = restore_scripture_spans(pass2_ph_text, placeholders)
+        final_ok, final_errors, final_warnings = self._validator.validate_final(
+            script_text, final_restored, placeholders
         )
 
+        if not final_ok:
+            logger.warning(
+                "Documentary enhancer final validation failed: {}", final_errors
+            )
+            console.print(
+                "  [yellow]⚠ Final validation failed — falling back to Pass 1 output[/yellow]"
+            )
+            for err in final_errors:
+                console.print(f"    [dim red]{err}[/dim red]")
+            final_restored = pass1_restored
+
+        for warn in final_warnings:
+            logger.warning("Documentary enhancer: {}", warn)
+            console.print(f"  [yellow]⚠ {warn}[/yellow]")
+
+        if final_ok:
+            console.print("  [green]✓ Final validation passed[/green]")
+
+        # ── Metrics and output ──────────────────────────────────────────────────
+        enhanced_words = len(final_restored.split())
+        enhanced_est = enhanced_words / NARRATION_WPM
         ok = _duration_ok(enhanced_est, target_minutes)
         gap = enhanced_est - target_minutes
+
         if ok:
             console.print(
                 f"  [green]✓ DURATION PASS[/green] — "
@@ -151,16 +352,20 @@ class DocumentaryScriptEnhancerPipeline:
             )
 
         logger.info(
-            "Script enhanced: {} → {} words (~{:.1f} min), target {} min, ok={}",
+            "Documentary enhancer: {} → {} words (~{:.1f} min), target {} min, "
+            "ok={}, narrative_score={}, pass1_fallback={}, final_ok={}",
             raw_words,
             enhanced_words,
             enhanced_est,
             target_minutes,
             ok,
+            narrative_score,
+            pass1_fallback,
+            final_ok,
         )
 
         (script_dir / "script_original.md").write_text(script_text, encoding="utf-8")
-        (script_dir / "script.md").write_text(enhanced, encoding="utf-8")
+        (script_dir / "script.md").write_text(final_restored, encoding="utf-8")
         (script_dir / "script.json").write_text(
             json.dumps(
                 {
@@ -176,19 +381,54 @@ class DocumentaryScriptEnhancerPipeline:
             ),
             encoding="utf-8",
         )
+        (script_dir / "enhancement-report.json").write_text(
+            json.dumps(
+                {
+                    "topic": topic,
+                    "mode": mode,
+                    "scripture_spans": len(placeholders),
+                    "pass1": {
+                        "validation_passed": pass1_ok,
+                        "errors": pass1_errors,
+                        "fallback_used": pass1_fallback,
+                    },
+                    "pass2": {
+                        "iterations": pass2_iterations,
+                        "narrative_score": narrative_score,
+                        "score_threshold": _NARRATIVE_SCORE_THRESHOLD,
+                    },
+                    "final": {
+                        "validation_passed": final_ok,
+                        "errors": final_errors,
+                        "warnings": final_warnings,
+                        "fallback_to_pass1": not final_ok,
+                    },
+                    "word_count": {
+                        "input": raw_words,
+                        "output": enhanced_words,
+                        "estimated_minutes": round(enhanced_est, 2),
+                        "target_minutes": target_minutes,
+                        "duration_ok": ok,
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         status_color = "green" if ok else "yellow"
         console.print(
             Panel(
                 f"[{status_color}]Script ready[/{status_color}] — {enhanced_words} words, "
                 f"~{enhanced_est:.1f} min (target {target_minutes} min)\n"
-                f"[dim]Original saved to script_original.md[/dim]",
-                title="Script Enhancer",
+                f"[dim]Pass 1 → script_pass1.md | Final → script.md | "
+                f"Report → enhancement-report.json[/dim]",
+                title="Documentary Script Enhancer",
                 border_style="magenta",
             )
         )
 
-        return enhanced
+        return final_restored
 
 
 # Backward-compatible alias — existing callers and test patches continue to work

@@ -1,4 +1,10 @@
-"""Script enhancement prompts — transforms a raw user script into a cinematic narration."""
+"""Script enhancement prompts — transforms a raw user script into a cinematic narration.
+
+Public API:
+  build_enhance_script_prompt() — legacy single-pass prompt (preserved for callers)
+  build_pass1_prompt()          — ADR-0011 Pass 1: faithful documentary rendering
+  build_pass2_prompt()          — ADR-0011 Pass 2: viewer retention optimization + Narrative Score
+"""
 
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
@@ -231,6 +237,334 @@ below and ensure the script reads cleanly for voiceover.
 Do not rewrite sentences. Do not restructure paragraphs. Make no changes
 beyond inserting the channel frame elements at the specified positions.\
 """
+
+
+_VOICEOVER_RULES = """\
+───────────────────────────────────────────────────────────────
+VOICEOVER TECHNICAL RULES
+───────────────────────────────────────────────────────────────
+- Write ONLY natural spoken English — absolutely no markdown of any kind
+- No asterisks, no pound signs, no dashes as bullets, no bold, no headers
+- Spell out numbers: "forty-two" not "42", "the nineteen eighties" not "the 1980s"
+- Expand abbreviations: "for example" not "e.g.", "that is" not "i.e."
+- Every word must be immediately pronounceable
+- Use commas rhythmically — they create breathing space in the voice
+- Use ellipsis (...) only for intentional dramatic pause moments (maximum 5 per script)
+- Contractions are natural: "it's", "you're", "we've", "don't"
+- Avoid parentheses, brackets, semicolons — use periods and commas instead\
+"""
+
+_PASS1_TEMPLATE = """\
+You are a faithful documentary editor. Your only role in this pass is to faithfully render \
+the original discourse as a clean, documentary-quality narration that loses nothing.
+
+TOPIC: {topic}
+TARGET DURATION: {target_minutes} minutes of spoken narration
+ACCEPTABLE RANGE: {min_m}–{max_m} minutes ({min_words}–{max_words} words at ~{wpm} wpm)
+CURRENT LENGTH: {raw_words} words (~{raw_est:.1f} min) — you must {direction_verb} by ~{word_gap} words
+
+{voice_guide}
+
+───────────────────────────────────────────────────────────────
+SCRIPTURE PROTECTION (absolute hard constraint — overrides every other rule)
+───────────────────────────────────────────────────────────────
+The following spans are protected scripture or sacred text. They must appear in your output
+exactly as written — no rephrasing, no compression, no splitting, no reordering.
+You may change the narration surrounding a span (how it is introduced or framed), but never the span itself.
+If uncertain whether a span qualifies as protected, default to treating it as protected.
+
+{scripture_list}
+
+───────────────────────────────────────────────────────────────
+PASS 1 GOALS (apply in priority order — do not skip)
+───────────────────────────────────────────────────────────────
+1. Preserve meaning exactly
+2. Preserve philosophy exactly — no softening, reframing, or alternative interpretation
+3. Preserve emotional intent
+4. Preserve every story and analogy
+5. Preserve every historical reference
+6. Preserve humor and speaker personality
+7. Improve clarity (fix genuinely awkward phrasing only where meaning is unambiguous)
+8. Improve flow (smooth abrupt transitions only where the discourse clearly jumps)
+
+WHAT PASS 1 MUST NOT DO:
+- Do not optimize for viewer retention
+- Do not introduce new stories, analogies, or examples not already in the original
+- Do not rearrange the order of ideas
+- Do not cut content to improve pacing — preserve coverage
+- Do not add channel branding, welcome message, CTA, or closing
+- Do not rewrite sentences that are already clear
+- If retention and fidelity ever conflict, fidelity always wins — no exceptions
+
+{strategy_section}
+
+{voiceover_rules}
+
+───────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+───────────────────────────────────────────────────────────────
+Return ONLY the narration text. No title. No "Here is the script:". No explanations. No section labels.
+Separate major narrative sections with ONE blank line. The text will be read aloud word-for-word.
+
+───────────────────────────────────────────────────────────────
+ORIGINAL DISCOURSE (render faithfully):
+───────────────────────────────────────────────────────────────
+{script}\
+"""
+
+_PASS2_TEMPLATE = """\
+You are a cinematic documentary writer and viewer retention specialist.
+You have received a faithfully-rendered Pass 1 script that accurately represents the original discourse.
+Your role is to optimize it for long-form YouTube viewer retention without compromising philosophical fidelity.
+
+TOPIC: {topic}
+TARGET DURATION: {target_minutes} minutes (~{target_words} words at ~{wpm} wpm)
+
+{voice_guide}
+
+───────────────────────────────────────────────────────────────
+SCRIPTURE PROTECTION (absolute hard constraint)
+───────────────────────────────────────────────────────────────
+These spans must appear byte-for-byte in your output.
+You may change surrounding narration but never the spans themselves.
+{scripture_list}
+
+───────────────────────────────────────────────────────────────
+FABRICATION GUARDRAIL
+───────────────────────────────────────────────────────────────
+You may introduce new illustrative material to support retention, but it must be:
+  - Drawn from the source discourse when possible (always preferred — zero fabrication risk)
+  - Generic or clearly hypothetical ("imagine someone who...", "consider a person who...")
+  - NEVER a specific named person, date, or event presented as fact unless present in the original
+  - NEVER stated as verified historical fact if it was not in the original discourse
+
+───────────────────────────────────────────────────────────────
+PRIORITY ORDER (fidelity overrides retention — always)
+───────────────────────────────────────────────────────────────
+1. Preserve meaning
+2. Preserve philosophy
+3. Preserve speaker intent
+4. Preserve stories and analogies
+5. Increase viewer retention
+6. Improve storytelling
+7. Improve cinematic narration
+8. Improve English
+
+If retention and philosophical fidelity ever conflict, fidelity wins — no exceptions.
+A pacing choice that alters, softens, or reframes the underlying philosophy must be rejected.
+
+───────────────────────────────────────────────────────────────
+CHANNEL FRAME (additive only — do not rewrite the author's content around these)
+───────────────────────────────────────────────────────────────
+  WELCOME (insert once, after the author's opening sentence):
+    "{welcome}"
+  TOPIC TRANSITION (insert only if no natural transition exists — otherwise skip):
+    "{topic_transition}..."
+  BRAND SIGNATURE (insert once, after the practical reflection, before the CTA):
+    "{closing_brand}"
+  CALL TO ACTION (near the end, after the brand signature):
+    "{cta}"
+  CLOSING (append as the final line after the CTA):
+    "{closing}"
+
+───────────────────────────────────────────────────────────────
+VIEWER RETENTION RULES (apply all ten)
+───────────────────────────────────────────────────────────────
+Rule 1 — Prefer stories over abstract philosophy.
+Whenever an idea can be communicated through story, analogy, historical example, or relatable life
+situation, prefer that. People remember stories, not lectures. New material is subject to the Fabrication Guardrail.
+
+Rule 2 — Avoid long uninterrupted philosophical exposition.
+If a section contains continuous explanation for too long, introduce variation: story, analogy, question,
+practical example, emotional reflection. Alternate naturally. Never feel repetitive.
+
+Rule 3 — Preserve cinematic pacing.
+Do NOT merge short sentences into long paragraphs. Intentional pauses remain.
+Write for narration, not reading. Each key idea may deserve its own line.
+
+Rule 4 — Delay branding.
+Never interrupt the opening hook. Channel name, subscribe requests, and greetings belong after
+emotional engagement — naturally after the hook or near the conclusion.
+
+Rule 5 — Maintain curiosity.
+Whenever possible: raise a question, delay the answer, reward the audience later.
+Continuously create reasons for the viewer to keep watching.
+
+Rule 6 — End chapters with momentum.
+Avoid complete conclusions. Create transitions that pull viewers forward.
+Instead of "This is why suffering exists." prefer "But understanding suffering... is only the beginning."
+
+Rule 7 — Create memorable lines.
+Generate concise reflections that viewers remember. They must emerge from the original discourse.
+Never invent philosophy. Never assert a fabricated fact (see Fabrication Guardrail).
+
+Rule 8 — Reduce unnecessary repetition.
+Remove only repetition that weakens pacing. Never remove repetition that increases emotional impact.
+Distinguish rhetorical repetition (keep) from spoken-language redundancy (consider removing).
+
+Rule 9 — Preserve speaker voice.
+The script must never feel AI-generated. It should feel like the original teacher speaking more clearly.
+
+Rule 10 — Do not rewrite for the sake of rewriting.
+If a section already satisfies fidelity, retention, and pacing, leave it unchanged.
+A lightly-touched section that works is better than an over-edited one.
+
+───────────────────────────────────────────────────────────────
+DOCUMENTARY IDENTITY
+───────────────────────────────────────────────────────────────
+The documentary should feel like one continuous conversation — not visible chapters.
+Transitions should be invisible. Flow from idea to idea on emotional momentum and curiosity.
+
+───────────────────────────────────────────────────────────────
+AUDIENCE ACCESSIBILITY
+───────────────────────────────────────────────────────────────
+Assume the audience has no prior knowledge of Vedanta, Bhagavad Gita, or Hindu philosophy.
+Introduce spiritual ideas through universal human experience before scripture whenever practical.
+Ancient wisdom should feel accessible, not academic.
+
+───────────────────────────────────────────────────────────────
+NARRATIVE DENSITY SELF-REVIEW (evaluate before returning)
+───────────────────────────────────────────────────────────────
+• Story Density: Is there a meaningful story, analogy, or situation within the first minute? Every major section?
+• Narrative Variety: Do story, reflection, philosophy, question, history, and practical application alternate?
+• Curiosity Check: Would a viewer naturally want to hear the next section?
+• Quote Density: Approximately every 45–90 seconds, a memorable reflection or resonant statement?
+• Emotional Rhythm: Does intensity naturally vary — curiosity, tension, reflection, calm, inspiration?
+• Cinematic Breathing Room: Are important ideas given room, not compressed into dense paragraphs?
+• Audience Accessibility: Can someone with no prior spiritual background follow the message?
+• Documentary Test: Narrated over cinematic visuals with music — does it feel like a professional documentary?
+
+Continue refining until satisfied with all dimensions.
+
+{voiceover_rules}
+
+───────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+───────────────────────────────────────────────────────────────
+Return the narration text, then immediately append your self-assessment in this EXACT format
+(no variations, no extra lines between blocks):
+
+---NARRATIVE SCORE---
+Hook: X/10
+Story Density: X/10
+Curiosity: X/10
+Emotional Rhythm: X/10
+Accessibility: X/10
+Overall: X/10
+---END SCORE---
+
+Return only narration + score block. No other explanations.
+Only return when your honest assessment is Overall >= 8.5.
+
+───────────────────────────────────────────────────────────────
+PASS 1 SCRIPT (optimize this):
+───────────────────────────────────────────────────────────────
+{script}\
+"""
+
+
+def _format_scripture_list(placeholders: dict[str, str]) -> str:
+    if not placeholders:
+        return "(No scripture spans detected in this script.)"
+    lines = []
+    for key, original in placeholders.items():
+        preview = original[:120] + ("…" if len(original) > 120 else "")
+        lines.append(f'  {{{{{key}}}}} → "{preview}"')
+    return "\n".join(lines)
+
+
+def build_pass1_prompt(
+    topic: str,
+    script: str,
+    style: str | None = None,
+    target_minutes: int = 7,
+    mode: str = "expand",
+    raw_words: int = 0,
+    placeholders: dict[str, str] | None = None,
+) -> str:
+    """ADR-0011 Pass 1: faithful documentary rendering prompt (no retention optimization)."""
+    min_m = target_minutes - DURATION_TOLERANCE_MINUTES
+    max_m = target_minutes + DURATION_TOLERANCE_MINUTES
+    target_words = target_minutes * NARRATION_WPM
+    min_words = min_m * NARRATION_WPM
+    max_words = max_m * NARRATION_WPM
+    raw_est = raw_words / NARRATION_WPM if raw_words else 0.0
+    word_gap = abs(target_words - raw_words)
+
+    if mode == "shorten":
+        direction_verb = "remove"
+        strategy_section = _SHORTEN_STRATEGY
+    elif mode == "polish":
+        direction_verb = "preserve"
+        strategy_section = _POLISH_STRATEGY
+    else:
+        direction_verb = "add"
+        strategy_section = _EXPAND_STRATEGY
+
+    voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
+    voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
+
+    return _PASS1_TEMPLATE.format(
+        topic=topic,
+        target_minutes=target_minutes,
+        min_m=min_m,
+        max_m=max_m,
+        min_words=min_words,
+        max_words=max_words,
+        wpm=NARRATION_WPM,
+        raw_words=raw_words,
+        raw_est=raw_est,
+        direction_verb=direction_verb,
+        word_gap=int(word_gap),
+        voice_guide=voice_guide,
+        scripture_list=_format_scripture_list(placeholders or {}),
+        strategy_section=strategy_section,
+        voiceover_rules=_VOICEOVER_RULES,
+        script=script,
+    )
+
+
+def build_pass2_prompt(
+    topic: str,
+    script: str,
+    style: str | None = None,
+    target_minutes: int = 7,
+    placeholders: dict[str, str] | None = None,
+    welcome: str | None = None,
+    closing: str | None = None,
+    topic_transition: str | None = None,
+    cta: str | None = None,
+    closing_brand: str | None = None,
+) -> str:
+    """ADR-0011 Pass 2: viewer retention optimization prompt with Narrative Score block."""
+    from ytfactory.agents.prompts.branding import (
+        get_closing,
+        get_closing_brand,
+        get_cta,
+        get_transition,
+        get_welcome,
+    )
+
+    target_words = target_minutes * NARRATION_WPM
+
+    voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
+    voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
+
+    return _PASS2_TEMPLATE.format(
+        topic=topic,
+        target_minutes=target_minutes,
+        target_words=target_words,
+        wpm=NARRATION_WPM,
+        voice_guide=voice_guide,
+        scripture_list=_format_scripture_list(placeholders or {}),
+        welcome=welcome or get_welcome(),
+        closing=closing or get_closing(),
+        topic_transition=topic_transition or get_transition(),
+        cta=cta or get_cta(),
+        closing_brand=closing_brand or get_closing_brand(),
+        voiceover_rules=_VOICEOVER_RULES,
+        script=script,
+    )
 
 
 def build_enhance_script_prompt(
