@@ -201,7 +201,7 @@ class FFmpegRenderer:
         H = self.settings.video_height
         fps = self.settings.video_fps
 
-        cmd: list[str] = ["ffmpeg", "-y"]
+        cmd: list[str] = ["ffmpeg", "-y", "-loglevel", "error"]
         filter_chains: list[str] = []
         concat_in_pads: list[str] = []
         inp = 0  # running input index
@@ -454,6 +454,8 @@ class FFmpegRenderer:
             [
                 "ffmpeg",
                 "-y",
+                "-loglevel",
+                "error",
                 # ---------- Input ----------
                 "-loop",
                 "1",

@@ -22,8 +22,8 @@ class Settings(SharedSettings):
     # Video Defaults
     # ------------------------------------------------------------------
 
-    video_width: int = 1920
-    video_height: int = 1080
+    video_width: int = 1280
+    video_height: int = 720
     video_fps: int = 30
 
     # ------------------------------------------------------------------
