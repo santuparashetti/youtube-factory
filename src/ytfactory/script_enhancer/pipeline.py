@@ -1,5 +1,8 @@
-"""ScriptEnhancerPipeline — LLM-based script expansion shared by the agentic and
-sequential build paths."""
+"""DocumentaryScriptEnhancerPipeline — transform a normalized transcript into a
+cinematic documentary narration. Formerly ScriptEnhancerPipeline (renamed per ADR-0010).
+
+ScriptEnhancerPipeline is preserved as a backward-compatible alias.
+"""
 
 from __future__ import annotations
 
@@ -34,17 +37,18 @@ def _duration_ok(estimated_minutes: float, target_minutes: int) -> bool:
     return abs(estimated_minutes - target_minutes) <= DURATION_TOLERANCE_MINUTES
 
 
-class ScriptEnhancerPipeline:
-    """Expand a script to meet a target narration duration via LLM.
+class DocumentaryScriptEnhancerPipeline:
+    """Transform a normalized transcript into a cinematic YouTube documentary narration.
 
-    Expansion priority order (applied by the LLM prompt):
-      1. Preserve original wording exactly
-      2. Extend through pacing and silence (paragraph breaks, standalone lines)
-      3. Add meaningful pauses at thought boundaries
-      4. Naturally slow the narration (sparse text reads slower than dense text)
-      5. Add new content ONLY when priorities 1–4 are insufficient
-      6. New content must be a genuinely new example, analogy, or insight
-      7. Never add filler, repetitive explanations, or generic motivational language
+    This stage assumes its input has already been cleaned by LightNormalizationPipeline.
+    Its sole responsibility is narrative optimization — not artifact cleanup.
+
+    Enhancement priority order (applied by the LLM prompt):
+      1. Preserve meaning, philosophy, and emotional intent
+      2. Improve narrative flow for a documentary audience
+      3. Increase viewer retention through storytelling
+      4. Improve cinematic pacing and rhythm
+      5. Produce memorable shareable lines
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -185,3 +189,7 @@ class ScriptEnhancerPipeline:
         )
 
         return enhanced
+
+
+# Backward-compatible alias — existing callers and test patches continue to work
+ScriptEnhancerPipeline = DocumentaryScriptEnhancerPipeline

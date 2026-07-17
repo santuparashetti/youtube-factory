@@ -526,7 +526,9 @@ class TestBuildPipelineIncrementalScript:
         # Patch each sub-pipeline class so __init__ never touches real APIs
         patches = [
             patch("ytfactory.build.pipeline.Settings"),
-            patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),
+            patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
+            patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
+            patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),  # backward compat alias
             patch("ytfactory.build.pipeline.ScenePipeline"),
             patch("ytfactory.build.pipeline.ImagePipeline"),
             patch("ytfactory.build.pipeline.VoicePipeline"),
@@ -546,7 +548,9 @@ class TestBuildPipelineIncrementalScript:
             p.stop()
 
         # Replace all sub-pipelines with fresh MagicMocks
-        bp.script_enhancer = MagicMock()
+        bp.light_normalization = MagicMock()
+        bp.documentary_script_enhancer = MagicMock()
+        bp.script_enhancer = bp.documentary_script_enhancer  # keep backward-compat alias
         bp.scenes = MagicMock()
         bp.images = MagicMock()
         bp.voice = MagicMock()
@@ -575,7 +579,8 @@ class TestBuildPipelineIncrementalScript:
         bp = self._build_pipeline_with_mocks(monkeypatch)
         bp.run_incremental(project_id)
 
-        bp.script_enhancer.run.assert_called_once_with(project_id, topic="My Topic")
+        bp.light_normalization.run.assert_called_once_with(project_id)
+        bp.documentary_script_enhancer.run.assert_called_once_with(project_id, topic="My Topic")
 
     def test_script_stage_skipped_when_clean(self, tmp_path, monkeypatch):
         project_id = "proj-002"
@@ -596,4 +601,5 @@ class TestBuildPipelineIncrementalScript:
         bp = self._build_pipeline_with_mocks(monkeypatch)
         bp.run_incremental(project_id)
 
-        bp.script_enhancer.run.assert_not_called()
+        bp.light_normalization.run.assert_not_called()
+        bp.documentary_script_enhancer.run.assert_not_called()

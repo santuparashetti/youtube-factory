@@ -16,7 +16,11 @@ from ytfactory.review.pipeline import ReviewPipeline
 from ytfactory.review.remediation.config import RemediationConfig
 from ytfactory.review.remediation.engine import AutoRemediationEngine
 from ytfactory.scenes.pipeline import ScenePipeline
-from ytfactory.script_enhancer.pipeline import ScriptEnhancerPipeline
+from ytfactory.light_normalization.pipeline import LightNormalizationPipeline
+from ytfactory.script_enhancer.pipeline import (
+    DocumentaryScriptEnhancerPipeline,
+    DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # backward compat for tests
+)
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.video.pipeline import VideoPipeline
 from ytfactory.voice.pipeline import VoicePipeline
@@ -30,7 +34,9 @@ class BuildPipeline:
     def __init__(self):
         settings = Settings()
 
-        self.script_enhancer = ScriptEnhancerPipeline(settings)
+        self.light_normalization = LightNormalizationPipeline(settings)
+        self.documentary_script_enhancer = DocumentaryScriptEnhancerPipeline(settings)
+        self.script_enhancer = self.documentary_script_enhancer  # backward compat alias
         self.scenes = ScenePipeline(settings)
         self.images = ImagePipeline(settings)
         self.voice = VoicePipeline(settings)
@@ -55,7 +61,8 @@ class BuildPipeline:
 
         if not skip_script:
             project = ProjectRepository().load(project_id)
-            self.script_enhancer.run(
+            self.light_normalization.run(project_id)
+            self.documentary_script_enhancer.run(
                 project_id,
                 topic=project.title,
                 style=style,
@@ -146,10 +153,11 @@ class BuildPipeline:
 
         console.print(Rule("[bold cyan]Incremental Build — Change Detection[/bold cyan]"))
 
-        # script enhancement — skipped when script.md is unchanged
+        # normalize + enhance — skipped when script.md is unchanged
         if _should_run("script"):
             project = ProjectRepository().load(project_id)
-            self.script_enhancer.run(project_id, topic=project.title)
+            self.light_normalization.run(project_id)
+            self.documentary_script_enhancer.run(project_id, topic=project.title)
             engine.record_stage_outputs("script")
 
         # scenes — always skipped if scene-plan.json exists and unchanged

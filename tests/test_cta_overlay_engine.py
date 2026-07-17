@@ -229,7 +229,7 @@ class TestCTAPlacementEngine:
         # No audio/ dir → video_duration=0 → fallback immediately
         result = engine.find_placement(tmp_path)
         assert result.placement_path == PlacementPath.FALLBACK_TIMING
-        assert result.variant == CTAVariant.COMPACT
+        assert result.variant == CTAVariant.FULL  # fallback always renders FULL (ADR-0010)
 
     def test_fallback_when_no_insight_tier_pauses(self, tmp_path):
         from ytfactory.cta.placement import CTAPlacementEngine
@@ -256,7 +256,7 @@ class TestCTAPlacementEngine:
             result = engine.find_placement(tmp_path)
 
         assert result.placement_path == PlacementPath.FALLBACK_TIMING
-        assert result.variant == CTAVariant.COMPACT
+        assert result.variant == CTAVariant.FULL  # fallback always renders FULL (ADR-0010)
 
     def _write_timing(self, tmp_path: Path, duration: float = 200.0) -> None:
         """Create a dummy timing.json so _get_video_duration returns a real value."""
