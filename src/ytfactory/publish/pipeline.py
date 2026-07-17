@@ -99,9 +99,7 @@ class PublishPipeline:
         description = DescriptionGenerator(self._llm, self._config).generate(
             project_id=project_id,
             project_title=project.title,
-            script_excerpt=script_excerpt,
-            chapters_block=chapters_block,
-            seo_keywords=seo.all_keywords,
+            script=script,
         )
 
         # ── 5. Pinned Comment ──────────────────────────────────────────────

@@ -445,48 +445,150 @@ class TestSEOGenerator:
 # ── DescriptionGenerator ──────────────────────────────────────────────────────
 
 
+def _desc_payload(**overrides) -> str:
+    """Return a valid template-spec JSON payload with sensible defaults."""
+    data = {
+        "search_queries": ["Why do we suffer?", "Bhagavad Gita suffering"],
+        "hook": "Why does suffering follow us no matter how hard we try to escape it?",
+        "who_this_is_for": [
+            "wondered why pain keeps returning",
+            "wanted ancient wisdom in plain language",
+        ],
+        "what_you_discover": [
+            "The root cause of suffering",
+            "What the Gita says about acceptance",
+        ],
+        "key_teachings": [
+            "Suffering is resistance to what is.",
+            "Acceptance is not defeat — it is clarity.",
+        ],
+        "questions_answered": [
+            "What causes suffering according to the Bhagavad Gita?",
+            "How do I stop resisting change?",
+        ],
+        "what_you_experience": "A calm, clear journey through one of life's hardest questions.",
+        "this_video_explains": "Why the Gita frames suffering as a signal, not a punishment.",
+        "sources": ["Bhagavad Gita Chapter 2"],
+        "engagement_prompt": "Which teaching stayed with you after watching?",
+        "hashtags": ["#BhagavadGita", "#Suffering", "#Vedanta"],
+    }
+    data.update(overrides)
+    return json.dumps(data)
+
+
 class TestDescriptionGenerator:
     def _gen(self, project_id, tmp_path, monkeypatch, json_text, config=None):
         monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
         (tmp_path / project_id / "publish").mkdir(parents=True)
         return DescriptionGenerator(_llm_mock(json_text), config).generate(
-            project_id=project_id, project_title="Test Video",
-            script_excerpt="Once upon a time…",
-            chapters_block="0:00 Intro\n1:30 Body",
-            seo_keywords=["keyword1", "keyword2"],
+            project_id=project_id,
+            project_title="Why We Suffer — Bhagavad Gita",
+            script="The teacher explained suffering at length.",
         )
 
-    def test_parses_description(self, tmp_path, monkeypatch):
-        payload = '{"description": "Great video! Subscribe now and like!"}'
-        result = self._gen("d1", tmp_path, monkeypatch, payload)
-        assert result.full_text == "Great video! Subscribe now and like!"
+    def test_template_sections_assembled(self, tmp_path, monkeypatch):
+        """All sections from the template spec appear in the assembled description."""
+        result = self._gen("d1", tmp_path, monkeypatch, _desc_payload())
+        assert "Why does suffering follow" in result.full_text       # hook
+        assert "This video is for you" in result.full_text           # who-for
+        assert "What You'll Discover" in result.full_text            # discover
+        assert "Key Teachings" in result.full_text                   # key teachings
+        assert "Questions Answered" in result.full_text              # Q&A
+        assert "What You'll Experience" in result.full_text          # experience
+        assert "This Video Explains" in result.full_text             # explains
+        assert "Sources" in result.full_text                         # sources
+        assert "Which teaching stayed with you" in result.full_text  # engagement
+        assert "#BhagavadGita" in result.full_text                   # hashtags
 
-    def test_has_cta_detected(self, tmp_path, monkeypatch):
-        payload = '{"description": "Watch this. Subscribe for more content!"}'
-        result = self._gen("d2", tmp_path, monkeypatch, payload)
+    def test_has_chapters_always_false(self, tmp_path, monkeypatch):
+        """Spec: no chapters for 7–10 min format — has_chapters must always be False."""
+        result = self._gen("d2", tmp_path, monkeypatch, _desc_payload())
+        assert result.has_chapters is False
+
+    def test_has_cta_detected_via_subscribe(self, tmp_path, monkeypatch):
+        config = PublishConfig(subscribe_url="https://youtube.com/@channel")
+        result = self._gen("d3", tmp_path, monkeypatch, _desc_payload(), config)
         assert result.has_cta
 
-    def test_has_chapters_detected(self, tmp_path, monkeypatch):
-        payload = '{"description": "0:00 Intro\\n1:30 Body. Subscribe!"}'
-        result = self._gen("d3", tmp_path, monkeypatch, payload)
-        assert result.has_chapters
-
     def test_length_clamped(self, tmp_path, monkeypatch):
-        long_text = "A" * 6000
-        payload = json.dumps({"description": long_text})
+        # Produce a very long payload by repeating content
+        big = _desc_payload(what_you_experience="A" * 4000)
         config = PublishConfig(max_description_length=5000)
-        result = self._gen("d4", tmp_path, monkeypatch, payload, config)
+        result = self._gen("d4", tmp_path, monkeypatch, big, config)
         assert len(result.full_text) <= 5000
 
     def test_fallback_on_bad_json(self, tmp_path, monkeypatch):
-        result = self._gen("d5", tmp_path, monkeypatch, "not json")
+        result = self._gen("d5", tmp_path, monkeypatch, "not json at all")
         assert result.full_text  # non-empty fallback
         assert result.word_count > 0
 
     def test_writes_description_md(self, tmp_path, monkeypatch):
-        payload = '{"description": "Hello world. Subscribe!"}'
-        self._gen("d6", tmp_path, monkeypatch, payload)
+        self._gen("d6", tmp_path, monkeypatch, _desc_payload())
         assert (tmp_path / "d6" / "publish" / "description.md").exists()
+
+    def test_search_queries_stored(self, tmp_path, monkeypatch):
+        result = self._gen("d7", tmp_path, monkeypatch, _desc_payload())
+        assert "Why do we suffer?" in result.search_queries
+
+    def test_sections_present_populated(self, tmp_path, monkeypatch):
+        result = self._gen("d8", tmp_path, monkeypatch, _desc_payload())
+        assert "hook" in result.sections_present
+        assert "key_teachings" in result.sections_present
+        assert "questions_answered" in result.sections_present
+
+    def test_sources_section_omitted_when_empty(self, tmp_path, monkeypatch):
+        payload = _desc_payload(sources=[])
+        result = self._gen("d9", tmp_path, monkeypatch, payload)
+        assert "Sources" not in result.full_text
+
+    def test_hashtags_capped_at_config_max(self, tmp_path, monkeypatch):
+        many_tags = [f"#tag{i}" for i in range(20)]
+        config = PublishConfig(description_max_hashtags=5)
+        payload = _desc_payload(hashtags=many_tags)
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        (tmp_path / "d10" / "publish").mkdir(parents=True)
+        result = DescriptionGenerator(_llm_mock(payload), config).generate(
+            project_id="d10", project_title="Test", script="Some script."
+        )
+        shown_tags = [w for w in result.full_text.split() if w.startswith("#")]
+        assert len(shown_tags) <= 5
+
+    def test_links_block_subscribe_first(self, tmp_path, monkeypatch):
+        config = PublishConfig(
+            subscribe_url="https://youtube.com/@ch",
+            playlist_url="https://youtube.com/playlist?list=ABC",
+        )
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        (tmp_path / "d11" / "publish").mkdir(parents=True)
+        result = DescriptionGenerator(_llm_mock(_desc_payload()), config).generate(
+            project_id="d11", project_title="Test", script="Script."
+        )
+        sub_pos = result.full_text.find("Subscribe")
+        playlist_pos = result.full_text.find("Playlist")
+        assert sub_pos != -1
+        assert playlist_pos != -1
+        assert sub_pos < playlist_pos  # Subscribe before Playlist
+
+    def test_links_block_omitted_when_no_urls(self, tmp_path, monkeypatch):
+        config = PublishConfig()  # no URLs configured
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        (tmp_path / "d12" / "publish").mkdir(parents=True)
+        result = DescriptionGenerator(_llm_mock(_desc_payload()), config).generate(
+            project_id="d12", project_title="Test", script="Script."
+        )
+        assert "▶" not in result.full_text
+
+    def test_legacy_caller_compat(self, tmp_path, monkeypatch):
+        """Old callers using script_excerpt and chapters_block don't raise."""
+        monkeypatch.setattr("ytfactory.publish.artifacts.WORKSPACE_DIR", str(tmp_path))
+        (tmp_path / "d13" / "publish").mkdir(parents=True)
+        result = DescriptionGenerator(_llm_mock(_desc_payload())).generate(
+            project_id="d13", project_title="Test Video",
+            script_excerpt="Once upon a time…",
+            chapters_block="0:00 Intro\n1:30 Body",
+            seo_keywords=["kw1"],
+        )
+        assert result.full_text
 
 
 # ── ThumbnailGenerator ────────────────────────────────────────────────────────
@@ -634,7 +736,19 @@ class TestPublishPipeline:
             "hashtags": ["#history", "#india"],
             "youtube_tags": ["shivaji", "history"],
         })
-        desc_json = '{"description": "Shivaji was a great king. Subscribe for more history content! 0:00 Intro"}'
+        desc_json = json.dumps({
+            "search_queries": ["Who was Shivaji?"],
+            "hook": "One man stood against an empire — and changed history forever.",
+            "who_this_is_for": ["wondered how ordinary people shape history"],
+            "what_you_discover": ["The rise of Shivaji Maharaj"],
+            "key_teachings": ["Courage is not the absence of fear."],
+            "questions_answered": ["Who was Shivaji Maharaj?", "What did Shivaji accomplish?"],
+            "what_you_experience": "A cinematic journey through one of history's greatest stories.",
+            "this_video_explains": "How Shivaji built an empire through strategy and valor.",
+            "sources": [],
+            "engagement_prompt": "Which moment in Shivaji's story moved you most?",
+            "hashtags": ["#Shivaji", "#History", "#India"],
+        })
 
         comment_json = '{"comment": "Every one of us carries a silent force. What moment made you feel yours? Share below."}'
 
@@ -684,7 +798,14 @@ class TestPublishPipeline:
         llm.generate.side_effect = [
             LLMResponse(text='{"primary": "T", "alternatives": ["A","B","C","D","E"]}', model="mock"),
             LLMResponse(text='{"primary_keywords":[],"secondary_keywords":[],"long_tail_keywords":[],"hashtags":[],"youtube_tags":[]}', model="mock"),
-            LLMResponse(text='{"description": "hello. Subscribe!"}', model="mock"),
+            LLMResponse(text=json.dumps({
+                "search_queries": ["test query"],
+                "hook": "A short hook.", "who_this_is_for": ["anyone curious"],
+                "what_you_discover": ["The topic"], "key_teachings": ["A teaching."],
+                "questions_answered": ["What is this?"], "what_you_experience": "A journey.",
+                "this_video_explains": "The core idea.", "sources": [],
+                "engagement_prompt": "What resonated with you?", "hashtags": ["#topic"],
+            }), model="mock"),
             LLMResponse(text='{"comment": "What part of this hit you the hardest?"}', model="mock"),
         ]
 

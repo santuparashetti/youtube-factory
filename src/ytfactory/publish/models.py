@@ -92,12 +92,16 @@ class DescriptionResult:
     word_count: int
     has_chapters: bool
     has_cta: bool
+    search_queries: list[str] = field(default_factory=list)
+    sections_present: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "word_count": self.word_count,
             "has_chapters": self.has_chapters,
             "has_cta": self.has_cta,
+            "search_queries": self.search_queries,
+            "sections_present": self.sections_present,
         }
 
 

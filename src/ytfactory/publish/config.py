@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -30,5 +30,18 @@ class PublishConfig:
     max_keywords: int = 30  # total keyword list cap
 
     # ── Script context ────────────────────────────────────────────────────────
-    script_excerpt_chars: int = 800  # chars of script sent to LLM prompts
+    script_excerpt_chars: int = 800  # chars of script sent to LLM prompts (non-description stages)
     scene_titles_in_prompt: int = 5  # how many scene titles to include
+    description_script_chars: int = 3000  # larger window for description template generation
+
+    # ── Description template — hashtag cap (spec: 5–8) ───────────────────────
+    description_max_hashtags: int = 8
+
+    # ── Description template — Links block (section 12) ──────────────────────
+    # Order in description: Subscribe → Watch Next → Playlist → Newsletter → Socials
+    # Empty strings are omitted from the output; do not fabricate links.
+    subscribe_url: str = ""
+    watch_next_url: str = ""
+    playlist_url: str = ""
+    newsletter_url: str = ""
+    socials_urls: list[str] = field(default_factory=list)
