@@ -4,6 +4,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.scenes.planner.llm_planner import LLMScenePlanner
 from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.project_repository import ProjectRepository
 
 
@@ -26,6 +27,8 @@ class ScenePipeline:
             raise FileNotFoundError("Script not found. Run 'import-script' first.")
 
         script = script_file.read_text(encoding="utf-8")
+        # Strip any leading H1 title heading — it is a structural label, not narration.
+        script, _ = strip_script_heading(script)
 
         scene_plan = self._planner.generate(script)
 

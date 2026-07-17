@@ -33,11 +33,13 @@ from ytfactory.agents.prompts.script_writer import (
     TARGET_IDEAL_MINUTES,
 )
 from ytfactory.config.settings import Settings
+from ytfactory.shared import religion_agnostic
 from ytfactory.shared.scripture import (
     check_scripture_verbatim,
     extract_scripture_spans,
     restore_scripture_spans,
 )
+from ytfactory.shared.script_utils import strip_script_heading
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 
@@ -199,6 +201,9 @@ class DocumentaryScriptEnhancerPipeline:
                 )
             script_text = script_file.read_text(encoding="utf-8")
 
+        # Strip any leading H1 title heading — it is a structural label, not spoken narration.
+        script_text, _script_heading = strip_script_heading(script_text)
+
         raw_words = len(script_text.split())
         target_words = target_minutes * NARRATION_WPM
         min_minutes = target_minutes - DURATION_TOLERANCE_MINUTES
@@ -338,6 +343,17 @@ class DocumentaryScriptEnhancerPipeline:
         if final_ok:
             console.print("  [green]✓ Final validation passed[/green]")
 
+        # ── ADR-0012: religion-agnostic presentation check ──────────────────────
+        ra_warnings = religion_agnostic.check(final_restored)
+        if ra_warnings:
+            console.print(
+                f"  [yellow]⚠ ADR-0012 presentation flags ({len(ra_warnings)}) — "
+                f"review before publishing:[/yellow]"
+            )
+            for w in ra_warnings:
+                logger.warning(w)
+                console.print(f"    [dim yellow]{w}[/dim yellow]")
+
         # ── Metrics and output ──────────────────────────────────────────────────
         enhanced_words = len(final_restored.split())
         enhanced_est = enhanced_words / NARRATION_WPM
@@ -409,6 +425,7 @@ class DocumentaryScriptEnhancerPipeline:
                         "warnings": final_warnings,
                         "fallback_to_pass1": not final_ok,
                     },
+                    "adr_0012_flags": ra_warnings,
                     "word_count": {
                         "input": raw_words,
                         "output": enhanced_words,

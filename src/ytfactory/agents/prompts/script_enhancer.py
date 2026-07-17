@@ -239,6 +239,53 @@ beyond inserting the channel frame elements at the specified positions.\
 """
 
 
+_RELIGION_AGNOSTIC_RULES = """\
+───────────────────────────────────────────────────────────────
+RELIGION-AGNOSTIC PRESENTATION (ADR-0012 — hard constraint)
+───────────────────────────────────────────────────────────────
+This is a PRESENTATION rule, not a content rule. Philosophy and teaching content must be
+preserved exactly (fidelity rules above still apply). Only the attribution and labeling
+layer changes — never the substance of what is taught.
+
+MUST NEVER APPEAR IN YOUR OUTPUT:
+  - Specific tradition or religion names: Vedanta, Advaita Vedanta, Hindu philosophy,
+    Sanatan Dharma, or any other explicit religious/philosophical tradition label
+  - Named scripture or text titles: Bhagavad Gita, Upanishads, Puranas, or any other
+    text by title, including chapter/verse citations (e.g. "Gita Chapter 2")
+  - Untranslated Sanskrit presented as Sanskrit: translate the idea into plain English —
+    do not label the phrase as Sanskrit or attribute it to a named source text
+
+MAY APPEAR:
+  - Named ancient teachers/wisdom figures (e.g. Adi Shankaracharya, Buddha, Rumi) —
+    treat them as historical wisdom figures, not representatives of a named tradition.
+    This functions like citing Marcus Aurelius: a real person, long ago, who thought
+    deeply about this — it does not require the viewer to identify with any religion.
+  - Universal framing: "the sages," "the ancient teachers," "ancient wisdom" — all fine.
+  - Story and analogy material — unaffected by this policy.
+
+SOURCE ATTRIBUTION LADDER (choose in order):
+  1. Named historical teacher when the source material actually names one
+     ("Adi Shankaracharya taught..."). Do NOT substitute a different tradition's figure.
+  2. Generic ancient attribution when no specific named teacher is available
+     ("One ancient teaching says...", "The sages observed...", "Ancient wisdom holds...")
+  3. No attribution at all when neither adds anything to the moment.
+
+REWRITE EXAMPLES:
+  "as the Gita teaches..."           → "as one ancient teaching puts it..."
+  "the Upanishads describe..."       → "the ancient teachers understood..."
+  "in Hindu philosophy..."           → "across wisdom traditions..."
+  "the Sanskrit term Dukkha means"   → "the teaching captures something..."
+
+PREFERRED REPLACEMENT PHRASES:
+  "Ancient wisdom" · "Ancient teachers" · "Timeless insight" · "A timeless principle"
+  "One ancient teaching..." · "The sages understood..." · "Wise people throughout history..."
+  "Across generations, people have discovered..."
+
+Generalizing an attribution is NOT fabrication. "An ancient teaching says..." is safe.
+Inventing a specific alternate source to fill the gap ("a Greek philosopher said...") IS
+fabrication and remains prohibited by the Fabrication Guardrail above.\
+"""
+
 _VOICEOVER_RULES = """\
 ───────────────────────────────────────────────────────────────
 VOICEOVER TECHNICAL RULES
@@ -296,6 +343,8 @@ WHAT PASS 1 MUST NOT DO:
 - Do not rewrite sentences that are already clear
 - If retention and fidelity ever conflict, fidelity always wins — no exceptions
 
+{religion_agnostic_rules}
+
 ───────────────────────────────────────────────────────────────
 AMBIGUITY FLAGS FROM LIGHT NORMALIZATION ([FLAG:...] markers)
 ───────────────────────────────────────────────────────────────
@@ -352,6 +401,8 @@ You may introduce new illustrative material to support retention, but it must be
   - Generic or clearly hypothetical ("imagine someone who...", "consider a person who...")
   - NEVER a specific named person, date, or event presented as fact unless present in the original
   - NEVER stated as verified historical fact if it was not in the original discourse
+
+{religion_agnostic_rules}
 
 ───────────────────────────────────────────────────────────────
 PRIORITY ORDER (fidelity overrides retention — always)
@@ -433,9 +484,11 @@ Transitions should be invisible. Flow from idea to idea on emotional momentum an
 ───────────────────────────────────────────────────────────────
 AUDIENCE ACCESSIBILITY
 ───────────────────────────────────────────────────────────────
-Assume the audience has no prior knowledge of Vedanta, Bhagavad Gita, or Hindu philosophy.
-Introduce spiritual ideas through universal human experience before scripture whenever practical.
-Ancient wisdom should feel accessible, not academic.
+Assume the audience has no prior spiritual background and no familiarity with any specific
+tradition, text, or philosophical lineage. Do not name them — the RELIGION-AGNOSTIC
+PRESENTATION rules above govern this.
+Introduce ideas through universal human experience before abstract concepts whenever practical.
+Ancient wisdom should feel accessible to any viewer, not academic or tradition-exclusive.
 
 ───────────────────────────────────────────────────────────────
 NARRATIVE DENSITY SELF-REVIEW (evaluate before returning)
@@ -533,6 +586,7 @@ def build_pass1_prompt(
         word_gap=int(word_gap),
         voice_guide=voice_guide,
         scripture_list=_format_scripture_list(placeholders or {}),
+        religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
         strategy_section=strategy_section,
         voiceover_rules=_VOICEOVER_RULES,
         script=script,
@@ -572,6 +626,7 @@ def build_pass2_prompt(
         wpm=NARRATION_WPM,
         voice_guide=voice_guide,
         scripture_list=_format_scripture_list(placeholders or {}),
+        religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
         welcome=welcome or get_welcome(),
         closing=closing or get_closing(),
         topic_transition=topic_transition or get_transition(),

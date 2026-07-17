@@ -22,9 +22,14 @@ from __future__ import annotations
 import json
 import re
 
+import logging
+
 from ytfactory.publish.artifacts import description_path
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.models import DescriptionResult
+from ytfactory.shared import religion_agnostic
+
+_log = logging.getLogger(__name__)
 
 
 _FALLBACK_DESCRIPTION = (
@@ -84,16 +89,19 @@ THIS VIDEO EXPLAINS (2–4 prose sentences):
 - Combined with What You'll Experience, target ~100–180 words of prose
 
 SOURCES (2–4 lines, or empty list [] if nothing specific):
-- Only include sources genuinely referenced in the video
-- Examples: "Bhagavad Gita Chapter 2", a named teacher or text from the discourse
-- Omit entirely (empty list) if nothing specific is cited
+- Only include a named historical teacher genuinely referenced in the video
+- Do NOT include specific tradition or text names (Bhagavad Gita, Upanishads, Vedanta, etc.)
+  — channel policy (ADR-0012) excludes these from all audience-facing content
+- Generic attribution is acceptable if genuinely referenced: "Drawing on ancient wisdom"
+- Omit entirely (return []) if no named source applies — this is the common case
 
 ENGAGEMENT PROMPT (exactly 1 line):
 - An experience-based question tied to this video's content — never yes/no
 - Invites substantive comments ("What teaching stayed with you after watching?")
 
 HASHTAGS (5–8 with # prefix):
-- Most specific and relevant terms for this video
+- Use universal terms: #AncientWisdom, #InnerPeace, #Philosophy, #WisdomTeachings, #MindfulLiving
+- Do NOT use tradition or text-specific hashtags (#AdvaitaVedanta, #BhagavadGita, #Vedanta, #Hinduism)
 - Each topic appears once only — no keyword stuffing
 
 GENERATION CONSTRAINTS:
@@ -101,6 +109,8 @@ GENERATION CONSTRAINTS:
 - No fabricated links, no "trending"/"viral" claims
 - No chapters — this template excludes chapter timestamps by design
 - No keyword stuffing across sections
+- No tradition/text names or Sanskrit labels in any section (ADR-0012 policy applies to
+  all audience-facing content: narration, titles, descriptions, and hashtags)
 
 Return ONLY valid JSON with no markdown fences or explanation:
 {{
@@ -289,4 +299,9 @@ class DescriptionGenerator:
             sections_present=_sections_present(data),
         )
         description_path(project_id).write_text(result.full_text, encoding="utf-8")
+
+        ra_flags = religion_agnostic.check(result.full_text)
+        for flag in ra_flags:
+            _log.warning(flag)
+
         return result
