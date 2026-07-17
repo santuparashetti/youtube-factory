@@ -4,6 +4,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.scenes.planner.llm_planner import LLMScenePlanner
 from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.pipeline_status import get_writer
 from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.project_repository import ProjectRepository
 
@@ -30,6 +31,10 @@ class ScenePipeline:
         # Strip any leading H1 title heading — it is a structural label, not narration.
         script, heading = strip_script_heading(script)
 
+        _w = get_writer()
+        if _w:
+            _w.stage_start("scene_planning")
+
         scene_plan = self._planner.generate(script)
 
         # Defensive post-process: if the LLM still included the heading text at the
@@ -43,6 +48,9 @@ class ScenePipeline:
                     scene["narration"] = narration[len(heading_text):].lstrip(" ,.:;")
 
         self._repository.save(project_dir, scene_plan)
+
+        if _w:
+            _w.stage_complete()
 
         self._projects.update_stage(
             project.id,

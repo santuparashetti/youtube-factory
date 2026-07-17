@@ -21,6 +21,7 @@ from ytfactory.images.review_engine import write_image_quality_summary
 from ytfactory.images.review_models import SceneReviewArtifact
 from video_core.providers.image.factory import get_image_provider
 from ytfactory.workflow.image_remediation_orchestrator import ImageRemediationOrchestrator
+from ytfactory.shared.pipeline_status import get_writer
 
 
 class ImagePipeline:
@@ -82,10 +83,14 @@ class ImagePipeline:
 
         total = len(scenes)
 
-        print(
-            f"\nGenerating {total} YouTube images "
-            f"({self._settings.image_width}x{self._settings.image_height})\n"
-        )
+        _w = get_writer()
+        if _w:
+            _w.stage_start("image_generation", total=total)
+        else:
+            print(
+                f"\nGenerating {total} YouTube images "
+                f"({self._settings.image_width}x{self._settings.image_height})\n"
+            )
 
         for index, scene in enumerate(
             scenes,
@@ -98,7 +103,8 @@ class ImagePipeline:
             # Asset scenes skip AI image generation and vision review entirely.
             if scene.get("scene_type") == "asset":
                 asset_path = Path(scene.get("asset_path", ""))
-                print(f"[{index}/{total}] {filename} (asset — skipping generation)")
+                if not _w:
+                    print(f"[{index}/{total}] {filename} (asset — skipping generation)")
                 manifest.images.append(
                     ImageArtifact(
                         scene_index=scene["index"],
@@ -107,6 +113,8 @@ class ImagePipeline:
                         path=asset_path if asset_path.exists() else output_path,
                     )
                 )
+                if _w:
+                    _w.stage_progress(index)
                 continue
 
             negative_prompt = (
@@ -128,7 +136,8 @@ class ImagePipeline:
             has_humans = detect_human_presence(prompt_text)
 
             if image_was_new:
-                print(f"[{index}/{total}] {filename}")
+                if not _w:
+                    print(f"[{index}/{total}] {filename}")
                 self._provider.generate(request)
 
                 # Human quality validation: regenerate if sharpness is below threshold
@@ -142,19 +151,22 @@ class ImagePipeline:
                     for attempt in range(max_retries):
                         if sharpness >= threshold:
                             break
-                        print(
-                            f"  ↻ Human scene sharpness {sharpness:.1f} < {threshold} — "
-                            f"retry {attempt + 1}/{max_retries}"
-                        )
+                        if _w:
+                            _w.stage_retry(attempt + 1, max_retries, message=f"Scene {index}: sharpness {sharpness:.1f} < {threshold}")
+                        else:
+                            print(
+                                f"  ↻ Human scene sharpness {sharpness:.1f} < {threshold} — "
+                                f"retry {attempt + 1}/{max_retries}"
+                            )
                         output_path.unlink(missing_ok=True)
                         self._provider.generate(request)
                         sharpness = compute_sharpness(output_path)
-                    if sharpness < threshold:
+                    if sharpness < threshold and not _w:
                         print(
                             f"  ⚠ {filename}: sharpness {sharpness:.1f} still below "
                             f"{threshold} after {max_retries} retries"
                         )
-            else:
+            elif not _w:
                 print(f"[{index}/{total}] {filename} (skip generation)")
 
             # Vision review + auto-remediation — only for newly generated images
@@ -182,11 +194,12 @@ class ImagePipeline:
                     if review_artifact.status == "PASS"
                     else review_artifact.status
                 )
-                print(
-                    f"  ✦ Vision review: {status_tag} "
-                    f"(score={review_artifact.score:.0f}, "
-                    f"attempts={review_artifact.attempts})"
-                )
+                if not _w:
+                    print(
+                        f"  ✦ Vision review: {status_tag} "
+                        f"(score={review_artifact.score:.0f}, "
+                        f"attempts={review_artifact.attempts})"
+                    )
 
             manifest.images.append(
                 ImageArtifact(
@@ -196,6 +209,8 @@ class ImagePipeline:
                     path=output_path,
                 )
             )
+            if _w:
+                _w.stage_progress(index)
 
         # Write global image quality summary
         if review_artifacts:
@@ -206,7 +221,10 @@ class ImagePipeline:
             manifest,
         )
 
-        print("\nImage generation completed.\n")
+        if _w:
+            _w.stage_complete()
+        else:
+            print("\nImage generation completed.\n")
 
         return ImageGenerationResult(
             manifest=manifest,

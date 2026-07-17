@@ -8,6 +8,7 @@ from loguru import logger
 from rich.progress import track
 
 from video_core.cinematic.effects import EffectsPlanner
+from ytfactory.shared.pipeline_status import get_writer
 from video_core.cinematic.motion import MotionPlanner
 from video_core.cinematic.transitions import TransitionPlanner
 from ytfactory.config.settings import Settings
@@ -292,16 +293,20 @@ class VideoPipeline:
 
         output_dir = video_directory(project_id)
 
-        print(f"\nRendering {len(scenes)} video scenes [profile: {self._profile}]...\n")
+        _w = get_writer()
+        if _w:
+            _w.stage_start("scene_rendering", total=len(scenes))
+        else:
+            print(f"\nRendering {len(scenes)} video scenes [profile: {self._profile}]...\n")
 
         scene_clips: list[Path] = []
         durations: list[float] = []
         scene_errors: list[str] = []
+        scene_num = 0
 
-        for scene in track(
-            scenes,
-            description="Rendering",
-        ):
+        scene_iter = scenes if _w else track(scenes, description="Rendering")
+        for scene in scene_iter:
+            scene_num += 1
             index = scene["index"]
             # Use the scene plan estimate as the initial fallback; actual audio
             # duration (from timing.json or ffprobe) takes precedence so that
@@ -387,16 +392,24 @@ class VideoPipeline:
                     continue
 
             scene_clips.append(output)
+            if _w:
+                _w.stage_progress(scene_num)
 
         if scene_errors:
             error_summary = "\n".join(f"  • {e}" for e in scene_errors)
+            if _w:
+                _w.stage_fail(f"{len(scene_errors)} scene(s) failed to render")
             raise RuntimeError(
                 f"Video rendering incomplete — {len(scene_errors)} scene(s) failed:\n"
                 f"{error_summary}\n"
                 "Resolve the asset generation failures above, then re-run `ytfactory render`."
             )
 
-        print("\n✓ All scenes rendered. Composing final video...\n")
+        if _w:
+            _w.stage_complete()
+            _w.stage_start("video_merge")
+        else:
+            print("\n✓ All scenes rendered. Composing final video...\n")
 
         final_video = output_dir / "final.mp4"
 
@@ -407,7 +420,10 @@ class VideoPipeline:
             scenes, durations, project_dir, final_video
         )
 
-        print(f"✓ Final video: {final_video}\n")
+        if _w:
+            _w.stage_complete()
+        else:
+            print(f"✓ Final video: {final_video}\n")
 
     # ── Composition ───────────────────────────────────────────────────────────
 

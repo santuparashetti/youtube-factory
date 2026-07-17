@@ -30,6 +30,7 @@ from ytfactory.voice.aligner import boundaries_from_alignment, load_alignment
 from .artifacts import subtitles_directory
 from .models import CaptionArtifact
 from .repository import CaptionRepository
+from ytfactory.shared.pipeline_status import get_writer
 
 
 class CaptionPipeline:
@@ -53,7 +54,13 @@ class CaptionPipeline:
 
         reports: list[SubtitleReport] = []
 
+        _w = get_writer()
+        if _w:
+            _w.stage_start("subtitle_generation", total=len(scenes))
+        scene_num = 0
+
         for scene in scenes:
+            scene_num += 1
             index = scene["index"]
             srt_path = subtitles_directory(project_id) / f"scene-{index:03d}.srt"
             ass_path = subtitles_directory(project_id) / f"scene-{index:03d}.ass"
@@ -61,6 +68,8 @@ class CaptionPipeline:
             # Skip if primary output already exists
             primary = ass_path if use_ass else srt_path
             if primary.exists():
+                if _w:
+                    _w.stage_progress(scene_num)
                 continue
 
             # Prefer WhisperX alignment (more accurate) over TTS timing.
@@ -113,12 +122,16 @@ class CaptionPipeline:
 
             reports.append(report)
             self.repository.save(artifact)
+            if _w:
+                _w.stage_progress(scene_num)
 
         SubtitleDebugWriter.write_project_summary(
             project_id=project_id,
             reports=reports,
             enabled=settings.subtitle_debug,
         )
+        if _w:
+            _w.stage_complete()
 
 
 def _build_editor(settings: Settings):

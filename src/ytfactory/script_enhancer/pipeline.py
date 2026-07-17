@@ -42,6 +42,7 @@ from ytfactory.shared.scripture import (
 from ytfactory.shared.script_utils import strip_script_heading
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.pipeline_status import get_writer
 
 console = Console()
 
@@ -240,6 +241,9 @@ class DocumentaryScriptEnhancerPipeline:
             )
 
         # ── Pass 1: Faithful Enhancement ───────────────────────────────────────
+        _w = get_writer()
+        if _w:
+            _w.stage_start("documentary_enhancer_pass1")
         console.print("  [cyan]Pass 1:[/cyan] Faithful Enhancement (temp=0.4)...")
         pass1_prompt = build_pass1_prompt(
             topic=topic,
@@ -274,8 +278,12 @@ class DocumentaryScriptEnhancerPipeline:
 
         pass1_restored = restore_scripture_spans(pass1_ph_text, placeholders)
         (script_dir / "script_pass1.md").write_text(pass1_restored, encoding="utf-8")
+        if _w:
+            _w.stage_complete()
 
         # ── Pass 2: Viewer Retention Optimization ──────────────────────────────
+        if _w:
+            _w.stage_start("documentary_enhancer_pass2")
         console.print(
             f"  [cyan]Pass 2:[/cyan] Viewer Retention Optimization "
             f"(temp=0.7, max {_MAX_PASS2_ITERATIONS} iterations)..."
@@ -311,6 +319,12 @@ class DocumentaryScriptEnhancerPipeline:
 
             if narrative_score is not None and narrative_score >= _NARRATIVE_SCORE_THRESHOLD:
                 break
+
+            if _w:
+                _w.stage_retry(pass2_iterations, _MAX_PASS2_ITERATIONS, score=narrative_score)
+
+        if _w:
+            _w.stage_complete()
 
         if narrative_score is not None and narrative_score < _NARRATIVE_SCORE_THRESHOLD:
             console.print(

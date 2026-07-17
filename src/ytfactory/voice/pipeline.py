@@ -19,6 +19,7 @@ from .aligner import save_alignment
 from .artifacts import audio_directory
 from .models import VoiceArtifact
 from .repository import VoiceRepository
+from ytfactory.shared.pipeline_status import get_writer
 
 _optimizer = SpeechOptimizer()
 _validator = AudioValidator()
@@ -85,12 +86,18 @@ class VoicePipeline:
         total = len(scenes)
         scenes_metadata: list[dict] = []
 
+        _w = get_writer()
+        if _w:
+            _w.stage_start("tts", total=total)
+
         for idx, scene in enumerate(scenes):
             output = audio_directory(project_id) / f"scene-{scene['index']:03d}.mp3"
             timing_output = output.with_suffix(".timing.json")
 
             if output.exists() and timing_output.exists():
                 logger.debug("TTS skip scene {} (already generated)", scene["index"])
+                if _w:
+                    _w.stage_progress(idx + 1)
                 continue
 
             scene_position = idx / max(total - 1, 1)
@@ -265,6 +272,8 @@ class VoicePipeline:
                     audio_path=output,
                 )
             )
+            if _w:
+                _w.stage_progress(idx + 1)
 
         # Write project-level diagnostics report
         TTSDebugWriter.write_project_summary(
@@ -272,3 +281,5 @@ class VoicePipeline:
             scenes_metadata=scenes_metadata,
             enabled=self._settings.tts_debug,
         )
+        if _w:
+            _w.stage_complete()

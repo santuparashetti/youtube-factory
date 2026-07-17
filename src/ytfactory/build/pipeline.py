@@ -24,6 +24,7 @@ from ytfactory.script_enhancer.pipeline import (
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.video.pipeline import VideoPipeline
 from ytfactory.voice.pipeline import VoicePipeline
+from ytfactory.shared.pipeline_status import PipelineStatusWriter, activate_writer
 
 console = Console()
 
@@ -58,54 +59,57 @@ class BuildPipeline:
         style: str | None = None,
         target_minutes: int = 7,
     ) -> None:
+        project_dir = Path(WORKSPACE_DIR) / project_id
+        writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
 
-        if not skip_script:
-            project = ProjectRepository().load(project_id)
-            self.light_normalization.run(project_id)
-            self.documentary_script_enhancer.run(
-                project_id,
-                topic=project.title,
-                style=style,
-                target_minutes=target_minutes,
-            )
-        if not skip_scenes:
-            self.scenes.run(project_id)
-        if not skip_images:
-            self.images.run(project_id)
-        self.voice.run(project_id)
-        self.captions.run(project_id)
-        self.video.run(project_id)
-        self.cta.run(project_id)
-
-        review_report = self.review.run(project_id)
-
-        if review_report.verdict == "FAIL":
-            if auto_remediate:
-                config = RemediationConfig(
-                    quality_threshold=remediation_threshold,
-                    max_retries=remediation_max_retries,
-                    dry_run=False,
+        with activate_writer(writer):
+            if not skip_script:
+                project = ProjectRepository().load(project_id)
+                self.light_normalization.run(project_id)
+                self.documentary_script_enhancer.run(
+                    project_id,
+                    topic=project.title,
+                    style=style,
+                    target_minutes=target_minutes,
                 )
-                remediation_report = AutoRemediationEngine(config=config).remediate(
-                    project_id, review_report
-                )
-                if remediation_report.final_verdict != "PASS":
-                    raise RuntimeError(
-                        f"Pipeline stopped: quality review failed after "
-                        f"{remediation_report.total_cycles} remediation cycle(s) "
-                        f"(reason: {remediation_report.stopped_reason}). "
-                        "Publishing skipped. Run `ytfactory review <id>` to inspect "
-                        "the report or fix issues manually."
+            if not skip_scenes:
+                self.scenes.run(project_id)
+            if not skip_images:
+                self.images.run(project_id)
+            self.voice.run(project_id)
+            self.captions.run(project_id)
+            self.video.run(project_id)
+            self.cta.run(project_id)
+
+            review_report = self.review.run(project_id)
+
+            if review_report.verdict == "FAIL":
+                if auto_remediate:
+                    config = RemediationConfig(
+                        quality_threshold=remediation_threshold,
+                        max_retries=remediation_max_retries,
+                        dry_run=False,
                     )
-            else:
-                raise RuntimeError(
-                    "Pipeline stopped: quality review FAIL. "
-                    "Auto-remediation is disabled (--no-remediate). "
-                    "Run `ytfactory remediate <id>` to attempt repair, "
-                    "or inspect workspace/<id>/review/ for details."
-                )
+                    remediation_report = AutoRemediationEngine(config=config).remediate(
+                        project_id, review_report
+                    )
+                    if remediation_report.final_verdict != "PASS":
+                        raise RuntimeError(
+                            f"Pipeline stopped: quality review failed after "
+                            f"{remediation_report.total_cycles} remediation cycle(s) "
+                            f"(reason: {remediation_report.stopped_reason}). "
+                            "Publishing skipped. Run `ytfactory review <id>` to inspect "
+                            "the report or fix issues manually."
+                        )
+                else:
+                    raise RuntimeError(
+                        "Pipeline stopped: quality review FAIL. "
+                        "Auto-remediation is disabled (--no-remediate). "
+                        "Run `ytfactory remediate <id>` to attempt repair, "
+                        "or inspect workspace/<id>/review/ for details."
+                    )
 
-        self.publish.run(project_id)
+            self.publish.run(project_id)
 
     # ── Incremental / resume mode ─────────────────────────────────────────────
 
@@ -131,6 +135,7 @@ class BuildPipeline:
         project_dir = Path(WORKSPACE_DIR) / project_id
         engine = IncrementalBuildEngine(project_dir)
         engine.initialize_workspace()
+        writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
 
         # Build the set of forced stages from flag names
         all_force = set(force_stages or ())
@@ -153,61 +158,62 @@ class BuildPipeline:
 
         console.print(Rule("[bold cyan]Incremental Build — Change Detection[/bold cyan]"))
 
-        # normalize + enhance — skipped when script.md is unchanged
-        if _should_run("script"):
-            project = ProjectRepository().load(project_id)
-            self.light_normalization.run(project_id)
-            self.documentary_script_enhancer.run(project_id, topic=project.title)
-            engine.record_stage_outputs("script")
+        with activate_writer(writer):
+            # normalize + enhance — skipped when script.md is unchanged
+            if _should_run("script"):
+                project = ProjectRepository().load(project_id)
+                self.light_normalization.run(project_id)
+                self.documentary_script_enhancer.run(project_id, topic=project.title)
+                engine.record_stage_outputs("script")
 
-        # scenes — always skipped if scene-plan.json exists and unchanged
-        if _should_run("scenes"):
-            self.scenes.run(project_id)
-            engine.record_stage_outputs("scenes")
-            engine.initialize_workspace()
+            # scenes — always skipped if scene-plan.json exists and unchanged
+            if _should_run("scenes"):
+                self.scenes.run(project_id)
+                engine.record_stage_outputs("scenes")
+                engine.initialize_workspace()
 
-        # images
-        if _should_run("images"):
-            self.images.run(project_id)
-            engine.record_stage_outputs("images")
+            # images
+            if _should_run("images"):
+                self.images.run(project_id)
+                engine.record_stage_outputs("images")
 
-        # voice
-        if _should_run("voice"):
-            self.voice.run(project_id)
-            engine.record_stage_outputs("voice")
+            # voice
+            if _should_run("voice"):
+                self.voice.run(project_id)
+                engine.record_stage_outputs("voice")
 
-        # captions
-        if _should_run("captions"):
-            self.captions.run(project_id)
-            engine.record_stage_outputs("captions")
+            # captions
+            if _should_run("captions"):
+                self.captions.run(project_id)
+                engine.record_stage_outputs("captions")
 
-        # video
-        if _should_run("video"):
-            self.video.run(project_id)
-            engine.record_stage_outputs("video")
+            # video
+            if _should_run("video"):
+                self.video.run(project_id)
+                engine.record_stage_outputs("video")
 
-        # cta overlay (runs after video; rebuilds only CTA + final render when changed)
-        if _should_run("cta"):
-            self.cta.run(project_id)
-            engine.record_stage_outputs("cta")
+            # cta overlay (runs after video; rebuilds only CTA + final render when changed)
+            if _should_run("cta"):
+                self.cta.run(project_id)
+                engine.record_stage_outputs("cta")
 
-        # review
-        if _should_run("review"):
-            review_report = self.review.run(project_id)
-            engine.record_stage_outputs("review")
-            engine.update_workspace_from_review(review_report)
-        else:
-            review_report = None
+            # review
+            if _should_run("review"):
+                review_report = self.review.run(project_id)
+                engine.record_stage_outputs("review")
+                engine.update_workspace_from_review(review_report)
+            else:
+                review_report = None
 
-        # remediate if needed (same logic as run())
-        if review_report is not None and review_report.verdict == "FAIL":
-            config = RemediationConfig(quality_threshold=70.0, max_retries=3, dry_run=False)
-            AutoRemediationEngine(config=config).remediate(project_id, review_report)
+            # remediate if needed (same logic as run())
+            if review_report is not None and review_report.verdict == "FAIL":
+                config = RemediationConfig(quality_threshold=70.0, max_retries=3, dry_run=False)
+                AutoRemediationEngine(config=config).remediate(project_id, review_report)
 
-        # publish
-        if _should_run("publish"):
-            self.publish.run(project_id)
-            engine.record_stage_outputs("publish")
+            # publish
+            if _should_run("publish"):
+                self.publish.run(project_id)
+                engine.record_stage_outputs("publish")
 
         # Write scene-review.md
         engine.write_scene_review_md()
