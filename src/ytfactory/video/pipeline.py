@@ -441,6 +441,18 @@ class VideoPipeline:
         and *durations* so the CLI path avoids re-reading from disk.
         """
         tmp = output_path.with_suffix(".work.mp4")
+
+        # Resume guard: if a previous run was interrupted after render_continuous
+        # but before BGM mixing completed, tmp exists but output_path does not.
+        # Skip the expensive re-render and jump straight to BGM.
+        if tmp.exists() and not output_path.exists():
+            logger.info(
+                "Resuming BGM mix from existing {} (render already complete)",
+                tmp.name,
+            )
+            _apply_bgm(tmp, output_path, self._settings, project_dir)
+            return
+
         self.renderer.render_continuous(
             scenes=scenes,
             durations=durations,
