@@ -159,6 +159,23 @@ class TestDocumentaryEnhancerValidator:
         ok, errors = self.v.validate_pass1(original, pass1)
         assert ok
 
+    def test_pass1_shorten_mode_skips_coverage_check(self):
+        # In shorten mode, 60% coverage is acceptable — shortening is the goal
+        original = "word " * 100
+        pass1 = "word " * 60  # 60% — would fail expand mode
+        ok, errors = self.v.validate_pass1(original, pass1, mode="shorten")
+        assert ok
+        assert errors == []
+
+    def test_validate_final_shorten_mode_skips_coverage_check(self):
+        # In shorten mode, final output below 80% of input is expected
+        original = "word " * 200
+        final = "word " * 140  # 70% — would fail expand mode
+        placeholders: dict[str, str] = {}
+        ok, errors, warnings = self.v.validate_final(original, final, placeholders, mode="shorten")
+        assert ok
+        assert not any("coverage too low" in e for e in errors)
+
     def test_validate_final_ok_when_scripture_present(self):
         original = "The teacher said ॐ नमः शिवाय with reverence."
         final = "The teacher spoke: ॐ नमः शिवाय — the eternal invocation."

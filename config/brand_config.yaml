@@ -44,7 +44,7 @@ branding:
 # Template precedence: branding.accent_color / branding.font always win
 # over template defaults unless the template property is locked: true.
 cta_overlay:
-  enabled: true            # set to true to enable per-video CTA overlay
+  enabled: false           # set to true to enable per-video CTA overlay
   template: atma           # glass | minimal | atma | premium
   timing_mode: post_hook   # post_hook | contextual (insight-tier pauses) | fixed
   fallback_timing: 65%     # fallback position if no safe pause found

@@ -85,9 +85,11 @@ class DocumentaryEnhancerValidator:
         self,
         original_ph_text: str,
         pass1_ph_text: str,
+        mode: str = "expand",
     ) -> tuple[bool, list[str]]:
         """Check Pass 1 output for scripture placeholder preservation and coverage.
 
+        In 'shorten' mode the coverage minimum is skipped — fewer words is the goal.
         Returns (ok, errors).
         """
         errors: list[str] = []
@@ -97,16 +99,17 @@ class DocumentaryEnhancerValidator:
             if f"{{{{{key}}}}}" not in pass1_ph_text:
                 errors.append(f"Pass 1 dropped scripture placeholder: {{{{{key}}}}}")
 
-        # Coverage check (word count)
-        orig_words = len(original_ph_text.split())
-        pass1_words = len(pass1_ph_text.split())
-        coverage = pass1_words / orig_words if orig_words > 0 else 1.0
-        if coverage < _COVERAGE_THRESHOLD:
-            errors.append(
-                f"Pass 1 coverage too low: {coverage:.0%} "
-                f"({pass1_words} / {orig_words} words). "
-                f"Minimum: {_COVERAGE_THRESHOLD:.0%}"
-            )
+        # Coverage check — only meaningful when expanding or polishing
+        if mode != "shorten":
+            orig_words = len(original_ph_text.split())
+            pass1_words = len(pass1_ph_text.split())
+            coverage = pass1_words / orig_words if orig_words > 0 else 1.0
+            if coverage < _COVERAGE_THRESHOLD:
+                errors.append(
+                    f"Pass 1 coverage too low: {coverage:.0%} "
+                    f"({pass1_words} / {orig_words} words). "
+                    f"Minimum: {_COVERAGE_THRESHOLD:.0%}"
+                )
 
         return len(errors) == 0, errors
 
@@ -115,9 +118,11 @@ class DocumentaryEnhancerValidator:
         original_text: str,
         final_text: str,
         placeholders: dict[str, str],
+        mode: str = "expand",
     ) -> tuple[bool, list[str], list[str]]:
         """Check final output for scripture verbatim match, coverage, and fabrication signals.
 
+        In 'shorten' mode the coverage minimum is skipped — fewer words is the goal.
         Returns (ok, errors, warnings).
         """
         errors: list[str] = []
@@ -128,15 +133,16 @@ class DocumentaryEnhancerValidator:
         for span in missing:
             errors.append(f"Scripture span missing from final output: {span!r}")
 
-        # Coverage check
-        orig_words = len(original_text.split())
-        final_words = len(final_text.split())
-        coverage = final_words / orig_words if orig_words > 0 else 1.0
-        if coverage < _COVERAGE_THRESHOLD:
-            errors.append(
-                f"Final coverage too low: {coverage:.0%} "
-                f"({final_words} / {orig_words} words)"
-            )
+        # Coverage check — only meaningful when expanding or polishing
+        if mode != "shorten":
+            orig_words = len(original_text.split())
+            final_words = len(final_text.split())
+            coverage = final_words / orig_words if orig_words > 0 else 1.0
+            if coverage < _COVERAGE_THRESHOLD:
+                errors.append(
+                    f"Final coverage too low: {coverage:.0%} "
+                    f"({final_words} / {orig_words} words)"
+                )
 
         # Unattributed facts heuristic — years in final not in original
         orig_years = set(re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", original_text))
@@ -243,7 +249,7 @@ class DocumentaryScriptEnhancerPipeline:
         pass1_ph_text = pass1_response.text.strip()
 
         pass1_ok, pass1_errors = self._validator.validate_pass1(
-            placeholder_text, pass1_ph_text
+            placeholder_text, pass1_ph_text, mode=mode
         )
         pass1_fallback = False
 
@@ -311,7 +317,7 @@ class DocumentaryScriptEnhancerPipeline:
         # ── Final validation ────────────────────────────────────────────────────
         final_restored = restore_scripture_spans(pass2_ph_text, placeholders)
         final_ok, final_errors, final_warnings = self._validator.validate_final(
-            script_text, final_restored, placeholders
+            script_text, final_restored, placeholders, mode=mode
         )
 
         if not final_ok:
