@@ -81,3 +81,13 @@ pretty = true
 [[tool.mypy.overrides]]
 module = ["tavily"]
 ignore_missing_imports = true
+
+[tool.uv]
+no-binary-package = ["llama-cpp-python"]
+
+[tool.uv.config-settings-package."llama-cpp-python"]
+"cmake.define.GGML_NATIVE" = "OFF"
+"cmake.define.GGML_AVX512" = "OFF"
+"cmake.define.GGML_AVX512_VBMI" = "OFF"
+"cmake.define.GGML_AVX512_VNNI" = "OFF"
+"cmake.define.GGML_AVX512_BF16" = "OFF"

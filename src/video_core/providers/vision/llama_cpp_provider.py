@@ -173,7 +173,9 @@ class LlamaCppVisionProvider(VisionProvider):
         try:
             load_kwargs: dict[str, object] = {  # type: ignore[type-arg]
                 "model_path": text_model_path,
-                "n_ctx": 4096,
+                "n_ctx": 16384,
+                "n_batch": 4096,
+                "n_ubatch": 4096,
                 "n_gpu_layers": n_gpu_layers,
                 "verbose": False,
             }
