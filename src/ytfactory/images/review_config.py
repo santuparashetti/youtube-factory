@@ -26,6 +26,8 @@ class ImageReviewConfig:
     debug: bool = False
     # ADR-0015: staged Human Subject QA Gate
     human_qa_enabled: bool = True
+    # Check for visible hands in scenes where hand-avoidance composition was applied.
+    hand_avoidance_check_enabled: bool = True
 
     @classmethod
     def from_settings(cls, settings: object) -> "ImageReviewConfig":
@@ -40,6 +42,7 @@ class ImageReviewConfig:
             auto_remediate=getattr(settings, "image_review_auto_remediate", True),
             debug=getattr(settings, "image_review_debug", False),
             human_qa_enabled=getattr(settings, "image_human_qa_enabled", True),
+            hand_avoidance_check_enabled=getattr(settings, "image_hand_avoidance_check_enabled", True),
         )
 
     def passes(

@@ -45,7 +45,9 @@ services:
     # Keep the container running for exec-based usage
     command: ['python', '-c', 'import time; time.sleep(1e9)']
 
-    # Resource limits (adjust for your hardware)
+    # Resource limits (adjust for your hardware).
+    # Raise to 16G if IMAGE_REVIEW_ENABLED=true — the vision model (~3 GB) and
+    # Kokoro TTS are held in RAM across 30+ parallel scene nodes.
     deploy:
       resources:
         limits:

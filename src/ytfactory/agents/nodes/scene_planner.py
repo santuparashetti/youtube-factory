@@ -19,6 +19,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
 
@@ -401,6 +402,48 @@ def scene_planner_node(state: VideoState) -> dict:
     if existing_plan_path.exists():
         existing = json.loads(existing_plan_path.read_text(encoding="utf-8"))
         scenes = existing.get("scenes", [])
+
+        # Defensive: strip heading prefix from scene 1 narration if it leaked from
+        # a run before this fix was in place.  Patches the cached JSON in-place so
+        # subsequent reads are already clean (idempotent — heading_text won't match
+        # after first strip).  Three fallback sources for the heading text:
+        #   1. script_md in graph state  2. script.md on disk  3. project title
+        _raw_script = state.get("script_md", "") or ""
+        if not _raw_script:
+            _sp = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
+            if _sp.exists():
+                _raw_script = _sp.read_text(encoding="utf-8")
+        _, _heading = strip_script_heading(_raw_script) if _raw_script else ("", "")
+        if not _heading:
+            _proj = project_repo.load(project_id)
+            _heading = _proj.title.upper() if _proj and _proj.title else ""
+        if _heading:
+            _heading_text = _heading.strip()
+            for _scene in scenes:
+                _narration = _scene.get("narration", "")
+                if _narration.startswith(_heading_text):
+                    _scene["narration"] = _narration[len(_heading_text):].lstrip(" ,.:;")
+                    existing_plan_path.write_text(
+                        json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    # Subtitles always rebuild from narration, but audio and video are
+                    # skipped when the file already exists.  Delete stale files so the
+                    # next generate-voice / render run picks up the corrected text.
+                    _idx = _scene.get("index", 0)
+                    _job_dir = Path(WORKSPACE_DIR) / project_id
+                    for _stale in [
+                        _job_dir / "audio" / f"scene-{_idx:03d}.mp3",
+                        _job_dir / "video" / f"scene-{_idx:03d}.mp4",
+                    ]:
+                        if _stale.exists():
+                            _stale.unlink()
+                            logger.info(
+                                "Deleted stale {} for scene {:03d} after heading-strip patch",
+                                _stale.name, _idx,
+                            )
+                    break
+
         total = sum(s.get("duration_seconds", 0) for s in scenes)
         console.print(
             f"  [green]✓[/green] Loaded existing scene plan — "
@@ -418,6 +461,9 @@ def scene_planner_node(state: VideoState) -> dict:
         if not script_path.exists():
             raise FileNotFoundError("Script not found. Run script-writer first.")
         script_md = script_path.read_text(encoding="utf-8")
+
+    # Strip leading H1 heading — it is a structural label, not spoken narration.
+    script_md, _ = strip_script_heading(script_md)
 
     # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
     # The LLM was reliably failing to return 25+ scenes in one JSON response —

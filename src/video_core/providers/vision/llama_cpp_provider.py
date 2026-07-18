@@ -11,7 +11,9 @@ No model names, chat format strings, or projector filenames are hardcoded here.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -22,6 +24,28 @@ from video_core.models.backend import Backend, select_backend
 
 from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
 from .models import IssueSeverity, VisionIssue, VisionReviewResult
+
+
+@contextlib.contextmanager
+def _silence_c_output():
+    """Redirect C-level fd 1/2 to /dev/null to suppress llama.cpp's internal logs.
+
+    ``verbose=False`` suppresses Python-level output but the C library writes
+    ``load_tensors:``, ``tokenize:``, ``add_text:`` etc. directly to the OS
+    file descriptors and cannot be filtered by Python's logging system.
+    """
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    try:
+        os.dup2(null_fd, 1)
+        os.dup2(null_fd, 2)
+        yield
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(null_fd)
+        os.close(saved_out)
+        os.close(saved_err)
 
 
 class LlamaCppVisionProvider(VisionProvider):
@@ -181,7 +205,8 @@ class LlamaCppVisionProvider(VisionProvider):
                 backend.value,
                 chat_format or "none",
             )
-            self._model = Llama(**load_kwargs)  # type: ignore[arg-type]
+            with _silence_c_output():
+                self._model = Llama(**load_kwargs)  # type: ignore[arg-type]
             logger.info("llama.cpp model '{}' loaded", self._model_name)
             return self._model
 
@@ -215,11 +240,12 @@ class LlamaCppVisionProvider(VisionProvider):
             }
         ]
 
-        response = model.create_chat_completion(  # type: ignore[union-attr, attr-defined]
-            messages=messages,
-            max_tokens=512,
-            temperature=0.1,
-        )
+        with _silence_c_output():
+            response = model.create_chat_completion(  # type: ignore[union-attr, attr-defined]
+                messages=messages,
+                max_tokens=512,
+                temperature=0.1,
+            )
         return str(response["choices"][0]["message"]["content"])
 
     def _parse_response(self, raw: str) -> VisionReviewResult:

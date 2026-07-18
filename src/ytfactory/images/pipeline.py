@@ -14,6 +14,7 @@ from ytfactory.images.models import (
 from ytfactory.images.prompt_engine import (
     _DEFAULT_NEGATIVE_PROMPT,
     _PROVIDERS_WITH_NEGATIVE_PROMPTS,
+    apply_hand_avoidance,
 )
 from ytfactory.images.repository import ImageRepository
 from ytfactory.images.review_config import ImageReviewConfig
@@ -71,6 +72,7 @@ class ImagePipeline:
             scene_plan = json.load(f)
 
         scenes = scene_plan["scenes"]
+        scenes = apply_hand_avoidance(scenes, self._settings.image_provider)
 
         output_dir = project_dir / "images"
         output_dir.mkdir(

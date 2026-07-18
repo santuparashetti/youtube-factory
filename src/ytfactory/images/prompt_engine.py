@@ -70,10 +70,20 @@ _ANATOMY_REINFORCEMENT = (
 # Default negative prompt for providers that support it.
 # Clothing terms appended from clothing_policy at runtime to keep them in sync.
 _DEFAULT_NEGATIVE_PROMPT = (
-    "deformed hands, extra fingers, distorted anatomy, floating hands, giant hands, "
+    "deformed hands, extra fingers, mutated hands, malformed fingers, bent fingers, "
+    "wrong finger count, too many fingers, missing fingers, fused fingers, "
+    "distorted anatomy, floating hands, giant hands, "
     "isolated hands, disembodied hands, AI artifacts, surreal distortions, "
     "multiple heads, merged limbs, text, watermark, logo, extreme close-up of body parts, "
     + get_negative_clothing_terms()
+)
+
+# Extra hand-artifact terms appended when hand-avoidance composition is active.
+# These go beyond the base negative prompt to target the specific defects that
+# appear when a model tries to include hands that "should" be there.
+_HAND_COMPOSITION_NEGATIVE = (
+    "mutated hands, malformed fingers, bent fingers, wrong finger count, "
+    "too many fingers, missing fingers, fused fingers, extra limbs"
 )
 
 
@@ -450,3 +460,48 @@ class ImagePromptEngineV4:
         )
 
         return debug_dir
+
+
+# ── Scene-level hand avoidance pass ──────────────────────────────────────────
+
+
+def apply_hand_avoidance(scenes: list[dict], provider_name: str) -> list[dict]:
+    """Apply composition-level hand-avoidance to scenes that don't require hands.
+
+    For each generated_image scene whose narration contains no hand-gesture or
+    ritual keyword, this function:
+      1. Appends framing guidance to ``visual_prompt`` (idempotent sentinel check).
+      2. For providers that support negative prompts, extends ``negative_prompt``
+         with additional hand-artifact suppression terms.
+
+    Asset scenes pass through unchanged.
+    """
+    from ytfactory.images.human_detector import (
+        add_back_view_hand_orientation,
+        add_hand_avoidance_composition,
+        has_intentional_hands,
+        is_back_or_profile_view,
+    )
+
+    key = provider_name.lower().strip()
+    uses_negative = key in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+
+    result: list[dict] = []
+    for scene in scenes:
+        s = dict(scene)
+        if s.get("scene_type", "generated_image") != "generated_image":
+            result.append(s)
+            continue
+        narration = s.get("narration", "")
+        prompt = s.get("visual_prompt", "")
+        if not has_intentional_hands(narration):
+            s["visual_prompt"] = add_hand_avoidance_composition(prompt)
+            if uses_negative:
+                existing = s.get("negative_prompt") or _DEFAULT_NEGATIVE_PROMPT
+                first_new_term = _HAND_COMPOSITION_NEGATIVE.split(",")[0].strip()
+                if first_new_term not in existing:
+                    s["negative_prompt"] = existing + ", " + _HAND_COMPOSITION_NEGATIVE
+        elif is_back_or_profile_view(prompt):
+            s["visual_prompt"] = add_back_view_hand_orientation(prompt)
+        result.append(s)
+    return result

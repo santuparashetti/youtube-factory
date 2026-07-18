@@ -229,6 +229,28 @@ class ImageRemediationOrchestrator:
         if write_history and history:
             self._write_final(attempt_base, final_artifact, original_prompt, len(history))
 
+        if final_artifact.status == "FAIL":
+            flag_path = output_dir / f"needs-review-{idx:03d}.json"
+            flag_path.write_text(
+                json.dumps(
+                    {
+                        "scene_index": idx,
+                        "status": "FAIL",
+                        "score": final_artifact.score,
+                        "confidence": final_artifact.confidence,
+                        "attempts": final_artifact.attempts,
+                        "issues": final_artifact.issues,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            logger.error(
+                "Scene {:03d} | QA FAIL after {:d} attempt(s) — "
+                "manual review required → {}",
+                idx, final_artifact.attempts, flag_path.name,
+            )
+
         return final_artifact
 
     # ── Helpers ───────────────────────────────────────────────────────────

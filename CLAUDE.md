@@ -103,7 +103,7 @@ workspace/jobs/<project-id>/
 ├── research/          # research.md, research.json, sources.json
 ├── script/            # script.md (imported or manually written)
 ├── scenes/            # scene-plan.json  ← consumed by all later stages
-├── images/            # scene-001.png … + manifest.json
+├── images/            # scene-001.png … + manifest.json + needs-review-NNN.json (QA exhausted-FAIL flag)
 ├── audio/             # scene-001.mp3 …
 ├── subtitles/         # scene-001.srt …
 ├── video/             # scene-001.mp4 … + final.mp4 (+ final.pre-cta.mp4 when CTA applied)
@@ -125,6 +125,8 @@ workspace/jobs/<project-id>/
 
 `scene-plan.json` is the central artifact: every downstream stage (images, voice, captions, video) reads `scenes[].visual_prompt`, `scenes[].narration`, and `scenes[].duration_seconds` from it.
 
+**Scene planner idempotency patch:** `scene_planner_node` (`agents/nodes/scene_planner.py`) caches the plan and returns early if `scene-plan.json` already exists. The early-return block also defensively strips any H1 heading that leaked into scene 1's narration from older runs. If scene 1 narration was corrupted (title text concatenated into spoken content), delete `audio/scene-001.mp3`, `subtitles/scene-001.srt`, and `video/scene-001.mp4`, then re-run `generate-voice → generate-captions → render` — the cached plan will be auto-patched on the next pipeline run without a full re-plan.
+
 ### Review Layer (Quality Gate)
 
 `src/ytfactory/review/` — 7-layer quality gate (stage checks → validation rules → RCA → quality scoring → engine feedback loop → debug mode → auto remediation). Runs after `ytfactory render`.
@@ -136,6 +138,16 @@ workspace/jobs/<project-id>/
 - EFL: 12 engine targets; names normalized via `ENGINE_NORMALIZATION` in `efl/config.py`
 - **"human" NOT in `_HUMAN_INDICATORS`** — avoid false positive with "natural human anatomy"
 - Output: `workspace/jobs/<id>/review/` — 17+ files; `remediation/` — 4 files
+
+### Image Review Layer (`src/ytfactory/images/`)
+
+Per-scene vision QA gate runs during `generate-images` (both LangGraph and direct pipeline paths). Controlled by `ImageReviewConfig` (from `images/review_config.py`).
+
+- Active model: **Qwen2.5-VL-3B** (`qwen2_5_vl_3b`, ~3 GB disk); set via `VISION_REVIEW_LOCAL_MODEL`
+- **Provider caching:** vision model and Kokoro TTS are loaded once at module level in `scene_assets.py` (`_get_vision_provider`, `_get_tts_provider`) and shared across all parallel scene nodes. Never call `get_vision_provider()`/`get_tts_provider()` directly inside scene nodes — always use the cached wrappers to avoid per-scene reloads and OOM
+- `IMAGE_HAND_AVOIDANCE_CHECK_ENABLED=true` (default) — extra vision check for visible hands in back-view/profile scenes; only fires when `IMAGE_REVIEW_ENABLED=true`
+- On exhausted retries with FAIL: writes `images/needs-review-NNN.json` flag and emits `logger.error` — scene is NOT blocked but flagged for manual inspection
+- QA gate order per attempt: specialist review → human QA → hand-presence check; refinement priority: `hand_presence > human_qa > specialist > overall`
 
 ### Publishing Layer (`src/ytfactory/publish/`)
 

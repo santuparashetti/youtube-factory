@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -14,6 +15,15 @@ from video_core.providers.tts.debug import TTSDebugWriter
 from video_core.providers.tts.factory import get_tts_provider
 from video_core.providers.tts.optimizer import SpeechOptimizer
 from video_core.providers.tts.validator import AudioValidator
+from ytfactory.images.human_detector import (
+    add_back_view_hand_orientation,
+    add_hand_avoidance_composition,
+    detect_human_presence,
+    has_intentional_hands,
+    is_back_or_profile_view,
+)
+from ytfactory.images.prompt_engine import _DEFAULT_NEGATIVE_PROMPT, _PROVIDERS_WITH_NEGATIVE_PROMPTS
+from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.subtitles import SubtitleEngine
 from ytfactory.subtitles.models import SubtitleFormat
@@ -21,11 +31,39 @@ from ytfactory.subtitles.models import SubtitleFormat
 _optimizer = SpeechOptimizer()
 _validator = AudioValidator()
 
-_NEGATIVE_PROMPT = (
-    "text, watermark, logo, words, letters, numbers, captions, subtitles, "
-    "blurry, distorted, ugly, low quality, bad anatomy, duplicate, "
-    "worst quality, overexposed, underexposed"
-)
+# Vision and TTS providers are expensive to load (GGUF weights / PyTorch model).
+# Cache instances at module level so all parallel LangGraph scene nodes share one
+# loaded model instead of each loading their own copy.
+_vision_provider_cache: dict[str, object] = {}
+_vision_provider_lock = threading.Lock()
+
+_tts_provider_cache: dict[str, object] = {}
+_tts_provider_lock = threading.Lock()
+
+
+def _get_vision_provider(provider_name: str, local_model: str) -> object:
+    key = f"{provider_name}:{local_model}"
+    if key in _vision_provider_cache:
+        return _vision_provider_cache[key]
+    with _vision_provider_lock:
+        if key not in _vision_provider_cache:
+            from video_core.providers.vision.factory import get_vision_provider
+            _vision_provider_cache[key] = get_vision_provider(
+                provider_name, local_model=local_model
+            )
+    return _vision_provider_cache[key]
+
+
+def _get_tts_provider(settings: object) -> object:
+    from ytfactory.config.settings import Settings
+    s = settings if isinstance(settings, Settings) else Settings()
+    key = f"{s.tts_provider}:{getattr(s, 'kokoro_voice', '')}:{getattr(s, 'kokoro_speed', '')}"
+    if key in _tts_provider_cache:
+        return _tts_provider_cache[key]
+    with _tts_provider_lock:
+        if key not in _tts_provider_cache:
+            _tts_provider_cache[key] = get_tts_provider(s)
+    return _tts_provider_cache[key]
 
 
 def _get_audio_duration(path: Path) -> float:
@@ -56,6 +94,13 @@ def generate_scene_assets(state: VideoState) -> dict:
     visual_prompt: str = scene["visual_prompt"]
     estimated_duration: float = float(scene.get("duration_seconds", 10))
 
+    # Apply composition-level hand avoidance when hands aren't narrative-essential.
+    uses_negative = settings.image_provider.lower() in _PROVIDERS_WITH_NEGATIVE_PROMPTS
+    if not has_intentional_hands(narration):
+        visual_prompt = add_hand_avoidance_composition(visual_prompt)
+    elif is_back_or_profile_view(visual_prompt):
+        visual_prompt = add_back_view_hand_orientation(visual_prompt)
+
     skip_images: bool = state.get("skip_images", False)
 
     project_dir = Path(WORKSPACE_DIR) / project_id
@@ -72,6 +117,7 @@ def generate_scene_assets(state: VideoState) -> dict:
     ass_path = subtitles_dir / f"scene-{index:03d}.ass"
 
     errors: list[str] = []
+    image_was_new = False
 
     # ── 1. Resolve image — asset bypass or AI generation ─────────────────
     scene_type: str = scene.get("scene_type", "generated_image")
@@ -91,6 +137,7 @@ def generate_scene_assets(state: VideoState) -> dict:
     elif skip_images:
         logger.info("Scene {} — image generation skipped (--no-images mode)", index)
     elif not image_path.exists():
+        image_was_new = True
         import time
 
         time.sleep(index * 3)
@@ -102,7 +149,7 @@ def generate_scene_assets(state: VideoState) -> dict:
                 output_path=image_path,
                 width=settings.image_width,
                 height=settings.image_height,
-                negative_prompt=_NEGATIVE_PROMPT,
+                negative_prompt=_DEFAULT_NEGATIVE_PROMPT if uses_negative else None,
                 guidance_scale=7.5,
             )
             for attempt in range(5):
@@ -130,6 +177,38 @@ def generate_scene_assets(state: VideoState) -> dict:
     else:
         logger.info("Scene {} image already exists, skipping", index)
 
+    # ── 1b. Vision review + auto-remediation ─────────────────────────────
+    # Mirrors the review gate in ImagePipeline.run(); only fires for newly
+    # generated images that contain human subjects.
+    if image_was_new and image_path.exists() and detect_human_presence(visual_prompt):
+        review_config = ImageReviewConfig.from_settings(settings)
+        if review_config.enabled:
+            try:
+                from ytfactory.workflow.image_remediation_orchestrator import ImageRemediationOrchestrator
+
+                vision = _get_vision_provider(
+                    review_config.provider, local_model=review_config.local_model
+                )
+                orchestrator = ImageRemediationOrchestrator(
+                    review_config, vision, get_image_provider(settings)
+                )
+                scene_with_dims = {
+                    **scene,
+                    "visual_prompt": visual_prompt,
+                    "narration": narration,
+                    "width": settings.image_width,
+                    "height": settings.image_height,
+                }
+                logger.info("Scene {}: vision QA — reviewing image...", index)
+                artifact = orchestrator.review_scene(scene_with_dims, image_path, images_dir)
+                _qa_log = logger.warning if artifact.status == "FAIL" else logger.info
+                _qa_log(
+                    "Scene {}: vision QA {} (score={:.0f}, attempts={})",
+                    index, artifact.status, artifact.score, artifact.attempts,
+                )
+            except Exception as exc:
+                logger.warning("Scene {}: vision review error — {}", index, exc)
+
     # ── 2. Generate voice + capture word boundaries ───────────────────────
     boundaries: list[dict] = []
 
@@ -146,7 +225,7 @@ def generate_scene_assets(state: VideoState) -> dict:
 
     if not audio_path.exists():
         try:
-            tts = get_tts_provider(settings)
+            tts = _get_tts_provider(settings)
 
             optimized_narration = _optimizer.optimize(
                 narration,

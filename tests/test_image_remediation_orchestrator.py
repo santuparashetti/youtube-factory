@@ -224,6 +224,39 @@ class TestMaxAttemptsExhausted:
         orch.review_scene(_scene(), image, tmp_path)
         assert engine.review_scene.call_count == 3
 
+    def test_writes_needs_review_flag_on_exhausted_fail(self, tmp_path: Path) -> None:
+        image = tmp_path / "scene-001.png"
+        image.write_bytes(b"png")
+        side = [_fail_artifact()] * 3
+        orch, engine, image_prov = _make_orchestrator(max_attempts=3, side_effects=side)
+
+        def fake_generate(req: Any) -> None:
+            req.output_path.write_bytes(b"png")
+
+        image_prov.generate.side_effect = fake_generate
+        orch.review_scene(_scene(idx=1), image, tmp_path)
+
+        flag = tmp_path / "needs-review-001.json"
+        assert flag.exists(), "needs-review flag file should be written on exhausted FAIL"
+        data = json.loads(flag.read_text())
+        assert data["scene_index"] == 1
+        assert data["status"] == "FAIL"
+        assert data["attempts"] == 3
+
+    def test_no_flag_written_on_pass(self, tmp_path: Path) -> None:
+        image = tmp_path / "scene-001.png"
+        image.write_bytes(b"png")
+        side = [_fail_artifact(), _fail_artifact(), _pass_artifact()]
+        orch, engine, image_prov = _make_orchestrator(max_attempts=3, side_effects=side)
+
+        def fake_generate(req: Any) -> None:
+            req.output_path.write_bytes(b"png")
+
+        image_prov.generate.side_effect = fake_generate
+        orch.review_scene(_scene(idx=1), image, tmp_path)
+
+        assert not (tmp_path / "needs-review-001.json").exists()
+
 
 # ── auto_remediate=False ──────────────────────────────────────────────────────
 

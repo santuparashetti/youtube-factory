@@ -80,6 +80,11 @@ RULE_PROMPT_LIBRARY: dict[str, str] = {
         "Correct human body proportions with natural limb lengths, realistic "
         "posture, and no merged or twisted body parts."
     ),
+    "hand_presence": (
+        "Reframe to keep all hands and fingers completely outside the picture frame — "
+        "shoot from behind, use a wide-angle where hands fall below the frame edge, "
+        "or occlude hands with clothing folds or held props."
+    ),
 }
 
 # ── Category-Level Prompt Library ─────────────────────────────────────────────
@@ -224,6 +229,11 @@ _RULE_DETECTORS: dict[str, tuple[frozenset[str], frozenset[str], str]] = {
     "anatomy_general": (
         frozenset({"anatomy"}),
         frozenset({"anatomy", "body", "limb", "proportion", "twisted", "deform"}),
+        "HIGH",
+    ),
+    "hand_presence": (
+        frozenset({"anatomy"}),
+        frozenset({"hand visible", "hands visible", "hand present", "hands present", "hand presence", "finger visible"}),
         "HIGH",
     ),
 }

@@ -95,12 +95,30 @@ class TestActualAudioDuration:
         boundaries = [{"word": "x", "start": 0.0, "end": 5.5}]
         timing.write_text(json.dumps(boundaries), encoding="utf-8")
 
-        # ffprobe should NOT be called when timing.json is valid
+        # ffprobe IS called (for the cap), but timing.json value wins when <= actual
         with patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = "6.0\n"
+            mock_run.return_value.returncode = 0
             result = _actual_audio_duration(audio, timing, fallback=10.0)
-            mock_run.assert_not_called()
+            mock_run.assert_called_once()  # ffprobe runs to get ground truth
 
         assert result == pytest.approx(5.5)
+
+    def test_timing_json_capped_at_actual_mp3_duration(self, tmp_path):
+        audio = tmp_path / "scene-001.mp3"
+        audio.write_bytes(b"id3")
+        timing = tmp_path / "scene-001.timing.json"
+        # TTS boundaries show 14.267s but actual MP3 is only 12.408s
+        boundaries = [{"word": "x", "start": 0.0, "end": 14.267}]
+        timing.write_text(json.dumps(boundaries), encoding="utf-8")
+
+        with patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = "12.408\n"
+            mock_run.return_value.returncode = 0
+            result = _actual_audio_duration(audio, timing, fallback=10.0)
+
+        # Inflated timing.json value is capped at actual MP3 duration
+        assert result == pytest.approx(12.408)
 
     def test_zero_end_in_timing_falls_back(self, tmp_path):
         audio = tmp_path / "scene-001.mp3"

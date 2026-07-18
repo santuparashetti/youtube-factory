@@ -20,7 +20,7 @@ from loguru import logger
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision import VisionProvider, VisionReviewResult
 
-from .human_detector import build_specialist_context, detect_critical_subject, detect_human_presence
+from .human_detector import build_specialist_context, detect_critical_subject, detect_human_presence, has_intentional_hands
 from .human_qa import (
     build_clothing_qa_context,
     build_hand_qa_context,
@@ -185,6 +185,26 @@ class ImageReviewEngine:
                     passes = False
             final_human_qa_stage = _hqa_stage
 
+            # ── Hand Avoidance Presence Gate ──────────────────────────────────
+            # For scenes where hands are not narratively required, check whether
+            # any hands are visible and trigger regeneration if they are.
+            hand_presence_failing_result: VisionReviewResult | None = None
+            if (
+                passes
+                and result.status not in ("SKIP", "ERROR")
+                and self._config.hand_avoidance_check_enabled
+                and detect_human_presence(current_prompt)
+                and not has_intentional_hands(
+                    scene.get("narration", "") + " " + current_prompt
+                )
+            ):
+                hp_passes, hand_presence_failing_result = self._check_hand_presence(
+                    image_path, current_prompt, scene, attempt
+                )
+                if not hp_passes:
+                    passes = False
+                    attempt_record["hand_presence_detected"] = True
+
             remediation.attempt_history.append(attempt_record)
             remediation.total_attempts = attempt
 
@@ -200,9 +220,11 @@ class ImageReviewEngine:
 
             # FAIL → refine prompt and regenerate (if more attempts remain)
             if attempt < self._config.max_attempts:
-                # Refinement priority: Human QA gate failure > specialist failure > overall
+                # Refinement priority: Hand Presence > Human QA gate > specialist > overall
                 refinement_result = (
-                    human_qa_failing_result
+                    hand_presence_failing_result
+                    if hand_presence_failing_result is not None
+                    else human_qa_failing_result
                     if human_qa_failing_result is not None
                     else specialist_result
                     if specialist_result is not None and specialist_subject
@@ -379,6 +401,46 @@ class ImageReviewEngine:
 
         stage["human_qa_gate_passed"] = True
         return True, stage, None
+
+    def _check_hand_presence(
+        self,
+        image_path: Path,
+        prompt: str,
+        scene: dict,
+        attempt: int,
+    ) -> tuple[bool, VisionReviewResult | None]:
+        """Check whether visible hands appear in a scene that should avoid them.
+
+        Returns ``(passes, failing_result)``.  When passes is True, failing_result
+        is None.  SKIP/ERROR results always count as passing (fail-safe).
+        """
+        hand_context = (
+            "HAND PRESENCE CHECK\n"
+            "This scene was composed to keep hands out of frame.\n"
+            "Carefully examine the image for any visible human hands, fingers, or palms.\n"
+            "Score 100 if NO hands are visible. Score 0 if hands are clearly visible.\n"
+            "Issue a HIGH severity issue labelled 'hand_presence' if any hands or fingers "
+            "appear in the frame."
+        )
+        result = self._run_staged_qa(
+            image_path, prompt, scene, attempt, hand_context, "hand_presence_check"
+        )
+        idx = scene.get("index", 0)
+        if result.status in ("SKIP", "ERROR"):
+            return True, None
+        passes = self._config.passes(
+            result.score,
+            result.confidence,
+            len(result.high_severity_issues),
+            len(result.medium_severity_issues),
+        )
+        if not passes:
+            logger.info(
+                "Scene {}: Hand Presence FAIL (score={:.0f}) attempt {}/{}",
+                idx, result.score, attempt, self._config.max_attempts,
+            )
+            return False, result
+        return True, None
 
     def _specialist_review(
         self,

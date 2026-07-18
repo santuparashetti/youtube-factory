@@ -585,5 +585,5 @@ class TestSubjectSpecialistReview:
         artifact = engine.review_scene(scene, image_path, tmp_path)
 
         assert artifact.specialist_subject == "face"
-        # Overall review (1) + specialist review (1) + Human QA gate (3 stages) = 5
-        assert vision.review.call_count == 5
+        # Overall (1) + specialist (1) + Human QA gate (3 stages) + hand presence (1) = 6
+        assert vision.review.call_count == 6

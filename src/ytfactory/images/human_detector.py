@@ -334,3 +334,74 @@ def compute_sharpness(image_path: Path) -> float:
         return ImageStat.Stat(edges).stddev[0]
     except Exception:
         return 0.0
+
+
+# ── Hand avoidance (composition-level) ───────────────────────────────────────
+
+_INTENTIONAL_HAND_PHRASES: frozenset[str] = frozenset({
+    "mudra", "namaste", "anjali", "ashirvad", "abhaya", "varada", "pranam",
+    "blessing", "consecrate", "anoint", "laying hands", "healing touch",
+    "prasad", "diya", "pouring water", "pouring milk", "offering flowers",
+    "writing with", "inscribing", "folded hands", "clasped hands",
+    "hands joined", "praying hands", "open palms", "outstretched hand",
+    "holding a lamp", "holding a torch", "holding a bowl", "sacred gesture",
+})
+
+_HAND_AVOIDANCE_SENTINEL = "hands out of frame"
+
+_HAND_AVOIDANCE_PHRASE = (
+    ", compose to keep hands out of frame, prefer figure from behind or in profile, "
+    "wide-angle framing where hands fall naturally outside view, "
+    "hands occluded by clothing folds, robe, or held object"
+)
+
+
+def has_intentional_hands(narration: str) -> bool:
+    """True when the narration requires visible hands as a storytelling element."""
+    text = narration.lower()
+    return any(phrase in text for phrase in _INTENTIONAL_HAND_PHRASES)
+
+
+def add_hand_avoidance_composition(prompt: str) -> str:
+    """Append hand-avoidance framing guidance to *prompt* (idempotent)."""
+    if _HAND_AVOIDANCE_SENTINEL not in prompt:
+        prompt += _HAND_AVOIDANCE_PHRASE
+    return prompt
+
+
+# ── Back/profile-view hand orientation (intentional-hands exception) ──────────
+# When a scene composition is back-view or profile-view AND hands are narratively
+# required, visible hand/wrist joints must be rendered with correct rotation for
+# that camera angle.  QA cannot reliably catch orientation mismatches, so the
+# correction lives here at prompt-generation time.
+
+_BACK_PROFILE_KEYWORDS: frozenset[str] = frozenset({
+    "from behind", "seen from behind", "figure from behind", "viewed from behind",
+    "back view", "back-view", "from the back",
+    "from the side", "seen from the side",
+    "profile view", "shot in profile", "in profile",
+    "rear view", "from the rear",
+    "over-the-shoulder",
+})
+
+_ORIENTATION_SENTINEL = "wrist rotation consistent"
+
+_BACK_VIEW_ORIENTATION_PHRASE = (
+    ", hand and wrist rotation consistent with camera angle "
+    "(back-view or profile-view — avoid front-facing palm orientation), "
+    "arm reaches naturally as seen from behind or from the side, "
+    "joint angles follow the body's direction away from camera"
+)
+
+
+def is_back_or_profile_view(prompt: str) -> bool:
+    """True when the prompt specifies a back-view or profile-view composition."""
+    lower = prompt.lower()
+    return any(kw in lower for kw in _BACK_PROFILE_KEYWORDS)
+
+
+def add_back_view_hand_orientation(prompt: str) -> str:
+    """Append wrist/hand orientation guidance for back- or profile-view scenes (idempotent)."""
+    if _ORIENTATION_SENTINEL not in prompt:
+        prompt += _BACK_VIEW_ORIENTATION_PHRASE
+    return prompt

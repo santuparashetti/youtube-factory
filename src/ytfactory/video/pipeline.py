@@ -20,19 +20,14 @@ from .ffmpeg import FFmpegRenderer
 def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> float:
     """Return actual audio duration in seconds.
 
-    Primary source: timing.json written by VoicePipeline (last entry's "end").
+    Primary source: timing.json written by VoicePipeline (last entry's "end"),
+    capped at the actual MP3 duration (Kokoro boundaries can exceed actual
+    audio length when trailing silence is stripped during normalization).
     Fallback: ffprobe on the MP3 file.
     Final fallback: the supplied fallback value (scene plan estimate).
     """
-    try:
-        data = json.loads(timing_path.read_text(encoding="utf-8"))
-        if data and isinstance(data, list):
-            end = float(data[-1]["end"])
-            if end > 0.0:
-                return end
-    except Exception:
-        pass
-
+    # Ground-truth MP3 duration — used to cap timing.json values and as fallback.
+    ffprobe_dur = 0.0
     try:
         result = subprocess.run(
             [
@@ -50,11 +45,22 @@ def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> f
             check=True,
             timeout=10,
         )
-        val = float(result.stdout.strip())
-        if val > 0.0:
-            return val
+        ffprobe_dur = float(result.stdout.strip())
     except Exception:
         pass
+
+    try:
+        data = json.loads(timing_path.read_text(encoding="utf-8"))
+        if data and isinstance(data, list):
+            end = float(data[-1]["end"])
+            if end > 0.0:
+                # Cap against actual MP3: TTS boundaries may exceed real duration.
+                return min(end, ffprobe_dur) if ffprobe_dur > 0.0 else end
+    except Exception:
+        pass
+
+    if ffprobe_dur > 0.0:
+        return ffprobe_dur
 
     return fallback
 

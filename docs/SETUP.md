@@ -10,9 +10,11 @@ Complete step-by-step guide to replicate the current production environment on a
 | --------- | -------------------------- | -------------- |
 | OS        | Ubuntu 20.04+ / Debian 11+ | Ubuntu 22.04   |
 | Python    | 3.10+                      | 3.10.12        |
-| RAM       | 8 GB                       | 8 GB           |
+| RAM       | 8 GB (16 GB recommended¹)  | 8 GB + 16 GB swapfile |
 | Storage   | 10 GB free                 | —              |
 | GPU       | Optional                   | CPU-only       |
+
+> ¹ **With image review enabled** (`IMAGE_REVIEW_ENABLED=true`), Qwen2.5-VL-3B (~3 GB) and Kokoro TTS are held in RAM simultaneously across 30+ parallel scene nodes. 16 GB physical RAM or a 16 GB swapfile is strongly recommended. Without it, the process is likely to be OOM-killed mid-run.
 
 > **Windows / macOS:** Use the [Docker path](#option-b-docker-recommended-for-any-os) instead.
 
@@ -506,7 +508,8 @@ No feature pipeline downloads or manages models directly.
 | -------------- | -------------------- | --------------------------------------------- |
 | `whisperx`     | Subtitle alignment   | Lazy (downloads on first use)                 |
 | `silero_vad`   | BGM VAD analysis     | Lazy (downloads on first use)                 |
-| `minicpm_v2_6` | Image quality review | Opt-in (requires `IMAGE_REVIEW_ENABLED=true`) |
+| `qwen2_5_vl_3b` | Image quality review | Opt-in (requires `IMAGE_REVIEW_ENABLED=true`); ~3 GB disk |
+| `minicpm_v2_6` | Image quality review (legacy) | Opt-in; ~10 GB disk — switch via `VISION_REVIEW_LOCAL_MODEL` |
 
 The model manifest (`models/model-manifest.json`) persists download state across runs.
 
@@ -516,20 +519,23 @@ Run `ytfactory setup` after enabling a new model — LAMM provisions it automati
 
 ## Step 13 — Image Review Pipeline (Optional)
 
-Enables per-scene AI vision quality review using MiniCPM-V 2.6 (~10 GB disk).
+Enables per-scene AI vision quality review using Qwen2.5-VL-3B (~3 GB disk).
 
-**Disk requirement:** ~10 GB free space for the vision model.
+**Disk requirement:** ~3 GB free space for the vision model (Qwen2.5-VL-3B, default). Legacy alternative: MiniCPM-V 2.6 (~10 GB) — set `VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6`.
+
+**RAM note:** The vision model is loaded once and shared across all parallel scene nodes. With image review enabled, peak RSS is ~6–10 GB. A 16 GB swapfile is recommended on 8 GB machines (see footnote in System Requirements).
 
 **Enable it in `.env`:**
 
 ```bash
 IMAGE_REVIEW_ENABLED=true
 VISION_REVIEW_PROVIDER=local
-VISION_REVIEW_LOCAL_MODEL=minicpm_v2_6   # switch to any registry key for future models
+VISION_REVIEW_LOCAL_MODEL=qwen2_5_vl_3b  # or minicpm_v2_6 for legacy 10 GB model
 IMAGE_REVIEW_MIN_SCORE=90
 IMAGE_REVIEW_CONFIDENCE=80
 IMAGE_REVIEW_MAX_ATTEMPTS=3
 IMAGE_REVIEW_AUTO_REMEDIATE=true
+# IMAGE_HAND_AVOIDANCE_CHECK_ENABLED=true  # default; extra check for visible hands in back/profile-view scenes
 ```
 
 Then run setup to trigger model download:
@@ -541,9 +547,11 @@ uv run ytfactory setup
 **What it does per scene:**
 
 1. Technical QA (file size + sharpness check)
-2. Vision model review against 6 quality categories
-3. On FAIL: appends targeted prompt corrections and regenerates with a new seed
-4. Up to `IMAGE_REVIEW_MAX_ATTEMPTS` attempts before accepting best result
+2. Vision model review against 6 quality categories (anatomy, face, artifacts, environment, lighting, cinematic)
+3. Human subject QA: staged gate — Human QA → Hand QA → Clothing QA → Prompt Compliance
+4. Hand-presence check for back-view / profile-view compositions (catches wrist orientation mismatch)
+5. On FAIL: appends targeted prompt corrections and regenerates with a new seed
+6. Up to `IMAGE_REVIEW_MAX_ATTEMPTS` attempts; if still FAIL, writes `images/needs-review-NNN.json` for manual inspection — scene proceeds to render regardless
 
 **To switch to a future vision model** — edit `config/models-registry.yaml` to add the new model, then set `VISION_REVIEW_LOCAL_MODEL=new_model_key`. No code changes needed.
 

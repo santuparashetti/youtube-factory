@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -59,6 +60,7 @@ class KokoroProvider(TTSProvider):
         self._speed = settings.kokoro_speed
         self._sample_rate = settings.kokoro_sample_rate
         self._pipeline = None  # lazy-loaded
+        self._inference_lock = threading.Lock()  # KPipeline is not thread-safe
 
     # ── Capabilities ───────────────────────────────────────────────────────────
 
@@ -134,16 +136,29 @@ class KokoroProvider(TTSProvider):
 
         pipeline = self._get_pipeline(lang_code)
 
-        # Collect all audio chunks from the generator
-        chunks = []
-        for _gs, _ps, audio in pipeline(
-            text,
-            voice=voice,
-            speed=self._speed,
-            split_pattern=r"\n+",
-        ):
-            if audio is not None and len(audio) > 0:
-                chunks.append(audio)
+        # The SpeechOptimizer joins phrases with "\n\n" for Edge TTS, which converts
+        # them to audible pauses via its _prepare_text() step.  Kokoro has no such
+        # mapping — it treats every \n+ boundary as a separate TTS chunk and the
+        # model's own end-of-utterance silence accumulates into audible mid-phrase
+        # gaps.  Replace all newline separators with a single space so Kokoro
+        # receives a single punctuated text block and uses its own sentence-aware
+        # default split (r'[.!?。！？]+') for natural prosody.
+        import re as _re
+        tts_text = _re.sub(r"\n+", " ", text).strip()
+
+        # KPipeline runs PyTorch inference and is not safe for concurrent calls
+        # from multiple threads. Serialise inference when the provider is shared.
+        with self._inference_lock:
+            chunks = []
+            for _gs, _ps, audio in pipeline(
+                tts_text,
+                voice=voice,
+                speed=self._speed,
+                # No split_pattern — use Kokoro's default r'[.!?。！？]+' so only
+                # sentence-ending punctuation creates chunk boundaries.
+            ):
+                if audio is not None and len(audio) > 0:
+                    chunks.append(audio)
 
         if not chunks:
             raise RuntimeError(f"Kokoro produced no audio for voice={voice!r}")

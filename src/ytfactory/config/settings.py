@@ -159,6 +159,10 @@ class Settings(SharedSettings):
     # Only active when image_review_enabled is also True.
     image_human_qa_enabled: bool = True
 
+    # Check for visible hands in scenes where hand-avoidance composition was applied.
+    # Only active when image_review_enabled is also True.
+    image_hand_avoidance_check_enabled: bool = True
+
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------
