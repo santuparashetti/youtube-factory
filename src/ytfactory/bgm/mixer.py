@@ -185,6 +185,8 @@ class BGMMixer:
             "aac",
             "-b:a",
             cfg.audio_bitrate,
+            "-movflags",
+            "+faststart+negative_cts_offsets",
             str(output_path),
         ]
 

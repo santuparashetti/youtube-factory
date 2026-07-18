@@ -483,8 +483,8 @@ class TestSubjectSpecialistReview:
 
         assert artifact.subject_critical is True
         assert artifact.specialist_subject == "hand"
-        # Overall review + specialist review = 2 calls
-        assert vision.review.call_count == 2
+        # Overall review (1) + specialist review (1) + Human QA gate (3 stages) = 5
+        assert vision.review.call_count == 5
 
     def test_hand_specialist_checklist_used_in_second_call(self, tmp_path: Path) -> None:
         """The second vision.review call receives the hand checklist context."""
@@ -585,4 +585,5 @@ class TestSubjectSpecialistReview:
         artifact = engine.review_scene(scene, image_path, tmp_path)
 
         assert artifact.specialist_subject == "face"
-        assert vision.review.call_count == 2
+        # Overall review (1) + specialist review (1) + Human QA gate (3 stages) = 5
+        assert vision.review.call_count == 5

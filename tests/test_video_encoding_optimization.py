@@ -11,13 +11,14 @@ Covers:
   - ComparisonReport: size_reduction_pct, duration_match, resolution_match
   - compare_videos() plumbing
   - compare-video CLI command is registered
+  - Regression guard: render() must not use trim= in the VF chain (e28b94b)
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -277,6 +278,89 @@ class TestComparisonReport:
         assert "optimised" in d
         assert "comparison" in d
         assert d["comparison"]["size_reduction_pct"] == pytest.approx(75.0, abs=0.1)
+
+
+# ── Duration-handling regression guard (commit e28b94b) ───────────────────────
+
+
+class TestFFmpegRendererDurationHandling:
+    """Regression guard: render() must NOT use trim= in the -vf chain.
+
+    Commit e28b94b added ``trim=duration={n},setpts=PTS-STARTPTS`` to render()'s
+    VF chain.  This caused "Play does not advance" in several media players:
+    the trim filter interacts with -shortest in a way that creates a container
+    whose declared duration disagrees with what -shortest would normally produce,
+    confusing player sync logic.
+
+    The correct approach (matching render_continuous) is to cap the looped image
+    source via ``-t {duration}`` on the input, not via a VF trim.
+    """
+
+    def _capture_render_cmd(self, tmp_path, duration_hint=10.0, **extra):
+        from ytfactory.video.ffmpeg import FFmpegRenderer
+
+        renderer = FFmpegRenderer()
+        captured: list[list[str]] = []
+
+        with patch(
+            "ytfactory.video.ffmpeg.subprocess.run",
+            side_effect=lambda cmd, **kw: captured.append(list(cmd)),
+        ):
+            renderer.render(
+                image=tmp_path / "img.png",
+                audio=tmp_path / "audio.mp3",
+                subtitle=tmp_path / "scene.ass",
+                output=tmp_path / "out.mp4",
+                duration_hint=duration_hint,
+                **extra,
+            )
+
+        return captured[0]
+
+    def test_no_trim_filter_in_vf_chain(self, tmp_path):
+        cmd = self._capture_render_cmd(tmp_path)
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "trim=duration" not in vf, (
+            "trim=duration in -vf causes playback freeze (regression e28b94b). "
+            "Cap the image source via -t on the input instead."
+        )
+
+    def test_no_setpts_startpts_in_vf_chain(self, tmp_path):
+        cmd = self._capture_render_cmd(tmp_path)
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "setpts=PTS-STARTPTS" not in vf
+
+    def test_duration_t_caps_image_input(self, tmp_path):
+        """-t must appear before the first -i (the image) to cap the loop."""
+        cmd = self._capture_render_cmd(tmp_path, duration_hint=7.5)
+        t_idx = cmd.index("-t")
+        first_i_idx = cmd.index("-i")
+        assert t_idx < first_i_idx, "-t must precede the image -i"
+        assert cmd[t_idx + 1] == "7.5000"
+
+    def test_vf_chain_ends_with_subtitle_filter(self, tmp_path):
+        """subtitle burn-in must be the last filter in the VF chain."""
+        cmd = self._capture_render_cmd(tmp_path)
+        vf = cmd[cmd.index("-vf") + 1]
+        last_filter = vf.split(",")[-1]
+        assert last_filter.startswith("subtitles="), (
+            f"Expected last VF filter to be subtitle burn-in, got: {last_filter!r}"
+        )
+
+    def test_negative_cts_offsets_in_movflags(self, tmp_path):
+        """+negative_cts_offsets sets ELST media_time=0 so players seek to the I-frame.
+
+        Without this flag the ELST media_time is set to the B-frame encoder delay
+        (2 frames = 1024 ticks).  Players that misinterpret the ELST as a seek target
+        would jump to that non-decodeable B-frame, causing 'Play does not advance'.
+        """
+        cmd = self._capture_render_cmd(tmp_path)
+        idx = cmd.index("-movflags")
+        flags = cmd[idx + 1]
+        assert "negative_cts_offsets" in flags, (
+            "missing +negative_cts_offsets in -movflags: players will mis-seek to "
+            "a non-decodeable B-frame and freeze on Play"
+        )
 
 
 # ── CLI registration ──────────────────────────────────────────────────────────

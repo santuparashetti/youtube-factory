@@ -154,6 +154,11 @@ class Settings(SharedSettings):
     # Score reference: < 8 = blurry, 8–15 = marginal, > 15 = sharp.
     image_human_min_sharpness: float = 12.0
 
+    # ADR-0015: enable the staged Human Subject QA Gate (Human QA → Hand QA →
+    # Clothing QA → Prompt Compliance) for human-critical scenes.
+    # Only active when image_review_enabled is also True.
+    image_human_qa_enabled: bool = True
+
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------

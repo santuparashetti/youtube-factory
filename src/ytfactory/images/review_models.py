@@ -27,6 +27,13 @@ class SceneReviewArtifact:
     specialist_status: str = ""    # PASS | FAIL | SKIP | ""
     specialist_score: float = 0.0
     specialist_issues: list[dict] = field(default_factory=list)
+    # Human Subject QA Gate (ADR-0015) — staged checks for human-critical scenes.
+    human_qa_triggered: bool = False   # True when scene is human-critical
+    human_qa_passed: bool = False      # True when all triggered stages passed
+    human_qa_status: str = ""          # Human QA stage: PASS | FAIL | SKIP | ""
+    hand_qa_status: str = ""           # Hand QA stage: PASS | FAIL | SKIP | ""
+    clothing_qa_status: str = ""       # Clothing QA stage: PASS | FAIL | SKIP | ""
+    prompt_compliance_status: str = "" # Prompt Compliance stage: PASS | FAIL | SKIP | ""
 
 
 @dataclass

@@ -24,6 +24,8 @@ class ImageReviewConfig:
     max_attempts: int = 3
     auto_remediate: bool = True
     debug: bool = False
+    # ADR-0015: staged Human Subject QA Gate
+    human_qa_enabled: bool = True
 
     @classmethod
     def from_settings(cls, settings: object) -> "ImageReviewConfig":
@@ -37,6 +39,7 @@ class ImageReviewConfig:
             max_attempts=int(getattr(settings, "image_review_max_attempts", 3)),
             auto_remediate=getattr(settings, "image_review_auto_remediate", True),
             debug=getattr(settings, "image_review_debug", False),
+            human_qa_enabled=getattr(settings, "image_human_qa_enabled", True),
         )
 
     def passes(

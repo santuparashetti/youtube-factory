@@ -4,10 +4,12 @@ Rules:
   HUM_001 [high]   — Human detected in prompt but missing quality reinforcement markers
   HUM_002 [medium] — Human in wide/establishing/drone shot without subject dominance guidance
   HUM_003 [high]   — Image sharpness below threshold for a human scene (blurry face)
+  HUM_004 [high]   — Human Subject QA Gate (ADR-0015) failed for a human-critical scene
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from ytfactory.images.human_detector import (
@@ -31,7 +33,7 @@ class HumanValidator(BaseValidator):
     category = "human"
     responsible_engine = "Image Prompt Engine"
 
-    _RULES = ("HUM_001", "HUM_002", "HUM_003")
+    _RULES = ("HUM_001", "HUM_002", "HUM_003", "HUM_004")
 
     def validate(
         self,
@@ -155,6 +157,70 @@ class HumanValidator(BaseValidator):
                                 scene_index=idx,
                                 sharpness=sharpness,
                                 threshold=sharpness_threshold,
+                            )
+                        )
+
+            # HUM_004: Human Subject QA Gate outcome (ADR-0015)
+            if self._config.is_enabled("HUM_004"):
+                review_path = project_dir / "images" / f"image-review-{idx:03d}.json"
+                if not review_path.exists():
+                    results.append(
+                        self._skip(
+                            "HUM_004",
+                            f"scene {idx}: no image review artifact (review not run)",
+                            scene_index=idx,
+                        )
+                    )
+                else:
+                    try:
+                        data = json.loads(review_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        results.append(
+                            self._skip(
+                                "HUM_004",
+                                f"scene {idx}: could not read image review artifact",
+                                scene_index=idx,
+                            )
+                        )
+                        continue
+
+                    if not data.get("human_qa_triggered", False):
+                        results.append(
+                            self._skip(
+                                "HUM_004",
+                                f"scene {idx}: human QA gate not triggered (non-critical scene)",
+                                scene_index=idx,
+                            )
+                        )
+                    elif data.get("human_qa_passed", False):
+                        results.append(
+                            self._pass(
+                                "HUM_004",
+                                f"Scene {idx}: Human Subject QA Gate passed",
+                                "all staged checks: human QA, hand QA, clothing QA, prompt compliance",
+                                scene_index=idx,
+                            )
+                        )
+                    else:
+                        failed_stages = [
+                            label
+                            for key, label in (
+                                ("human_qa_status", "human QA"),
+                                ("hand_qa_status", "hand QA"),
+                                ("clothing_qa_status", "clothing QA"),
+                                ("prompt_compliance_status", "prompt compliance"),
+                            )
+                            if data.get(key) == "FAIL"
+                        ]
+                        stage_list = ", ".join(failed_stages) if failed_stages else "see artifact"
+                        results.append(
+                            self._fail(
+                                "HUM_004",
+                                f"Scene {idx}: Human Subject QA Gate failed — {stage_list}",
+                                f"artifact: {review_path.name}",
+                                "high",
+                                scene_index=idx,
+                                failed_stages=failed_stages,
                             )
                         )
 

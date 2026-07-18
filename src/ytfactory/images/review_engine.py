@@ -20,7 +20,15 @@ from loguru import logger
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision import VisionProvider, VisionReviewResult
 
-from .human_detector import build_specialist_context, detect_critical_subject
+from .human_detector import build_specialist_context, detect_critical_subject, detect_human_presence
+from .human_qa import (
+    build_clothing_qa_context,
+    build_hand_qa_context,
+    build_human_qa_context,
+    build_prompt_compliance_context,
+    has_clothing_specified,
+    is_human_critical,
+)
 from .review_config import ImageReviewConfig
 from .review_models import (
     ImageQualitySummary,
@@ -84,6 +92,7 @@ class ImageReviewEngine:
         final_result: VisionReviewResult | None = None
         final_specialist_result: VisionReviewResult | None = None
         final_specialist_subject: str = ""
+        final_human_qa_stage: dict = {}
 
         for attempt in range(1, self._config.max_attempts + 1):
             if not image_path.exists():
@@ -157,6 +166,25 @@ class ImageReviewEngine:
                             specialist_result.score,
                         )
 
+            # ── ADR-0015: Human Subject QA Gate ──────────────────────────────
+            # Runs only when both overall and specialist reviews pass, and only
+            # for human-critical scenes (primary subject or close/medium shot).
+            human_qa_failing_result: VisionReviewResult | None = None
+            _hqa_stage: dict = {}
+            if (
+                passes
+                and result.status not in ("SKIP", "ERROR")
+                and self._config.human_qa_enabled
+                and detect_human_presence(current_prompt)
+            ):
+                hqa_passes, _hqa_stage, human_qa_failing_result = self._run_human_qa_gate(
+                    image_path, current_prompt, scene, attempt
+                )
+                attempt_record.update(_hqa_stage)
+                if not hqa_passes:
+                    passes = False
+            final_human_qa_stage = _hqa_stage
+
             remediation.attempt_history.append(attempt_record)
             remediation.total_attempts = attempt
 
@@ -172,9 +200,11 @@ class ImageReviewEngine:
 
             # FAIL → refine prompt and regenerate (if more attempts remain)
             if attempt < self._config.max_attempts:
-                # When specialist failed, drive refinement from its issues
+                # Refinement priority: Human QA gate failure > specialist failure > overall
                 refinement_result = (
-                    specialist_result
+                    human_qa_failing_result
+                    if human_qa_failing_result is not None
+                    else specialist_result
                     if specialist_result is not None and specialist_subject
                     else result
                 )
@@ -214,6 +244,13 @@ class ImageReviewEngine:
                 [i.__dict__ for i in final_specialist_result.issues]
                 if final_specialist_result else []
             ),
+            # ADR-0015 Human Subject QA Gate — final attempt outcome
+            human_qa_triggered=final_human_qa_stage.get("human_qa_triggered", False),
+            human_qa_passed=final_human_qa_stage.get("human_qa_passed", False),
+            human_qa_status=final_human_qa_stage.get("human_qa_status", ""),
+            hand_qa_status=final_human_qa_stage.get("hand_qa_status", ""),
+            clothing_qa_status=final_human_qa_stage.get("clothing_qa_status", ""),
+            prompt_compliance_status=final_human_qa_stage.get("prompt_compliance_status", ""),
         )
         remediation.final_status = final_result.status
 
@@ -223,6 +260,125 @@ class ImageReviewEngine:
         return artifact
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _run_staged_qa(
+        self,
+        image_path: Path,
+        prompt: str,
+        scene: dict,
+        attempt: int,
+        qa_context: str,
+        stage_name: str,
+    ) -> VisionReviewResult:
+        """Run one Human QA stage through the vision provider with a targeted context."""
+        try:
+            return self._vision.review(
+                image_path=image_path,
+                visual_prompt=qa_context,
+                scene_context={"stage": stage_name, "attempt": attempt, **scene},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Scene {}: {} error — {}", scene.get("index"), stage_name, exc
+            )
+            return VisionReviewResult.skipped(f"{stage_name} error: {exc}")
+
+    def _run_human_qa_gate(
+        self,
+        image_path: Path,
+        prompt: str,
+        scene: dict,
+        attempt: int,
+    ) -> tuple[bool, dict, VisionReviewResult | None]:
+        """Run staged Human Subject QA (ADR-0015).
+
+        Returns:
+            (all_passed, stage_dict, failing_result)
+            - all_passed: False when any required stage failed
+            - stage_dict: per-stage status/pass keys for attempt_record
+            - failing_result: VisionReviewResult of the failing stage (for prompt refinement),
+              or None when all stages passed or the scene is not human-critical
+        """
+        idx = scene.get("index", 0)
+        shot_type = scene.get("shot_type", "")
+        stage: dict = {"human_qa_triggered": False}
+
+        if not is_human_critical(prompt, shot_type):
+            return True, stage, None
+
+        stage["human_qa_triggered"] = True
+
+        def _check(result: VisionReviewResult) -> bool:
+            return self._config.passes(
+                result.score,
+                result.confidence,
+                len(result.high_severity_issues),
+                len(result.medium_severity_issues),
+            )
+
+        # Stage 2: Human QA (anatomy + subject accuracy)
+        hqa = self._run_staged_qa(
+            image_path, prompt, scene, attempt,
+            build_human_qa_context(prompt), "human_qa",
+        )
+        hqa_passes = _check(hqa)
+        stage["human_qa_status"] = hqa.status
+        stage["human_qa_passed"] = hqa_passes
+        if not hqa_passes:
+            logger.info(
+                "Scene {}: Human QA FAIL (score={:.0f}) attempt {}/{}",
+                idx, hqa.score, attempt, self._config.max_attempts,
+            )
+            return False, stage, hqa
+
+        # Stage 3: Hand QA (finger/palm/wrist anatomy)
+        hnd = self._run_staged_qa(
+            image_path, prompt, scene, attempt,
+            build_hand_qa_context(prompt), "hand_qa",
+        )
+        hnd_passes = _check(hnd)
+        stage["hand_qa_status"] = hnd.status
+        stage["hand_qa_passed"] = hnd_passes
+        if not hnd_passes:
+            logger.info(
+                "Scene {}: Hand QA FAIL (score={:.0f}) attempt {}/{}",
+                idx, hnd.score, attempt, self._config.max_attempts,
+            )
+            return False, stage, hnd
+
+        # Stage 4: Clothing QA (only when clothing is specified in prompt)
+        if has_clothing_specified(prompt):
+            cl = self._run_staged_qa(
+                image_path, prompt, scene, attempt,
+                build_clothing_qa_context(prompt), "clothing_qa",
+            )
+            cl_passes = _check(cl)
+            stage["clothing_qa_status"] = cl.status
+            stage["clothing_qa_passed"] = cl_passes
+            if not cl_passes:
+                logger.info(
+                    "Scene {}: Clothing QA FAIL (score={:.0f}) attempt {}/{}",
+                    idx, cl.score, attempt, self._config.max_attempts,
+                )
+                return False, stage, cl
+
+        # Stage 5: Prompt Compliance
+        pc = self._run_staged_qa(
+            image_path, prompt, scene, attempt,
+            build_prompt_compliance_context(prompt), "prompt_compliance",
+        )
+        pc_passes = _check(pc)
+        stage["prompt_compliance_status"] = pc.status
+        stage["prompt_compliance_passed"] = pc_passes
+        if not pc_passes:
+            logger.info(
+                "Scene {}: Prompt Compliance FAIL (score={:.0f}) attempt {}/{}",
+                idx, pc.score, attempt, self._config.max_attempts,
+            )
+            return False, stage, pc
+
+        stage["human_qa_gate_passed"] = True
+        return True, stage, None
 
     def _specialist_review(
         self,
