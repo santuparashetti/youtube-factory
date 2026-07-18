@@ -387,6 +387,68 @@ class DocumentaryScriptEnhancerPipeline:
                 f"(tolerance ±{DURATION_TOLERANCE_MINUTES} min)"
             )
 
+        # ── Pass 3 (correction): one targeted length-adjustment if out of tolerance ──
+        correction_pass_data: dict = {"attempted": False}
+        if not ok:
+            correction_mode = "expand" if gap < 0 else "shorten"
+            correction_label = "expanding" if gap < 0 else "trimming"
+            console.print(
+                f"  [cyan]Pass 3:[/cyan] Duration correction — {correction_label} "
+                f"({enhanced_est:.1f} min → target {target_minutes} min, temp=0.4)..."
+            )
+            corr_ph_text, corr_placeholders = extract_scripture_spans(final_restored)
+            corr_prompt = build_pass1_prompt(
+                topic=topic,
+                script=corr_ph_text,
+                style=style,
+                target_minutes=target_minutes,
+                mode=correction_mode,
+                raw_words=enhanced_words,
+                placeholders=corr_placeholders,
+            )
+            corr_response = self._llm.generate(corr_prompt, temperature=0.4)
+            corr_ph_out = corr_response.text.strip()
+            corr_restored = restore_scripture_spans(corr_ph_out, corr_placeholders)
+
+            corr_words = len(corr_restored.split())
+            corr_est = corr_words / NARRATION_WPM
+            correction_ok = _duration_ok(corr_est, target_minutes)
+            corr_gap = corr_est - target_minutes
+
+            correction_pass_data = {
+                "attempted": True,
+                "mode": correction_mode,
+                "input_minutes": round(enhanced_est, 2),
+                "output_minutes": round(corr_est, 2),
+                "output_words": corr_words,
+                "correction_ok": correction_ok,
+            }
+
+            if correction_ok:
+                console.print(
+                    f"  [green]✓ DURATION PASS (after correction)[/green] — "
+                    f"{corr_est:.1f} min (gap {corr_gap:+.1f} min)"
+                )
+                final_restored = corr_restored
+                enhanced_words = corr_words
+                enhanced_est = corr_est
+                ok = True
+                gap = corr_gap
+            else:
+                corr_direction = "over" if corr_gap > 0 else "under"
+                logger.error(
+                    "Duration correction failed: {:.1f} min is {:.1f} min {} target after "
+                    "Pass 3 — script accepted out-of-tolerance; manual review recommended",
+                    corr_est,
+                    abs(corr_gap),
+                    corr_direction,
+                )
+                console.print(
+                    f"  [red]✗ DURATION FAIL (after correction)[/red] — "
+                    f"{corr_est:.1f} min still {abs(corr_gap):.1f} min {corr_direction} target. "
+                    f"Script accepted out-of-tolerance — manual review recommended."
+                )
+
         logger.info(
             "Documentary enhancer: {} → {} words (~{:.1f} min), target {} min, "
             "ok={}, narrative_score={}, pass1_fallback={}, final_ok={}",
@@ -440,6 +502,7 @@ class DocumentaryScriptEnhancerPipeline:
                         "fallback_to_pass1": not final_ok,
                     },
                     "adr_0012_flags": ra_warnings,
+                    "correction_pass": correction_pass_data,
                     "word_count": {
                         "input": raw_words,
                         "output": enhanced_words,
