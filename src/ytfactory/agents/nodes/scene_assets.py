@@ -57,7 +57,7 @@ def _get_vision_provider(provider_name: str, local_model: str) -> object:
 def _get_tts_provider(settings: object) -> object:
     from ytfactory.config.settings import Settings
     s = settings if isinstance(settings, Settings) else Settings()
-    key = f"{s.tts_provider}:{getattr(s, 'kokoro_voice', '')}:{getattr(s, 'kokoro_speed', '')}"
+    key = f"{s.tts_provider}:{getattr(s, 'voice_profile', '')}:{getattr(s, 'kokoro_voice', '')}:{getattr(s, 'kokoro_speed', '')}"
     if key in _tts_provider_cache:
         return _tts_provider_cache[key]
     with _tts_provider_lock:

@@ -18,6 +18,8 @@ class SharedSettings(BaseSettings):
     gemini_api_key: str = Field(default="")
     tavily_api_key: str = Field(default="")
     hf_token: str = Field(default="")
+    hf_vision_provider: str = "hf-inference"
+    hf_vision_model: str = "Qwen/Qwen2.5-VL-7B-Instruct"
     groq_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
     anthropic_base_url: str = Field(default="https://litellm.smarthubai.net")
@@ -31,6 +33,11 @@ class SharedSettings(BaseSettings):
     search_provider: str = "tavily"
     tts_provider: str = "kokoro"
     image_provider: str = "huggingface"
+
+    # Provider-independent voice profile selector. All narration references the
+    # profile instead of provider-specific configuration. See
+    # video_core.providers.tts.voice_profiles.
+    voice_profile: str = "atma_theory"
 
     # ------------------------------------------------------------------
     # Models
@@ -61,6 +68,22 @@ class SharedSettings(BaseSettings):
     kokoro_voice: str = "am_michael"
     kokoro_speed: float = 0.85
     kokoro_sample_rate: int = 24000
+
+    # ------------------------------------------------------------------
+    # Cartesia TTS Provider (premium cloud narration)
+    # ------------------------------------------------------------------
+
+    cartesia_api_key: str = Field(default="")
+    cartesia_model: str = "sonic-3.5"
+    cartesia_voice_id: str = ""
+    cartesia_speed: float = 0.84
+    cartesia_output_format: str = "wav"
+    cartesia_timeout: int = 60
+    cartesia_max_chars: int = 2000
+    cartesia_cache_enabled: bool = True
+    cartesia_pronunciation_dict_id: str = Field(default="")
+    cartesia_sample_rate: int = 44100
+    cartesia_emotion: str = "calm"
 
     # ------------------------------------------------------------------
     # TTS Retry Control

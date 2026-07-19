@@ -245,6 +245,35 @@ def _check_tts_provider(settings: object) -> list[CheckResult]:
                 + ("key present" if key else "ELEVENLABS_API_KEY not set"),
             )
         ]
+    if provider == "cartesia":
+        key = getattr(settings, "cartesia_api_key", "")
+        model = getattr(settings, "cartesia_model", "")
+        voice_id = getattr(settings, "cartesia_voice_id", "")
+        missing = [
+            name
+            for name, val in (
+                ("CARTESIA_API_KEY", key),
+                ("CARTESIA_MODEL", model),
+                ("CARTESIA_VOICE_ID", voice_id),
+            )
+            if not val
+        ]
+        if missing:
+            return [
+                CheckResult(
+                    name="provider:cartesia",
+                    status=CheckStatus.ERROR,
+                    message="Cartesia: missing required config: "
+                    + ", ".join(missing),
+                )
+            ]
+        return [
+            CheckResult(
+                name="provider:cartesia",
+                status=CheckStatus.OK,
+                message="Cartesia: key, model, and voice_id present",
+            )
+        ]
     return [
         CheckResult(
             name=f"provider:{provider}-tts",

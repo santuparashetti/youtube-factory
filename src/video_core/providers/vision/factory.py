@@ -17,7 +17,7 @@ def get_vision_provider(
     Parameters
     ----------
     provider_name:
-        ``"local"`` or ``"mock"``.
+        ``"local"``, ``"mock"``, ``"gemini"``, or ``"huggingface"``.
     local_model:
         Registry key for the local model (only used when provider_name="local").
     base_dir:
@@ -28,6 +28,18 @@ def get_vision_provider(
             from .mock import MockVisionProvider
 
             return MockVisionProvider()
+
+        case "gemini":
+            from video_core.config.shared_settings import SharedSettings
+            from .gemini_vision_provider import GeminiVisionProvider
+
+            return GeminiVisionProvider(settings=SharedSettings())
+
+        case "huggingface":
+            from video_core.config.shared_settings import SharedSettings
+            from .huggingface_vision_provider import HuggingFaceVisionProvider
+
+            return HuggingFaceVisionProvider(settings=SharedSettings())
 
         case "local":
             from video_core.models import LocalAIModelManager
@@ -49,5 +61,5 @@ def get_vision_provider(
         case _:
             raise ValueError(
                 f"Unsupported vision provider: '{provider_name}'. "
-                "Valid options: local, mock"
+                "Valid options: local, mock, gemini, huggingface"
             )

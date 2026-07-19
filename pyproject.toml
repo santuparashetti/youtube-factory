@@ -19,6 +19,7 @@ dependencies = [
     "mutagen>=1.47",
     "numpy>=1.24.0",
     "soundfile>=0.12.1",
+    "cartesia>=2.0.0",
     "openai>=2.44.0",
     "llama-cpp-python>=0.3.2",
     "pillow>=12.2.0",
