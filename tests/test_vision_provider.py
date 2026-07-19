@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from video_core.providers.vision import (
+    ConcurrencyLimitedVisionProvider,
     VisionProvider,
     VisionReviewResult,
     get_vision_provider,
@@ -119,18 +120,22 @@ class TestMockVisionProvider:
 
 class TestVisionProviderFactory:
     def test_returns_mock_provider(self) -> None:
+        # Factory wraps the concrete provider with the shared concurrency limiter.
         provider = get_vision_provider("mock")
-        assert isinstance(provider, MockVisionProvider)
+        assert isinstance(provider, ConcurrencyLimitedVisionProvider)
+        assert isinstance(provider.inner, MockVisionProvider)
 
     def test_returns_local_provider_for_transformers_model(self) -> None:
         from video_core.providers.vision.local import LocalVisionProvider
         provider = get_vision_provider("local", local_model="minicpm_v2_6")
-        assert isinstance(provider, LocalVisionProvider)
+        assert isinstance(provider, ConcurrencyLimitedVisionProvider)
+        assert isinstance(provider.inner, LocalVisionProvider)
 
     def test_returns_llama_cpp_provider_for_gguf_model(self) -> None:
         from video_core.providers.vision.llama_cpp_provider import LlamaCppVisionProvider
         provider = get_vision_provider("local", local_model="qwen2_5_vl_3b")
-        assert isinstance(provider, LlamaCppVisionProvider)
+        assert isinstance(provider, ConcurrencyLimitedVisionProvider)
+        assert isinstance(provider.inner, LlamaCppVisionProvider)
 
     def test_invalid_provider_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported"):

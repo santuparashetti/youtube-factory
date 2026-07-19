@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import VisionProvider
+from .throttled import ConcurrencyLimitedVisionProvider
 
 
 def get_vision_provider(
@@ -27,19 +28,23 @@ def get_vision_provider(
         case "mock":
             from .mock import MockVisionProvider
 
-            return MockVisionProvider()
+            return ConcurrencyLimitedVisionProvider(MockVisionProvider(), provider_name)
 
         case "gemini":
             from video_core.config.shared_settings import SharedSettings
             from .gemini_vision_provider import GeminiVisionProvider
 
-            return GeminiVisionProvider(settings=SharedSettings())
+            return ConcurrencyLimitedVisionProvider(
+                GeminiVisionProvider(settings=SharedSettings()), provider_name
+            )
 
         case "huggingface":
             from video_core.config.shared_settings import SharedSettings
             from .huggingface_vision_provider import HuggingFaceVisionProvider
 
-            return HuggingFaceVisionProvider(settings=SharedSettings())
+            return ConcurrencyLimitedVisionProvider(
+                HuggingFaceVisionProvider(settings=SharedSettings()), provider_name
+            )
 
         case "local":
             from video_core.models import LocalAIModelManager
@@ -52,11 +57,17 @@ def get_vision_provider(
             if runtime == BundleRuntime.LLAMA_CPP:
                 from .llama_cpp_provider import LlamaCppVisionProvider
 
-                return LlamaCppVisionProvider(model_name=local_model, base_dir=base_dir)
+                return ConcurrencyLimitedVisionProvider(
+                    LlamaCppVisionProvider(model_name=local_model, base_dir=base_dir),
+                    provider_name,
+                )
 
             from .local import LocalVisionProvider
 
-            return LocalVisionProvider(model_name=local_model, base_dir=base_dir)
+            return ConcurrencyLimitedVisionProvider(
+                LocalVisionProvider(model_name=local_model, base_dir=base_dir),
+                provider_name,
+            )
 
         case _:
             raise ValueError(

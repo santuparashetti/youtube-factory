@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,12 @@ class SharedSettings(BaseSettings):
     # profile instead of provider-specific configuration. See
     # video_core.providers.tts.voice_profiles.
     voice_profile: str = "atma_theory"
+
+    # Maximum number of concurrent *vision review* requests. Throttles only the
+    # vision QA gate so cloud providers don't hit per-user concurrency limits
+    # (HTTP 429). Does NOT affect image generation, TTS, WhisperX, or rendering.
+    # Validated to 1..100 at load time.
+    vision_max_concurrency: int = 5
 
     # ------------------------------------------------------------------
     # Models
@@ -97,3 +103,16 @@ class SharedSettings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
+
+    @field_validator("vision_max_concurrency")
+    @classmethod
+    def _validate_vision_max_concurrency(cls, v: int) -> int:
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise ValueError(
+                f"VISION_MAX_CONCURRENCY must be an integer, got {v!r}"
+            )
+        if v < 1 or v > 100:
+            raise ValueError(
+                f"VISION_MAX_CONCURRENCY must be between 1 and 100 (got {v})"
+            )
+        return v
