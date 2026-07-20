@@ -90,6 +90,7 @@ def _split_script_to_scenes(
                 "narration": narration,
                 "duration_seconds": max(8, int(wc * 0.5)),
                 "visual_prompt": "",
+                "visual_metadata": {},
             }
         )
         bucket.clear()
@@ -244,6 +245,7 @@ def _write_prompts_file(
         idx: int = scene["index"]
         filename = f"scene-{idx:03d}.png"
         save_path = abs_images_dir / filename
+        vm = scene.get("visual_metadata", {})
 
         lines += [
             f"## Scene {idx} — `{filename}`",
@@ -255,6 +257,10 @@ def _write_prompts_file(
             "**Image Prompt:**",
             "",
             f"> {scene.get('visual_prompt', '')}",
+            "",
+            f"**Visual Metadata:** era={vm.get('era', '—')} role={vm.get('narrative_role', '—')} "
+            f"env={vm.get('environment', '—')} mood={vm.get('mood', '—')} "
+            f"style={vm.get('visual_style', '—')} modern={vm.get('allow_modern_objects', '—')}",
             "",
             "---",
             "",
@@ -278,13 +284,16 @@ def _strip_fences(text: str) -> str:
 
 
 def _parse_visual_prompts(text: str) -> list[dict] | None:
-    """Parse Phase-2 output: [{index, visual_prompt}].
+    """Parse Phase-2 output: [{index, visual_prompt, visual_metadata?}].
 
     Handles several LLM output styles:
     - Clean JSON array
     - JSON inside ```json...``` code fences (anywhere in the response)
     - Per-scene separate arrays on separate lines
     - JSON array anywhere in text (regex fallback)
+
+    visual_metadata is optional for backward compatibility with cached plans
+    or LLM responses that omit it.
     """
 
     def _valid(items: list) -> bool:
@@ -402,6 +411,10 @@ def scene_planner_node(state: VideoState) -> dict:
     if existing_plan_path.exists():
         existing = json.loads(existing_plan_path.read_text(encoding="utf-8"))
         scenes = existing.get("scenes", [])
+
+        for _scene in scenes:
+            if "visual_metadata" not in _scene:
+                _scene["visual_metadata"] = {}
 
         # Defensive: strip heading prefix from scene 1 narration if it leaked from
         # a run before this fix was in place.  Patches the cached JSON in-place so
@@ -578,7 +591,12 @@ def scene_planner_node(state: VideoState) -> dict:
                 batch_nums,
             )
 
-    # Apply prompts; fall back to title-based placeholder for any missed scene
+    # Apply prompts and visual_metadata; fall back to title-based placeholder for any missed scene
+    _vm_map: dict[int, dict] = {}
+    for item in vp_list:
+        if "visual_metadata" in item:
+            _vm_map[item["index"]] = item["visual_metadata"]
+
     for s in scenes:
         if s["index"] in vp_map:
             s["visual_prompt"] = vp_map[s["index"]]
@@ -587,6 +605,26 @@ def scene_planner_node(state: VideoState) -> dict:
                 f"Cinematic wide shot, {s.get('title', 'contemplative moment')}, "
                 "golden hour lighting, silhouette, spiritual documentary, no text, no watermark, photorealistic"
             )
+        if s["index"] in _vm_map and not s.get("visual_metadata"):
+            s["visual_metadata"] = _vm_map[s["index"]]
+        if not s.get("visual_metadata"):
+            s["visual_metadata"] = {}
+
+    # ── Visual Intelligence logging ──────────────────────────────────────
+    for s in scenes:
+        vm = s.get("visual_metadata", {})
+        logger.info(
+            "Scene {:03d} | era={} role={} env={} mood={} style={} "
+            "allow_modern={} reason={}",
+            s["index"],
+            vm.get("era", "—"),
+            vm.get("narrative_role", "—"),
+            vm.get("environment", "—"),
+            vm.get("mood", "—"),
+            vm.get("visual_style", "—"),
+            vm.get("allow_modern_objects", "—"),
+            vm.get("reason", "—"),
+        )
 
     # ── V4: Diagnostics, validation, and debug output ─────────────────────
     v4_report = _v4_engine.build_diagnostics(scenes)
@@ -620,10 +658,14 @@ def scene_planner_node(state: VideoState) -> dict:
         f"Total: {len(scenes)} scenes, ~{total / 60:.1f} min\n",
     ]
     for s in scenes:
+        vm = s.get("visual_metadata", {})
         md_lines.append(
             f"## Scene {s['index']}: {s['title']} ({s['duration_seconds']}s)\n"
             f"**Narration:** {s['narration']}\n\n"
-            f"**Visual:** {s['visual_prompt']}\n"
+            f"**Visual:** {s['visual_prompt']}\n\n"
+            f"**Visual Metadata:** era={vm.get('era', '—')} role={vm.get('narrative_role', '—')} "
+            f"env={vm.get('environment', '—')} mood={vm.get('mood', '—')} "
+            f"style={vm.get('visual_style', '—')} modern={vm.get('allow_modern_objects', '—')}\n"
         )
     artifact_repo.write_markdown(
         project_id, "scenes", "scene-plan.md", "\n".join(md_lines)

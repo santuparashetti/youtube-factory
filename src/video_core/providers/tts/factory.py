@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from video_core.config.shared_settings import SharedSettings
 
+from .analytics.collector import TTSAnalyticsCollector
 from .base import TTSProvider
 from .edge_tts import EdgeTTSProvider
 from .voice_profiles import get_voice_profile
 
 
-def get_tts_provider(settings: SharedSettings) -> TTSProvider:
+def get_tts_provider(
+    settings: SharedSettings,
+    *,
+    analytics: TTSAnalyticsCollector | None = None,
+) -> TTSProvider:
     """Return the configured TTS provider.
 
     Resolution is driven entirely by ``TTS_PROVIDER``. The provider-agnostic
@@ -28,7 +33,11 @@ def get_tts_provider(settings: SharedSettings) -> TTSProvider:
             from .cartesia import CartesiaTTSProvider
 
             profile = get_voice_profile(getattr(settings, "voice_profile", ""))
-            return CartesiaTTSProvider(settings, profile=profile)
+            return CartesiaTTSProvider(
+                settings,
+                profile=profile,
+                analytics=analytics,
+            )
 
         case "elevenlabs":
             raise ValueError(

@@ -143,7 +143,7 @@ class TestImageReviewEngineRetry:
 
         # First call FAIL, second PASS
         call_count = 0
-        def side_effect(image_path, visual_prompt, scene_context=None):
+        def side_effect(image_path, visual_prompt, scene_context=None, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -507,7 +507,7 @@ class TestSubjectSpecialistReview:
         config = _make_config(max_attempts=1)
 
         call_count = 0
-        def side_effect(image_path, visual_prompt, scene_context=None):
+        def side_effect(image_path, visual_prompt, scene_context=None, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -546,7 +546,7 @@ class TestSubjectSpecialistReview:
         config = _make_config(max_attempts=2)
 
         call_count = 0
-        def side_effect(image_path, visual_prompt, scene_context=None):
+        def side_effect(image_path, visual_prompt, scene_context=None, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

@@ -386,11 +386,56 @@ WRITING RULES
 — The {style_label} feeling should come through the imagery — not by stating it as a keyword.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
-[{{"index": N, "visual_prompt": "..."}}]
+[{{"index": N, "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true|false, "reason": "..."}}}}]
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════
+VISUAL METADATA — classify every scene
+═════════════════════════════════════════════════
+
+For EACH scene, include a visual_metadata object with these exact fields:
+
+  version: 1 (always)
+
+  era: one of ANCIENT | HISTORICAL | MODERN | SYMBOLIC | TRANSITIONAL
+    ANCIENT — pre-medieval, mythological, Vedic, scriptural settings
+    HISTORICAL — documented history, medieval, early modern
+    MODERN — contemporary, office, city, technology
+    SYMBOLIC — timeless concepts, consciousness, abstract
+    TRANSITIONAL — ancient and modern coexist intentionally
+
+  narrative_role: one of STORY | ANALOGY | METAPHOR | EXPLANATION | ESTABLISHING | CTA
+    STORY — advancing the narrative
+    ANALOGY — drawing a comparison to familiar life
+    METAPHOR — visual representation of an abstract idea
+    EXPLANATION — clarifying a concept
+    ESTABLISHING — setting the scene or context
+    CTA — call to action or closing
+
+  environment: one of FOREST | TEMPLE | ASHRAM | KINGDOM | BATTLEFIELD | CITY |
+                OFFICE | HOME | MOUNTAIN | RIVER | ABSTRACT | COSMIC
+    Pick the single best match. Use ABSTRACT or COSMIC only for symbolic scenes.
+
+  mood: one of PEACEFUL | MYSTERIOUS | REVERENT | REFLECTIVE | HOPEFUL |
+        FEARFUL | CURIOUS | LONELY | DETERMINED
+    Pick the dominant emotion the scene should convey.
+
+  visual_style: one of DOCUMENTARY | CINEMATIC | REALISTIC | DREAMLIKE |
+                 PAINTING | ANIME | WATERCOLOR
+    Independent of era. DOCUMENTARY is the default for this channel.
+
+  allow_modern_objects: true | false
+    ANCIENT or HISTORICAL era → false
+    MODERN era → true
+    SYMBOLIC → planner decides
+    TRANSITIONAL → true
+
+  reason: short string explaining the classification (for debugging only)
+
+Choose values that match the narration content. Do not invent metadata that contradicts the scene.
+
+═════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════
 {scene_list}\
 """
 

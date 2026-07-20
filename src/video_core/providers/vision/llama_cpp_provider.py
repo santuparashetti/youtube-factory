@@ -22,7 +22,9 @@ from loguru import logger
 from video_core.models import LocalAIModelManager, ModelStatus
 from video_core.models.backend import Backend, select_backend
 
-from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
+from .base import VisionProvider, build_era_aware_prompt
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 from .models import IssueSeverity, VisionIssue, VisionReviewResult
 
 
@@ -78,11 +80,13 @@ class LlamaCppVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         if not image_path.exists():
             return VisionReviewResult.error_result(f"Image not found: {image_path}")
         try:
-            return self._run_review(image_path, visual_prompt, scene_context)
+            return self._run_review(image_path, visual_prompt, scene_context, visual_metadata, prompt_package)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "llama.cpp vision review error for {}: {}", image_path.name, exc
@@ -96,6 +100,8 @@ class LlamaCppVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         model = self._load_model()
         if model is None:
@@ -104,7 +110,7 @@ class LlamaCppVisionProvider(VisionProvider):
                 "install llama-cpp-python or run ytfactory setup"
             )
 
-        prompt = self._build_prompt(visual_prompt)
+        prompt = self._build_prompt(visual_prompt, visual_metadata, prompt_package)
         try:
             response = self._infer(model, image_path, prompt)
         except Exception as exc:
@@ -218,13 +224,8 @@ class LlamaCppVisionProvider(VisionProvider):
             )
             return None
 
-    def _build_prompt(self, visual_prompt: str) -> str:
-        hand_block = HAND_ANATOMY_PROMPT if is_hand_focal(visual_prompt) else ""
-        return (
-            f"{VISION_REVIEW_PROMPT}{hand_block}\n\n"
-            f"The image was generated with this prompt:\n{visual_prompt}\n\n"
-            "Review the image against all criteria above and return your JSON assessment."
-        )
+    def _build_prompt(self, visual_prompt: str, visual_metadata: VisualMetadata | None = None, prompt_package: PromptPackage | None = None) -> str:
+        return build_era_aware_prompt(visual_prompt, visual_metadata, prompt_package)
 
     def _infer(self, model: object, image_path: Path, prompt: str) -> str:
         suffix = image_path.suffix.lower()

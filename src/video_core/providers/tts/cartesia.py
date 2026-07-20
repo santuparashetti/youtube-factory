@@ -29,6 +29,9 @@ from .base import TTSProvider
 from .capabilities import ProviderCapabilities
 from .infra import TTSCache, batch_sentences, with_retry
 from .voice_profiles import VoiceProfile
+from video_core.providers.tts.analytics.collector import TTSAnalyticsCollector
+from video_core.providers.tts.analytics.models import TTSAnalyticsRecord
+from video_core.providers.tts.analytics.text_counter import count_text
 
 
 class CartesiaTTSProvider(TTSProvider):
@@ -40,8 +43,10 @@ class CartesiaTTSProvider(TTSProvider):
         *,
         profile: VoiceProfile | None = None,
         cache: TTSCache | None = None,
+        analytics: TTSAnalyticsCollector | None = None,
     ) -> None:
         self._settings = settings
+        self._analytics = analytics
 
         # Fail-fast: required configuration must be present (Step 9).
         if not settings.cartesia_api_key:
@@ -128,6 +133,8 @@ class CartesiaTTSProvider(TTSProvider):
             model=self._model,
             speed=self._speed,
             output_format=ext,
+            emotion=self._emotion,
+            sample_rate=self._sample_rate,
         )
 
         # Cache hit (Step 6) — never call Cartesia again.
@@ -203,15 +210,6 @@ class CartesiaTTSProvider(TTSProvider):
         resolved_voice = voice or self._voice_id
         batches = batch_sentences(text, max_chars=self._max_chars)
 
-        logger.info(
-            "TTS [cartesia] model={} voice={} chars={} format={} cache_hit={}",
-            self._model,
-            resolved_voice,
-            len(text),
-            self._output_format,
-            "pending",
-        )
-
         t0 = time.perf_counter()
         if len(batches) == 1:
             duration = self._synthesise_chunk(batches[0], output_path)
@@ -219,11 +217,58 @@ class CartesiaTTSProvider(TTSProvider):
             duration = self._synthesize_batched(batches, output_path)
         elapsed = time.perf_counter() - t0
 
+        # Determine cache hit by checking if the key exists before API call.
+        cache_key = TTSCache.make_key(
+            text=text,
+            voice_id=resolved_voice,
+            model=self._model,
+            speed=self._speed,
+            output_format=self._output_format,
+            emotion=self._emotion,
+            sample_rate=self._sample_rate,
+        )
+        cache_hit = self._cache.get(cache_key, self._output_format) is not None
+
         logger.info(
-            "TTS [cartesia] latency={:.1f}s duration={:.2f}s provider=cartesia",
+            "TTS [cartesia] model={} voice={} chars={} format={} cache_hit={}",
+            self._model,
+            resolved_voice,
+            len(text),
+            self._output_format,
+            cache_hit,
+        )
+        logger.info(
+            "TTS [cartesia] latency={:.1f}s duration={:.2f}s provider=cartesia cache_hit={}",
             elapsed,
             duration,
+            cache_hit,
         )
+
+        if self._analytics and self._settings.tts_analytics_enabled:
+            counts = count_text(text)
+            output_size = output_path.stat().st_size if output_path.exists() else 0
+            pricing = self._analytics._pricing.get_pricing("cartesia")
+            credits = pricing.estimate_credits(counts["characters"])
+            cost = pricing.estimate_cost(credits)
+            record = TTSAnalyticsRecord(
+                scene_id=output_path.stem,
+                provider="cartesia",
+                model=self._model,
+                voice=resolved_voice,
+                text=text,
+                characters=counts["characters"],
+                words=counts["words"],
+                sentences=counts["sentences"],
+                cache_hit=cache_hit,
+                retry_count=0,
+                latency_ms=elapsed * 1000.0,
+                output_bytes=output_size,
+                audio_duration=duration,
+                estimated_credits=credits,
+                estimated_cost=cost,
+            )
+            self._analytics.record(record)
+
         return output_path
 
     def _synthesize_batched(

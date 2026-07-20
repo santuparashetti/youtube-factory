@@ -76,6 +76,38 @@ PASS2_SCORED_LOW = (
     "---END SCORE---"
 )
 
+PASS3_EXPANDED = """\
+The teacher began with ॐ नमः शिवाय and spoke at length on the nature of consciousness.
+
+This is a profound and detailed discourse about the nature of suffering and the ancient path that leads beyond it. The teacher gathers the listeners and begins with a question that cuts through all pretense: why do we suffer, and is there a way out that does not depend on changing the world?
+
+The teacher begins by explaining that attachment is the root cause of all inner pain. When we cling to people, possessions, outcomes, and identities, we set ourselves up for inevitable disappointment. This is not a pessimistic view but a realistic and compassionate one. The first step toward genuine freedom is seeing clearly how our own clinging binds us.
+
+The teacher then explores how this attachment operates in daily life, often without our awareness. We attach to our opinions, our social status, our carefully constructed plans, and even our spiritual achievements. Each attachment creates a subtle background tension, a low-grade anxiety that colors every experience. Even pleasant experiences become contaminated by the quiet fear of losing them.
+
+Consider, the teacher says, how a beautiful sunset is diminished the moment we photograph it instead of simply seeing it. The attachment to possessing the moment destroys the very joy we sought to capture. This pattern repeats endlessly.
+
+Stories and analogies follow naturally from this observation. The teacher tells of a man who carries a heavy burden across a vast desert, convinced it contains untold treasure. He guards it jealously, suffering under its weight, unwilling to share or rest. When he finally sets it down to rest his weary body, he discovers to his shock that it was filled with ordinary stones. His suffering was real, but the burden he carried was entirely optional — a creation of his own mind.
+
+The teaching deepens as the teacher examines the relationship between pleasure and pain. Where there is intense pleasure, there is also the seed of intense pain, because all pleasant conditions are impermanent. This is not a reason to reject pleasure but to understand its nature. Enjoyment without clinging is possible, and that is the goal of the practice.
+
+The teacher explains that detachment is not withdrawal from life but engagement without desperation. It is possible to love deeply while holding lightly, to strive wholeheartedly while accepting any outcome. This paradox lies at the very heart of the wisdom tradition. The lotus flower floats on water, the teacher notes, yet is not drowned by it.
+
+Analogies illuminate the point from many angles. The teacher compares the mind to a clear mountain lake: when disturbed by wind, it cannot reflect the sky. But the sky is always there, unchanged, waiting to be seen. Similarly, our essential nature remains untouched by the ripples of circumstance. The practice is not to stop the ripples but to identify with the depth beneath them.
+
+The teacher addresses a common misunderstanding with care. Some think that renunciation means abandoning the world, its duties, and its relationships. True renunciation, the teacher insists, is renouncing the need for the world to be different than it is. It is an inner posture, not an outer performance. One can wear fine clothes and still be free, if the heart does not depend on them.
+
+Stories from the tradition illustrate this with vivid clarity. A great king renounces his throne not because palace life is inherently bad, but because he sees through its hollow promises. A humble householder continues to work and raise a family yet lives from a place of inner freedom that nothing can disturb. The outer form does not determine the inner state.
+
+The teacher then turns to the practical dimension with generosity. How does one cultivate this freedom in the midst of a busy life? Through attention, through honest self-inquiry, through the repeated willingness to question one's own attachments. Each moment of genuine self-examination loosens the grip of habit and reveals a little more space within.
+
+The closing wisdom lands with deep weight: suffering is not a failure of life but an invitation to deeper understanding. Every frustration, every loss, every disappointment carries within it a teaching if we are willing to receive it with an open mind. The path out of suffering is not away from experience but through it — with open eyes and a willing heart.
+
+In the final reflection, the teacher reminds the listener that this understanding is not distant, rare, or reserved for a few. It is available in every breath, every bodily sensation, every moment of genuine attention. The question is not whether the teaching is true but whether we are ready to live from that truth in the midst of ordinary life. The readiness comes not from accumulating more knowledge but from the willingness to be transformed by what we already know deep within.
+
+The discourse concludes with a simple but powerful image: the mind is like a mirror. When covered with the dust of habit and desire, it reflects only distortion. When cleaned through patient attention, it reflects reality as it truly is. The practice of truth is the practice of cleaning that mirror — not through force or struggle, but through gentle, persistent, and honest attention to what is, exactly as it is, in this present moment.
+"""
+
 
 def _make_response(text: str) -> MagicMock:
     r = MagicMock()
@@ -218,6 +250,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(PASS1_CLEAN),
             _make_response(PASS2_SCORED_GOOD),
+            _make_response(PASS3_EXPANDED),
         ]
         project_id = "proj-001"
 
@@ -240,6 +273,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(PASS1_CLEAN),
             _make_response(PASS2_SCORED_GOOD),
+            _make_response(PASS3_EXPANDED),
         ]
         project_id = "proj-002"
 
@@ -262,6 +296,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(short_pass1),
             _make_response(PASS2_SCORED_GOOD),
+            _make_response(PASS3_EXPANDED),
         ]
         project_id = "proj-003"
 
@@ -281,13 +316,14 @@ class TestDocumentaryScriptEnhancerPipeline:
             _make_response(PASS1_CLEAN),        # Pass 1
             _make_response(PASS2_SCORED_LOW),   # Pass 2 iteration 1: score 7.0
             _make_response(PASS2_SCORED_GOOD),  # Pass 2 iteration 2: score 9.0
+            _make_response(PASS3_EXPANDED),
         ]
         project_id = "proj-004"
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run(project_id, topic="Test", script_text=SAMPLE_SCRIPT)
 
-        assert mock_llm.generate.call_count == 3  # 1 pass1 + 2 pass2
+        assert mock_llm.generate.call_count == 4  # 1 pass1 + 2 pass2 + 1 pass3
 
         report = json.loads(
             (tmp_path / project_id / "script" / "enhancement-report.json").read_text()
@@ -301,13 +337,14 @@ class TestDocumentaryScriptEnhancerPipeline:
             _make_response(PASS1_CLEAN),
             _make_response(PASS2_SCORED_LOW),  # 7.0
             _make_response(PASS2_SCORED_LOW),  # 7.0
+            _make_response(PASS3_EXPANDED),
         ]
         project_id = "proj-005"
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run(project_id, topic="Test", script_text=SAMPLE_SCRIPT)
 
-        assert mock_llm.generate.call_count == 3  # 1 + 2 iterations
+        assert mock_llm.generate.call_count == 4  # 1 pass1 + 2 pass2 + 1 pass3
 
         report = json.loads(
             (tmp_path / project_id / "script" / "enhancement-report.json").read_text()
@@ -328,6 +365,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(pass1_text),
             _make_response(pass2_text),
+            _make_response(PASS3_EXPANDED),
         ]
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -338,7 +376,7 @@ class TestDocumentaryScriptEnhancerPipeline:
     def test_final_validation_fallback_to_pass1(self, pipeline, mock_llm, tmp_path):
         """Final validation failure triggers fallback to Pass 1 output."""
         script = f"The teacher said ॐ नमः शिवाय at the start."
-        scripture = "ॐ नमः शिவாय"
+        scripture = "ॐ नमः शिવાя"
 
         pass1_text = "The teacher said {{SCRIPTURE_1}} at the start."
         # Pass 2 drops the placeholder — final validation should fail
@@ -349,6 +387,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(pass1_text),
             _make_response(pass2_text),
+            _make_response(PASS3_EXPANDED),
         ]
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -368,6 +407,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(PASS1_CLEAN),
             _make_response(PASS2_SCORED_GOOD),
+            _make_response(PASS3_EXPANDED),
         ]
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -384,6 +424,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         mock_llm.generate.side_effect = [
             _make_response(PASS1_CLEAN),
             _make_response(PASS2_SCORED_GOOD),
+            _make_response(PASS3_EXPANDED),
         ]
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):

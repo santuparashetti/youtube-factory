@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.images.review_models import SceneReviewArtifact
-from ytfactory.prompts.prompt_remediation_builder import PromptRemediationBuilder, RemediationInput
+from ytfactory.prompts.prompt_remediation_builder import PromptRemediationBuilder
+from ytfactory.prompts.remediation_engine import RemediationEngine, RemediationPackage
 from ytfactory.workflow.image_remediation_orchestrator import (
     ImageRemediationOrchestrator,
     _dict_to_vision_issue,
@@ -67,6 +66,7 @@ def _make_orchestrator(
     auto_remediate: bool = True,
     side_effects: list[SceneReviewArtifact] | None = None,
     builder: PromptRemediationBuilder | None = None,
+    remediation_engine: RemediationEngine | None = None,
 ) -> tuple[ImageRemediationOrchestrator, MagicMock, MagicMock]:
     """Return (orchestrator, mock_review_engine, mock_image_provider)."""
     config = _config(max_attempts=max_attempts, auto_remediate=auto_remediate)
@@ -79,7 +79,9 @@ def _make_orchestrator(
             engine_instance.review_scene.side_effect = side_effects
         else:
             engine_instance.review_scene.return_value = _pass_artifact()
-        orch = ImageRemediationOrchestrator(config, vision, image_prov, builder=builder)
+        orch = ImageRemediationOrchestrator(
+            config, vision, image_prov, builder=builder, remediation_engine=remediation_engine
+        )
         orch._review_engine = engine_instance
         return orch, engine_instance, image_prov
 
@@ -414,12 +416,18 @@ class TestRefinedPromptUsed:
         original_prompt = "Ancient Greek philosopher."
         custom_refined = f"{original_prompt}\n\nImprove only the following while preserving the original scene:\n- Natural five-finger hands."
 
-        mock_builder = MagicMock(spec=PromptRemediationBuilder)
-        mock_builder.build.return_value = custom_refined
+        mock_engine = MagicMock(spec=RemediationEngine)
+        mock_package = RemediationPackage(
+            original_prompt=original_prompt,
+            remediated_prompt=custom_refined,
+            remediation_reason="test",
+            remediation_strategy="anatomy_fix",
+        )
+        mock_engine.build.return_value = mock_package
 
         side = [_fail_artifact(), _pass_artifact()]
         orch, engine, image_prov = _make_orchestrator(
-            side_effects=side, builder=mock_builder
+            side_effects=side, remediation_engine=mock_engine
         )
 
         captured_prompts: list[str] = []
@@ -438,12 +446,18 @@ class TestRefinedPromptUsed:
         image = tmp_path / "scene-001.png"
         image.write_bytes(b"png")
 
-        mock_builder = MagicMock(spec=PromptRemediationBuilder)
-        mock_builder.build.return_value = "refined prompt"
+        mock_engine = MagicMock(spec=RemediationEngine)
+        mock_package = RemediationPackage(
+            original_prompt="Ancient Greek philosopher walking along a stone road.",
+            remediated_prompt="refined prompt",
+            remediation_reason="test",
+            remediation_strategy="anatomy_fix",
+        )
+        mock_engine.build.return_value = mock_package
 
         side = [_fail_artifact(), _pass_artifact()]
         orch, engine, image_prov = _make_orchestrator(
-            side_effects=side, builder=mock_builder
+            side_effects=side, remediation_engine=mock_engine
         )
 
         def fake_generate(req: Any) -> None:
@@ -452,7 +466,6 @@ class TestRefinedPromptUsed:
         image_prov.generate.side_effect = fake_generate
         orch.review_scene(_scene(), image, tmp_path)
 
-        mock_builder.build.assert_called_once()
-        call_arg = mock_builder.build.call_args[0][0]
-        assert isinstance(call_arg, RemediationInput)
-        assert call_arg.result.status == "FAIL"
+        mock_engine.build.assert_called_once()
+        call_arg = mock_engine.build.call_args[1]
+        assert call_arg["original_prompt"] == "Ancient Greek philosopher walking along a stone road."

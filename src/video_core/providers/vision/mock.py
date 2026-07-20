@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import VisionProvider
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 from .models import VisionReviewResult
 
 
@@ -42,6 +44,8 @@ class MockVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         if self._default_result is not None:
             return self._default_result

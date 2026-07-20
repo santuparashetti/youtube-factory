@@ -13,6 +13,9 @@ from video_core.providers.tts.factory import get_tts_provider
 from video_core.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.pacing.injector import PauseInjector
 from video_core.providers.tts.validator import AudioValidator, ValidationResult
+from video_core.providers.tts.analytics.collector import TTSAnalyticsCollector
+from video_core.providers.tts.analytics.models import TTSVideoSummary
+from video_core.providers.tts.analytics.pricing import ProviderPricingConfig
 
 from .aligner import align as whisperx_align
 from .aligner import save_alignment
@@ -67,7 +70,20 @@ class VoicePipeline:
 
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._provider = get_tts_provider(settings)
+        self._pricing_config = ProviderPricingConfig.from_dict({
+            "providers": {
+                "cartesia": {
+                    "credits_per_character": settings.cartesia_credits_per_character,
+                    "credits_per_request": settings.cartesia_credits_per_request,
+                    "usd_per_credit": settings.cartesia_usd_per_credit,
+                }
+            }
+        })
+        self._analytics = TTSAnalyticsCollector(
+            enabled=settings.tts_analytics_enabled,
+            pricing_config=self._pricing_config,
+        )
+        self._provider = get_tts_provider(settings, analytics=self._analytics)
         self._repository = VoiceRepository()
 
     def run(
@@ -85,6 +101,7 @@ class VoicePipeline:
 
         total = len(scenes)
         scenes_metadata: list[dict] = []
+        self._analytics.set_current_video(project_id)
 
         _w = get_writer()
         if _w:
@@ -275,11 +292,73 @@ class VoicePipeline:
             if _w:
                 _w.stage_progress(idx + 1)
 
+            # Per-scene TTS analytics log
+            if self._settings.tts_log_per_scene and self._analytics.enabled:
+                scene_records = [
+                    r for r in self._analytics.all_records()
+                    if r.scene_id == str(scene["index"])
+                ]
+                if scene_records:
+                    r = scene_records[-1]
+                    logger.info(
+                        "Scene {:03d} | Provider: {} | Model: {} | Voice: {} | "
+                        "Characters: {} | Words: {} | Duration: {:.1f}s | "
+                        "Cache Hit: {} | Retries: {} | Latency: {:.2f}s | "
+                        "Estimated Credits: {:.1f} | Estimated Cost: ${:.4f}",
+                        scene["index"],
+                        r.provider,
+                        r.model,
+                        r.voice,
+                        r.characters,
+                        r.words,
+                        r.audio_duration,
+                        r.cache_hit,
+                        r.retry_count,
+                        r.latency_ms / 1000.0,
+                        r.estimated_credits,
+                        r.estimated_cost,
+                    )
+
         # Write project-level diagnostics report
         TTSDebugWriter.write_project_summary(
             project_id=project_id,
             scenes_metadata=scenes_metadata,
             enabled=self._settings.tts_debug,
         )
+
+        # Per-video TTS summary
+        if self._settings.tts_summary_enabled and self._analytics.enabled:
+            self._log_video_summary(project_id)
+
         if _w:
             _w.stage_complete()
+
+    def _log_video_summary(self, video_id: str) -> None:
+        if not self._analytics or not self._analytics.enabled:
+            return
+        summary = self._analytics.video_summary(video_id)
+        if not summary or not isinstance(summary, TTSVideoSummary):
+            return
+        if summary.total_requests == 0:
+            return
+        logger.info("=" * 60)
+        logger.info("TTS SUMMARY")
+        logger.info("=" * 60)
+        logger.info("Scenes: {}", summary.total_scenes)
+        logger.info("Requests: {}", summary.total_requests)
+        logger.info("Characters: {}", summary.total_characters)
+        logger.info("Words: {}", summary.total_words)
+        logger.info("Total Audio Duration: {:.1f}s", summary.total_audio_duration)
+        logger.info("Average Scene Duration: {:.1f}s", summary.avg_scene_duration)
+        logger.info("Average Characters: {:.0f}", summary.avg_characters_per_scene)
+        logger.info("Cache Hits: {}", summary.cache_hits)
+        logger.info("Cache Misses: {}", summary.cache_misses)
+        logger.info("Cache Hit %: {:.1f}%", summary.cache_hit_rate * 100)
+        logger.info("Retries: {}", summary.total_retries)
+        logger.info("Average Latency: {:.2f}s", summary.avg_latency_ms / 1000.0)
+        logger.info("Estimated Credits: {:.1f}", summary.total_credits)
+        logger.info("Estimated Cost: ${:.4f}", summary.total_cost)
+        logger.info("Providers: {}", dict(summary.providers_used))
+        logger.info("Models: {}", dict(summary.models_used))
+        logger.info("Voices: {}", dict(summary.voices_used))
+        logger.info("=" * 60)

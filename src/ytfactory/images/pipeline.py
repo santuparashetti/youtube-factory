@@ -119,11 +119,27 @@ class ImagePipeline:
                     _w.stage_progress(index)
                 continue
 
+            # Apply Visual Intelligence Prompt Builder if metadata is populated.
+            _vi_negative_prompt: str | None = None
+            _visual_metadata_raw = scene.get("visual_metadata", {})
+            if _visual_metadata_raw:
+                try:
+                    from video_core.visual_intelligence.prompt_builder import PromptBuilder
+                    _prompt_builder = PromptBuilder()
+                    _package = _prompt_builder.build_from_scene(scene)
+                    if _package.visual_profile:
+                        scene = {**scene, "visual_prompt": _package.final_prompt}
+                        _vi_negative_prompt = _package.negative_prompt
+                except Exception:
+                    _vi_negative_prompt = None
+
             negative_prompt = (
                 scene.get("negative_prompt") or _DEFAULT_NEGATIVE_PROMPT
                 if self._uses_negative_prompts
                 else None
             )
+            from video_core.visual_intelligence.prompt_builder import merge_negative_prompts
+            negative_prompt = merge_negative_prompts(negative_prompt, _vi_negative_prompt)
             request = ImageRequest(
                 prompt=scene["visual_prompt"],
                 output_path=output_path,

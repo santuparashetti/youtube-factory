@@ -15,7 +15,9 @@ from tenacity import (
 )
 
 from video_core.config.shared_settings import SharedSettings
-from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
+from .base import VisionProvider
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 from .models import IssueSeverity, VisionIssue, VisionReviewResult
 
 _RETRYABLE = (
@@ -92,12 +94,14 @@ class GeminiVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         if not image_path.exists():
             return VisionReviewResult.error_result(f"Image not found: {image_path}")
 
         try:
-            return self._run_review(image_path, visual_prompt, scene_context)
+            return self._run_review(image_path, visual_prompt, scene_context, visual_metadata, prompt_package)
         except GeminiQuotaError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -109,8 +113,10 @@ class GeminiVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
-        prompt_text = self._build_prompt(visual_prompt)
+        prompt_text = self._build_prompt(visual_prompt, visual_metadata, prompt_package)
         image_bytes = image_path.read_bytes()
         suffix = image_path.suffix.lower()
         mime_type = _MIME_MAP.get(suffix)
@@ -129,13 +135,9 @@ class GeminiVisionProvider(VisionProvider):
         result.raw_response = raw_response
         return result
 
-    def _build_prompt(self, visual_prompt: str) -> str:
-        hand_block = HAND_ANATOMY_PROMPT if is_hand_focal(visual_prompt) else ""
-        return (
-            f"{VISION_REVIEW_PROMPT}{hand_block}\n\n"
-            f"The image was generated with this prompt:\n{visual_prompt}\n\n"
-            "Review the image against all criteria above and return your JSON assessment."
-        )
+    def _build_prompt(self, visual_prompt: str, visual_metadata: VisualMetadata | None = None, prompt_package: PromptPackage | None = None) -> str:
+        from .base import build_era_aware_prompt
+        return build_era_aware_prompt(visual_prompt, visual_metadata, prompt_package)
 
     def _parse_response(self, raw: str) -> VisionReviewResult:
         cleaned = re.sub(r"```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()

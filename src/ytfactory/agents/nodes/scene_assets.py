@@ -101,6 +101,27 @@ def generate_scene_assets(state: VideoState) -> dict:
     elif is_back_or_profile_view(visual_prompt):
         visual_prompt = add_back_view_hand_orientation(visual_prompt)
 
+    # Apply Visual Intelligence Prompt Builder if metadata is populated.
+    _vi_negative_prompt: str | None = None
+    _visual_metadata_raw = scene.get("visual_metadata", {})
+    if _visual_metadata_raw:
+        try:
+            from video_core.visual_intelligence.prompt_builder import PromptBuilder
+            _prompt_builder = PromptBuilder()
+            _package = _prompt_builder.build_from_scene(scene)
+            if _package.visual_profile:
+                visual_prompt = _package.final_prompt
+                _vi_negative_prompt = _package.negative_prompt
+                logger.debug(
+                    "Scene {}: prompt fingerprint={} profile={}",
+                    index,
+                    _package.prompt_fingerprint,
+                    _package.visual_profile,
+                )
+                scene = {**scene, "_prompt_package": _package.__dict__}
+        except Exception:
+            _vi_negative_prompt = None
+
     skip_images: bool = state.get("skip_images", False)
 
     project_dir = Path(WORKSPACE_DIR) / project_id
@@ -144,12 +165,17 @@ def generate_scene_assets(state: VideoState) -> dict:
 
         try:
             provider = get_image_provider(settings)
+            from video_core.visual_intelligence.prompt_builder import merge_negative_prompts
+            _merged_negative = merge_negative_prompts(
+                _DEFAULT_NEGATIVE_PROMPT if uses_negative else None,
+                _vi_negative_prompt,
+            )
             request = ImageRequest(
                 prompt=visual_prompt,
                 output_path=image_path,
                 width=settings.image_width,
                 height=settings.image_height,
-                negative_prompt=_DEFAULT_NEGATIVE_PROMPT if uses_negative else None,
+                negative_prompt=_merged_negative,
                 guidance_scale=7.5,
             )
             for attempt in range(5):

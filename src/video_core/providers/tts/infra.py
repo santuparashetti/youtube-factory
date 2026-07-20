@@ -145,6 +145,8 @@ class TTSCache:
         model: str,
         speed: float,
         output_format: str,
+        emotion: str = "calm",
+        sample_rate: int = 44100,
     ) -> str:
         """Deterministic SHA256 key from synthesis inputs."""
         payload = "\n".join(
@@ -154,6 +156,8 @@ class TTSCache:
                 f"model={model}",
                 f"speed={speed!r}",
                 f"format={output_format}",
+                f"emotion={emotion}",
+                f"sample_rate={sample_rate}",
             ]
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()

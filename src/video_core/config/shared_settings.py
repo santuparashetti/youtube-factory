@@ -99,6 +99,24 @@ class SharedSettings(BaseSettings):
     tts_auto_retry: bool = True
     tts_max_retries: int = 3
 
+    # ------------------------------------------------------------------
+    # TTS Analytics & Cost Tracking
+    # ------------------------------------------------------------------
+
+    tts_analytics_enabled: bool = True
+    tts_cost_tracking_enabled: bool = True
+    tts_log_per_scene: bool = True
+    tts_summary_enabled: bool = True
+    tts_verify_cache: bool = True
+
+    # ------------------------------------------------------------------
+    # TTS Provider Pricing (loaded from configuration)
+    # ------------------------------------------------------------------
+
+    cartesia_credits_per_character: float = 0.0
+    cartesia_credits_per_request: float = 0.0
+    cartesia_usd_per_credit: float = 0.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

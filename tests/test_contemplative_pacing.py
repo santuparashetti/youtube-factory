@@ -30,14 +30,12 @@ from ytfactory.providers.tts.pacing.config import (
 from ytfactory.providers.tts.pacing.injector import PauseInjector
 from ytfactory.providers.tts.pacing.models import (
     PauseCategory,
-    SentenceAnalysis,
     ThoughtPauseCategory,
 )
 from ytfactory.providers.tts.pacing.thought_analyzer import (
     ThoughtAnalyzer,
     _new_block_trigger,
     _score_block,
-    _split_sentences as _thought_split_sentences,
 )
 
 
@@ -797,6 +795,7 @@ class TestVoicePipelineIntegration:
         pipeline._settings = settings
         pipeline._repository = MagicMock()
         pipeline._provider = MagicMock()
+        pipeline._analytics = MagicMock()
 
         def fake_pacer(narration, output_path, **kwargs):
             output_path.write_bytes(b"\xff\xfb" * 100)
@@ -830,6 +829,7 @@ class TestVoicePipelineIntegration:
             audio_dir / "scene-001.mp3", []
         )
         pipeline._provider = mock_provider
+        pipeline._analytics = MagicMock()
 
         with (
             patch("ytfactory.voice.pipeline._pacer") as mock_pacer,
@@ -861,6 +861,7 @@ class TestVoicePipelineIntegration:
             audio_dir / "scene-001.mp3", []
         )
         pipeline._provider = mock_provider
+        pipeline._analytics = MagicMock()
 
         with (
             patch("ytfactory.voice.pipeline._pacer") as mock_pacer,

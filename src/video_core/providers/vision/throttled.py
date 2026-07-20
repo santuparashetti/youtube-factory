@@ -28,6 +28,8 @@ from pathlib import Path
 from loguru import logger
 
 from .base import VisionProvider
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 from .concurrency import (
     configured_max_concurrency,
     get_vision_review_metrics,
@@ -122,6 +124,8 @@ class ConcurrencyLimitedVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         scene_idx = (scene_context or {}).get("index", "?")
         max_c = configured_max_concurrency()
@@ -149,7 +153,8 @@ class ConcurrencyLimitedVisionProvider(VisionProvider):
             self._metrics.record_acquired(waited)
 
             result = self._review_with_congestion_retry(
-                image_path, visual_prompt, scene_context, scene_idx
+                image_path, visual_prompt, scene_context, scene_idx,
+                visual_metadata, prompt_package,
             )
             return result
         finally:
@@ -163,6 +168,8 @@ class ConcurrencyLimitedVisionProvider(VisionProvider):
         visual_prompt: str,
         scene_context: dict | None,
         scene_idx: object,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         last_exc: Exception | None = None
 
@@ -170,7 +177,9 @@ class ConcurrencyLimitedVisionProvider(VisionProvider):
             start = time.perf_counter()
             try:
                 result = self._inner.review(
-                    image_path, visual_prompt, scene_context
+                    image_path, visual_prompt, scene_context,
+                    visual_metadata=visual_metadata,
+                    prompt_package=prompt_package,
                 )
                 latency = time.perf_counter() - start
                 self._metrics.record_completed(latency)

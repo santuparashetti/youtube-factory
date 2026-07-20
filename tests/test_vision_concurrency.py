@@ -140,7 +140,7 @@ class TestLimitEnforcement:
         lock = threading.Lock()
 
         class Slow(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 with lock:
                     active["n"] += 1
                     peak["n"] = max(peak["n"], active["n"])
@@ -178,7 +178,7 @@ class TestLimitEnforcement:
         flag = threading.Event()
 
         class Blocking(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 flag.wait()
                 return _VR(status="PASS", score=95, confidence=90)
 
@@ -205,7 +205,7 @@ class TestCongestionRetry:
         calls = {"n": 0}
 
         class Flaky(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 calls["n"] += 1
                 if calls["n"] < 3:
                     # Simulate a 429 concurrency-limit error.
@@ -229,7 +229,7 @@ class TestCongestionRetry:
         calls = {"n": 0}
 
         class AuthFail(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 calls["n"] += 1
                 raise PermissionError("403 Forbidden — invalid api key")
 
@@ -243,7 +243,7 @@ class TestCongestionRetry:
         reset_vision_semaphore()
 
         class AlwaysCongested(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 raise RuntimeError("429 concurrency limit exceeded")
 
         wrapped = ConcurrencyLimitedVisionProvider(AlwaysCongested(), "mock")
@@ -287,7 +287,7 @@ class TestProviderHint:
         _loguru.add(captured, level="INFO")
 
         class Hinted(MockVisionProvider):
-            def review(self, image_path, visual_prompt, scene_context=None):
+            def review(self, image_path, visual_prompt, scene_context=None, **kwargs):
                 # Non-retryable error path, but still surfaces the hint.
                 raise PermissionError("Current limit = 10 concurrent requests reached")
 

@@ -19,6 +19,8 @@ from loguru import logger
 
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision import VisionProvider, VisionReviewResult
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 
 from .human_detector import build_specialist_context, detect_critical_subject, detect_human_presence, has_intentional_hands
 from .human_qa import (
@@ -82,6 +84,8 @@ class ImageReviewEngine:
         """
         idx = scene.get("index", 0)
         visual_prompt = scene.get("visual_prompt", "")
+        visual_metadata = self._extract_visual_metadata(scene)
+        prompt_package = self._extract_prompt_package(scene)
 
         remediation = SceneRemediationArtifact(
             scene_index=idx,
@@ -108,6 +112,8 @@ class ImageReviewEngine:
                 image_path=image_path,
                 visual_prompt=current_prompt,
                 scene_context={"index": idx, "attempt": attempt, **scene},
+                visual_metadata=visual_metadata,
+                prompt_package=prompt_package,
             )
             final_result = result
 
@@ -586,6 +592,35 @@ class ImageReviewEngine:
             path.write_text(prompt, encoding="utf-8")
         except Exception:
             pass
+
+    # ── VisualMetadata / PromptPackage helpers ───────────────────────────
+
+    @staticmethod
+    def _extract_visual_metadata(scene: dict) -> VisualMetadata | None:
+        raw = scene.get("visual_metadata")
+        if not raw or not isinstance(raw, dict):
+            return None
+        try:
+            return VisualMetadata.model_validate(raw)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_prompt_package(scene: dict) -> PromptPackage | None:
+        raw = scene.get("_prompt_package")
+        if not raw or not isinstance(raw, dict):
+            return None
+        try:
+            return PromptPackage(
+                final_prompt=raw.get("final_prompt", ""),
+                negative_prompt=raw.get("negative_prompt"),
+                visual_profile=raw.get("visual_profile", ""),
+                prompt_fingerprint=raw.get("prompt_fingerprint", ""),
+                metadata_snapshot=raw.get("metadata_snapshot", {}),
+                assembly_report=raw.get("assembly_report"),
+            )
+        except Exception:
+            return None
 
 
 def write_image_quality_summary(

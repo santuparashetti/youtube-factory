@@ -18,7 +18,9 @@ from tenacity import (
 )
 
 from video_core.config.shared_settings import SharedSettings
-from .base import HAND_ANATOMY_PROMPT, VISION_REVIEW_PROMPT, VisionProvider, is_hand_focal
+from .base import VisionProvider, build_era_aware_prompt
+from video_core.domain.visual_metadata import VisualMetadata
+from video_core.visual_intelligence.prompt_package import PromptPackage
 from .models import IssueSeverity, VisionIssue, VisionReviewResult
 
 _RETRYABLE = (
@@ -181,12 +183,14 @@ class HuggingFaceVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         if not image_path.exists():
             return VisionReviewResult.error_result(f"Image not found: {image_path}")
 
         try:
-            return self._run_review(image_path, visual_prompt, scene_context)
+            return self._run_review(image_path, visual_prompt, scene_context, visual_metadata, prompt_package)
         except HuggingFaceQuotaError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -202,6 +206,8 @@ class HuggingFaceVisionProvider(VisionProvider):
         image_path: Path,
         visual_prompt: str,
         scene_context: dict | None = None,
+        visual_metadata: VisualMetadata | None = None,
+        prompt_package: PromptPackage | None = None,
     ) -> VisionReviewResult:
         if self._settings.hf_vision_provider in self._unhealthy_providers:
             return VisionReviewResult.error_result(
@@ -226,7 +232,7 @@ class HuggingFaceVisionProvider(VisionProvider):
             )
             return self._cache[cache_key]
 
-        prompt_text = self._build_prompt(visual_prompt)
+        prompt_text = self._build_prompt(visual_prompt, visual_metadata, prompt_package)
         b64 = base64.b64encode(image_bytes).decode()
         data_uri = f"data:{mime_type};base64,{b64}"
 
@@ -275,13 +281,8 @@ class HuggingFaceVisionProvider(VisionProvider):
         self._cache[cache_key] = result
         return result
 
-    def _build_prompt(self, visual_prompt: str) -> str:
-        hand_block = HAND_ANATOMY_PROMPT if is_hand_focal(visual_prompt) else ""
-        return (
-            f"{VISION_REVIEW_PROMPT}{hand_block}\n\n"
-            f"The image was generated with this prompt:\n{visual_prompt}\n\n"
-            "Review the image against all criteria above and return your JSON assessment."
-        )
+    def _build_prompt(self, visual_prompt: str, visual_metadata: VisualMetadata | None = None, prompt_package: PromptPackage | None = None) -> str:
+        return build_era_aware_prompt(visual_prompt, visual_metadata, prompt_package)
 
     def _parse_response(self, raw: str) -> VisionReviewResult:
         cleaned = re.sub(r"```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()

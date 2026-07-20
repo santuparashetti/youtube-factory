@@ -29,10 +29,8 @@ from loguru import logger
 from ytfactory.images.review_config import ImageReviewConfig
 from ytfactory.images.review_engine import ImageReviewEngine
 from ytfactory.images.review_models import SceneReviewArtifact
-from ytfactory.prompts.prompt_remediation_builder import (
-    PromptRemediationBuilder,
-    RemediationInput,
-)
+from ytfactory.prompts.prompt_remediation_builder import PromptRemediationBuilder
+from ytfactory.prompts.remediation_engine import RemediationEngine
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision.base import VisionProvider
 from video_core.providers.vision.models import IssueSeverity, VisionIssue, VisionReviewResult
@@ -102,10 +100,12 @@ class ImageRemediationOrchestrator:
         vision_provider: VisionProvider,
         image_provider: ImageProvider,
         builder: PromptRemediationBuilder | None = None,
+        remediation_engine: RemediationEngine | None = None,
     ) -> None:
         self._config = config
         self._image_provider = image_provider
         self._builder = builder or PromptRemediationBuilder()
+        self._remediation_engine = remediation_engine or RemediationEngine()
 
         # Single-attempt review engine: orchestrator owns the retry loop.
         single_shot = dataclasses.replace(config, max_attempts=1, auto_remediate=False)
@@ -189,26 +189,24 @@ class ImageRemediationOrchestrator:
 
             # Derive QA sub-scores and build refined prompt
             narrative_score, technical_score, cinematic_score = _qa_scores(artifact.issues)
-            refined = self._builder.build(
-                RemediationInput(
-                    original_prompt=original_prompt,
-                    scene=scene,
-                    result=VisionReviewResult(
-                        status=artifact.status,
-                        score=artifact.score,
-                        confidence=artifact.confidence,
-                        issues=[_dict_to_vision_issue(i) for i in artifact.issues],
-                    ),
-                    narrative_score=narrative_score,
-                    technical_score=technical_score,
-                    cinematic_score=cinematic_score,
-                    attempt=attempt,
-                )
+            vision_result = VisionReviewResult(
+                status=artifact.status,
+                score=artifact.score,
+                confidence=artifact.confidence,
+                issues=[_dict_to_vision_issue(i) for i in artifact.issues],
             )
+            visual_metadata = ImageReviewEngine._extract_visual_metadata(scene)
+            package = self._remediation_engine.build(
+                original_prompt=original_prompt,
+                result=vision_result,
+                visual_metadata=visual_metadata,
+                attempt=attempt,
+            )
+            refined = package.remediated_prompt
             current_prompt = refined
             logger.info(
-                "Scene {:03d} | Refining prompt → attempt {}/{}",
-                idx, attempt + 1, self._config.max_attempts,
+                "Scene {:03d} | Refining prompt [{}] → attempt {}/{}",
+                idx, package.remediation_strategy, attempt + 1, self._config.max_attempts,
             )
             self._regenerate(scene, current_prompt, image_path)
 
