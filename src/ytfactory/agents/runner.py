@@ -13,6 +13,7 @@ from ytfactory.agents.graph import graph
 from ytfactory.agents.state import VideoState
 from ytfactory.create.pipeline import CreatePipeline
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.pipeline_status import PipelineAbort
 
 console = Console()
 
@@ -133,7 +134,27 @@ def run_pipeline(
     # ── Run the graph ─────────────────────────────────────────────────────
     config = {"configurable": {"thread_id": project_id}}
 
-    final_state = graph.invoke(initial_state, config=config)
+    try:
+        final_state = graph.invoke(initial_state, config=config)
+    except PipelineAbort as exc:
+        console.print()
+        console.print(Rule("[bold red]PIPELINE ABORTED[/bold red]"))
+        console.print()
+        console.print(f"[bold]Stage:[/bold] {exc.stage}")
+        console.print(f"[bold]Reason:[/bold] {exc.reason}")
+        console.print()
+        console.print("[bold]Downstream stages skipped:[/bold]")
+        for name in [
+            "Scene Planning",
+            "Image Generation",
+            "Vision QA",
+            "TTS",
+            "Rendering",
+            "Publishing",
+        ]:
+            console.print(f"  [yellow]✓ {name}[/yellow]")
+        console.print()
+        return project_id
 
     # ── Summary ───────────────────────────────────────────────────────────
     elapsed = time.perf_counter() - start_time

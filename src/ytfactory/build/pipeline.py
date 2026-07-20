@@ -5,7 +5,6 @@ from rich.rule import Rule
 
 from ytfactory.config.settings import Settings
 from ytfactory.incremental.engine import IncrementalBuildEngine
-from ytfactory.incremental.deps import FORCE_FLAG_TO_STAGE
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 from ytfactory.captions.pipeline import CaptionPipeline
@@ -19,12 +18,12 @@ from ytfactory.scenes.pipeline import ScenePipeline
 from ytfactory.light_normalization.pipeline import LightNormalizationPipeline
 from ytfactory.script_enhancer.pipeline import (
     DocumentaryScriptEnhancerPipeline,
-    DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # backward compat for tests
+    DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # noqa: F401 — backward compat for tests
 )
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.video.pipeline import VideoPipeline
 from ytfactory.voice.pipeline import VoicePipeline
-from ytfactory.shared.pipeline_status import PipelineStatusWriter, activate_writer
+from ytfactory.shared.pipeline_status import PipelineAbort, PipelineStatusWriter, activate_writer, get_writer
 
 console = Console()
 
@@ -63,53 +62,78 @@ class BuildPipeline:
         writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
 
         with activate_writer(writer):
-            if not skip_script:
-                project = ProjectRepository().load(project_id)
-                self.light_normalization.run(project_id)
-                self.documentary_script_enhancer.run(
-                    project_id,
-                    topic=project.title,
-                    style=style,
-                    target_minutes=target_minutes,
-                )
-            if not skip_scenes:
-                self.scenes.run(project_id)
-            if not skip_images:
-                self.images.run(project_id)
-            self.voice.run(project_id)
-            self.captions.run(project_id)
-            self.video.run(project_id)
-            self.cta.run(project_id)
-
-            review_report = self.review.run(project_id)
-
-            if review_report.verdict == "FAIL":
-                if auto_remediate:
-                    config = RemediationConfig(
-                        quality_threshold=remediation_threshold,
-                        max_retries=remediation_max_retries,
-                        dry_run=False,
+            try:
+                if not skip_script:
+                    project = ProjectRepository().load(project_id)
+                    self.light_normalization.run(project_id)
+                    self.documentary_script_enhancer.run(
+                        project_id,
+                        topic=project.title,
+                        style=style,
+                        target_minutes=target_minutes,
                     )
-                    remediation_report = AutoRemediationEngine(config=config).remediate(
-                        project_id, review_report
-                    )
-                    if remediation_report.final_verdict != "PASS":
-                        raise RuntimeError(
-                            f"Pipeline stopped: quality review failed after "
-                            f"{remediation_report.total_cycles} remediation cycle(s) "
-                            f"(reason: {remediation_report.stopped_reason}). "
-                            "Publishing skipped. Run `ytfactory review <id>` to inspect "
-                            "the report or fix issues manually."
+                if not skip_scenes:
+                    self.scenes.run(project_id)
+                if not skip_images:
+                    self.images.run(project_id)
+                self.voice.run(project_id)
+                self.captions.run(project_id)
+                self.video.run(project_id)
+                self.cta.run(project_id)
+
+                review_report = self.review.run(project_id)
+
+                if review_report.verdict == "FAIL":
+                    if auto_remediate:
+                        config = RemediationConfig(
+                            quality_threshold=remediation_threshold,
+                            max_retries=remediation_max_retries,
+                            dry_run=False,
                         )
-                else:
-                    raise RuntimeError(
-                        "Pipeline stopped: quality review FAIL. "
-                        "Auto-remediation is disabled (--no-remediate). "
-                        "Run `ytfactory remediate <id>` to attempt repair, "
-                        "or inspect workspace/<id>/review/ for details."
-                    )
+                        remediation_report = AutoRemediationEngine(config=config).remediate(
+                            project_id, review_report
+                        )
+                        if remediation_report.final_verdict != "PASS":
+                            raise RuntimeError(
+                                f"Pipeline stopped: quality review failed after "
+                                f"{remediation_report.total_cycles} remediation cycle(s) "
+                                f"(reason: {remediation_report.stopped_reason}). "
+                                "Publishing skipped. Run `ytfactory review <id>` to inspect "
+                                "the report or fix issues manually."
+                            )
+                    else:
+                        raise RuntimeError(
+                            "Pipeline stopped: quality review FAIL. "
+                            "Auto-remediation is disabled (--no-remediate). "
+                            "Run `ytfactory remediate <id>` to attempt repair, "
+                            "or inspect workspace/<id>/review/ for details."
+                        )
 
-            self.publish.run(project_id)
+                self.publish.run(project_id)
+
+            except PipelineAbort as exc:
+                _w = get_writer()
+                if _w:
+                    _w.stage_fail(f"Pipeline aborted: {exc.reason}")
+                console.print()
+                console.print(Rule("[bold red]PIPELINE ABORTED[/bold red]"))
+                console.print()
+                console.print(f"[bold]Stage:[/bold] {exc.stage}")
+                console.print(f"[bold]Reason:[/bold] {exc.reason}")
+                console.print()
+                console.print("[bold]Downstream stages skipped:[/bold]")
+                stages = [
+                    ("Scene Planning", not skip_scenes),
+                    ("Image Generation", not skip_images),
+                    ("TTS", True),
+                    ("Rendering", True),
+                    ("Publishing", True),
+                ]
+                for name, would_run in stages:
+                    if would_run:
+                        console.print(f"  [yellow]✓ {name}[/yellow]")
+                console.print()
+                return
 
     # ── Incremental / resume mode ─────────────────────────────────────────────
 

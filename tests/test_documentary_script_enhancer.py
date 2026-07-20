@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,8 +12,8 @@ from ytfactory.script_enhancer.pipeline import (
     DocumentaryScriptEnhancerPipeline,
     ScriptEnhancerPipeline,
     _parse_narrative_score,
-    _NARRATIVE_SCORE_THRESHOLD,
 )
+from ytfactory.shared.pipeline_status import PipelineAbort
 from ytfactory.agents.prompts.script_enhancer import (
     build_pass1_prompt,
     build_pass2_prompt,
@@ -117,7 +116,9 @@ def _make_response(text: str) -> MagicMock:
 
 @pytest.fixture
 def settings():
-    return MagicMock()
+    s = MagicMock()
+    s.stop_on_quality_gate_failure = False
+    return s
 
 
 @pytest.fixture
@@ -359,7 +360,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         # Pass 1 preserves placeholder text
         pass1_text = "The teacher began with {{SCRIPTURE_1}} and spoke at length on the nature of consciousness."
         pass2_text = (
-            f"The teacher began with {{{{SCRIPTURE_1}}}} and the wisdom flowed.\n\n"
+            "The teacher began with {{SCRIPTURE_1}} and the wisdom flowed.\n\n"
             "---NARRATIVE SCORE---\nOverall: 9/10\n---END SCORE---"
         )
         mock_llm.generate.side_effect = [
@@ -375,10 +376,10 @@ class TestDocumentaryScriptEnhancerPipeline:
 
     def test_final_validation_fallback_to_pass1(self, pipeline, mock_llm, tmp_path):
         """Final validation failure triggers fallback to Pass 1 output."""
-        script = f"The teacher said ॐ नमः शिवाय at the start."
-        scripture = "ॐ नमः शिવાя"
+        script = "The teacher said ॐ नमः शिवाय at the start."
 
         pass1_text = "The teacher said {{SCRIPTURE_1}} at the start."
+
         # Pass 2 drops the placeholder — final validation should fail
         pass2_text = (
             "The teacher spoke an invocation.\n\n"
@@ -391,7 +392,7 @@ class TestDocumentaryScriptEnhancerPipeline:
         ]
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
-            result = pipeline.run("proj-007", topic="Sacred", script_text=script)
+            pipeline.run("proj-007", topic="Sacred", script_text=script)
 
         report = json.loads(
             (tmp_path / "proj-007" / "script" / "enhancement-report.json").read_text()
@@ -501,3 +502,111 @@ class TestPromptBuilders:
         )
         assert "Welcome to this channel." in prompt
         assert "Thank you for watching." in prompt
+
+
+# ── Pipeline Quality Gate ──────────────────────────────────────────────────────
+
+
+class TestPipelineQualityGate:
+    def test_aborts_on_low_narrative_score_when_enabled(self, tmp_path):
+        settings = MagicMock()
+        settings.stop_on_quality_gate_failure = True
+
+        low_score_pass2 = (
+            "This is a discourse about the nature of suffering.\n\n"
+            "---NARRATIVE SCORE---\n"
+            "Hook: 5/10\n"
+            "Story Density: 5/10\n"
+            "Curiosity: 5/10\n"
+            "Emotional Rhythm: 5/10\n"
+            "Accessibility: 5/10\n"
+            "Overall: 5.0/10\n"
+            "---END SCORE---"
+        )
+
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+            mock_llm = MagicMock()
+            mock_llm.generate.side_effect = [
+                MagicMock(text=SAMPLE_SCRIPT),
+                MagicMock(text=low_score_pass2),
+                MagicMock(text=low_score_pass2),
+                MagicMock(text=low_score_pass2),
+            ]
+            mock_get_llm.return_value = mock_llm
+            pipeline = DocumentaryScriptEnhancerPipeline(settings)
+
+        with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            with pytest.raises(PipelineAbort) as exc_info:
+                pipeline.run(
+                    "proj-abort-1",
+                    topic="Test",
+                    script_text=SAMPLE_SCRIPT,
+                )
+            assert exc_info.value.stage == "documentary_enhancer_pass2"
+            assert "5.0" in exc_info.value.reason
+
+    def test_does_not_abort_on_low_narrative_score_when_disabled(self, tmp_path):
+        settings = MagicMock()
+        settings.stop_on_quality_gate_failure = False
+
+        low_score_pass2 = (
+            "This is a discourse about the nature of suffering.\n\n"
+            "---NARRATIVE SCORE---\n"
+            "Hook: 5/10\n"
+            "Story Density: 5/10\n"
+            "Curiosity: 5/10\n"
+            "Emotional Rhythm: 5/10\n"
+            "Accessibility: 5/10\n"
+            "Overall: 5.0/10\n"
+            "---END SCORE---"
+        )
+
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+            mock_llm = MagicMock()
+            mock_llm.generate.side_effect = [
+                MagicMock(text=SAMPLE_SCRIPT),
+                MagicMock(text=low_score_pass2),
+                MagicMock(text=low_score_pass2),
+                MagicMock(text=low_score_pass2),
+            ]
+            mock_get_llm.return_value = mock_llm
+            pipeline = DocumentaryScriptEnhancerPipeline(settings)
+
+        with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            result = pipeline.run(
+                "proj-abort-2",
+                topic="Test",
+                script_text=SAMPLE_SCRIPT,
+            )
+            assert isinstance(result, str)
+
+    def test_aborts_on_final_validation_failure_when_enabled(self, tmp_path):
+        settings = MagicMock()
+        settings.stop_on_quality_gate_failure = True
+
+        bad_pass2 = (
+            "Short output without placeholders.\n\n"
+            "---NARRATIVE SCORE---\n"
+            "Overall: 9.0/10\n"
+            "---END SCORE---"
+        )
+
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+            mock_llm = MagicMock()
+            mock_llm.generate.side_effect = [
+                MagicMock(text=SAMPLE_SCRIPT),
+                MagicMock(text=bad_pass2),
+                MagicMock(text=bad_pass2),
+                MagicMock(text=bad_pass2),
+            ]
+            mock_get_llm.return_value = mock_llm
+            pipeline = DocumentaryScriptEnhancerPipeline(settings)
+
+        with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            with pytest.raises(PipelineAbort) as exc_info:
+                pipeline.run(
+                    "proj-abort-3",
+                    topic="Test",
+                    script_text=SAMPLE_SCRIPT,
+                )
+            assert exc_info.value.stage == "documentary_enhancer_final"

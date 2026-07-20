@@ -70,6 +70,19 @@ STAGE_LABELS: dict[str, str] = {
 }
 
 
+class PipelineAbort(Exception):
+    """Raised when a critical quality gate fails and the pipeline must halt.
+
+    Carries the failing stage name and a human-readable reason so callers can
+    produce a concise abort summary without inspecting inner exceptions.
+    """
+
+    def __init__(self, stage: str, reason: str) -> None:
+        self.stage = stage
+        self.reason = reason
+        super().__init__(f"Pipeline aborted at stage '{stage}': {reason}")
+
+
 def get_writer() -> PipelineStatusWriter | None:
     """Return the PipelineStatusWriter active in the current context, or None."""
     return _current_writer.get()

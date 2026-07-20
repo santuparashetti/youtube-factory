@@ -42,7 +42,7 @@ from ytfactory.shared.scripture import (
 from ytfactory.shared.script_utils import strip_script_heading
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
-from ytfactory.shared.pipeline_status import get_writer
+from ytfactory.shared.pipeline_status import PipelineAbort, get_writer
 
 console = Console()
 
@@ -169,8 +169,16 @@ class DocumentaryScriptEnhancerPipeline:
     """
 
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._llm = get_llm_provider(settings)
         self._validator = DocumentaryEnhancerValidator()
+
+    def _should_abort(self) -> bool:
+        return getattr(self._settings, "stop_on_quality_gate_failure", True)
+
+    def _abort(self, stage: str, reason: str) -> None:
+        if self._should_abort():
+            raise PipelineAbort(stage=stage, reason=reason)
 
     def run(
         self,
@@ -332,6 +340,13 @@ class DocumentaryScriptEnhancerPipeline:
                 f"{_NARRATIVE_SCORE_THRESHOLD} after {_MAX_PASS2_ITERATIONS} iterations — "
                 f"using best attempt[/yellow]"
             )
+            self._abort(
+                stage="documentary_enhancer_pass2",
+                reason=(
+                    f"Narrative Score {narrative_score:.1f} below threshold "
+                    f"{_NARRATIVE_SCORE_THRESHOLD} after {_MAX_PASS2_ITERATIONS} iterations"
+                ),
+            )
 
         # ── Final validation ────────────────────────────────────────────────────
         final_restored = restore_scripture_spans(pass2_ph_text, placeholders)
@@ -348,6 +363,10 @@ class DocumentaryScriptEnhancerPipeline:
             )
             for err in final_errors:
                 console.print(f"    [dim red]{err}[/dim red]")
+            self._abort(
+                stage="documentary_enhancer_final",
+                reason=f"Final validation failed: {'; '.join(final_errors)}",
+            )
             final_restored = pass1_restored
 
         for warn in final_warnings:
@@ -447,6 +466,14 @@ class DocumentaryScriptEnhancerPipeline:
                     f"  [red]✗ DURATION FAIL (after correction)[/red] — "
                     f"{corr_est:.1f} min still {abs(corr_gap):.1f} min {corr_direction} target. "
                     f"Script accepted out-of-tolerance — manual review recommended."
+                )
+                self._abort(
+                    stage="documentary_enhancer_duration",
+                    reason=(
+                        f"Duration {corr_est:.1f} min is {abs(corr_gap):.1f} min "
+                        f"{corr_direction} target after correction "
+                        f"(tolerance ±{DURATION_TOLERANCE_MINUTES} min)"
+                    ),
                 )
 
         logger.info(

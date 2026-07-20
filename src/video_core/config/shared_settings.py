@@ -110,6 +110,12 @@ class SharedSettings(BaseSettings):
     tts_verify_cache: bool = True
 
     # ------------------------------------------------------------------
+    # Pipeline Quality Gates
+    # ------------------------------------------------------------------
+
+    stop_on_quality_gate_failure: bool = True
+
+    # ------------------------------------------------------------------
     # TTS Provider Pricing (loaded from configuration)
     # ------------------------------------------------------------------
 
