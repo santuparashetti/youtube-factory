@@ -15,6 +15,7 @@ import pytest
 
 from ytfactory.light_normalization.pipeline import LightNormalizationPipeline
 from ytfactory.shared.scripture import (
+    check_scripture_verbatim as _check_scripture_verbatim,
     extract_scripture_spans as _extract_scripture_spans,
     restore_scripture_spans as _restore_scripture_spans,
 )
@@ -58,6 +59,37 @@ class TestScriptureExtraction:
         keys = sorted(placeholders.keys())
         assert keys[0] == "SCRIPTURE_1"
         assert len(keys) >= 2
+
+    def test_trailing_whitespace_not_captured(self):
+        text = "Nothing, nothing, eating one roti, eating a little, drinking some milk, what a मस्त (mast) life they lead!"
+        _, placeholders = _extract_scripture_spans(text)
+        assert len(placeholders) == 1
+        span = next(iter(placeholders.values()))
+        assert span == "मस्त"
+        assert not span.endswith(" ")
+        assert "(" not in span
+
+    def test_check_scripture_verbatim_passes_with_trailing_whitespace(self):
+        original = "hello मस्त world"
+        enhanced = "hello मस्त world"
+        placeholders = {"SCRIPTURE_1": "मस्त"}
+        assert _check_scripture_verbatim(original, enhanced, placeholders) == []
+
+    def test_check_scripture_verbatim_handles_extra_internal_whitespace(self):
+        original = "ॐ   नमः   शिवाय"
+        enhanced = "ॐ नमः शिवाय"
+        placeholders = {"SCRIPTURE_1": "ॐ नमः शिवाय"}
+        assert _check_scripture_verbatim(original, enhanced, placeholders) == []
+
+    def test_mast_trailing_space_from_failing_script(self):
+        text = "Nothing, nothing, eating one roti, eating a little, drinking some milk, what a मस्त (mast) life they lead!"
+        placeholder_text, placeholders = _extract_scripture_spans(text)
+        assert len(placeholders) == 1
+        span = next(iter(placeholders.values()))
+        assert span == "मस्त"
+        assert not span.endswith(" ")
+        restored = _restore_scripture_spans(placeholder_text, placeholders)
+        assert _check_scripture_verbatim(text, restored, placeholders) == []
 
 
 # ── NormalizationValidator ─────────────────────────────────────────────────────

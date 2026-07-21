@@ -68,6 +68,25 @@ class SharedSettings(BaseSettings):
     a1111_sampler: str = "DPM++ 2M Karras"
 
     # ------------------------------------------------------------------
+    # Hugging Face LLM (Inference Providers)
+    # ------------------------------------------------------------------
+
+    hf_llm_provider: str = "auto"
+    hf_llm_model: str = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    hf_llm_timeout: int = 60
+    hf_llm_max_retries: int = 3
+
+    # ------------------------------------------------------------------
+    # DeepInfra LLM
+    # ------------------------------------------------------------------
+
+    deepinfra_api_key: str = Field(default="")
+    deepinfra_base_url: str = "https://api.deepinfra.com/v1/openai"
+    deepinfra_model: str = "meta-llama/Llama-3.3-70B-Instruct"
+    deepinfra_timeout: int = 60
+    deepinfra_max_retries: int = 3
+
+    # ------------------------------------------------------------------
     # Kokoro TTS Provider
     # ------------------------------------------------------------------
 

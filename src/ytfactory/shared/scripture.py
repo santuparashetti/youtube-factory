@@ -65,7 +65,7 @@ def extract_scripture_spans(text: str) -> tuple[str, dict[str, str]]:
     def _replace(span: str) -> str:
         counter[0] += 1
         key = f"SCRIPTURE_{counter[0]}"
-        placeholders[key] = span
+        placeholders[key] = span.strip()
         return f"{{{{{key}}}}}"
 
     # 1. Explicit markers (highest reliability — check first)
@@ -102,12 +102,13 @@ def check_scripture_verbatim(
 ) -> list[str]:
     """Return a list of scripture originals that are missing from the enhanced text.
 
-    Each value in ``placeholders`` must appear byte-for-byte in ``enhanced_text``.
-    Returns an empty list if all spans are present (pass), or a list of missing
-    spans for error reporting.
+    Each value in ``placeholders`` must appear (whitespace-normalized) in
+    ``enhanced_text``.  Returns an empty list if all spans are present (pass),
+    or a list of missing spans for error reporting.
     """
     missing: list[str] = []
     for original_span in placeholders.values():
-        if original_span not in enhanced_text:
+        normalized = " ".join(original_span.split())
+        if normalized not in enhanced_text:
             missing.append(original_span[:80] + ("…" if len(original_span) > 80 else ""))
     return missing

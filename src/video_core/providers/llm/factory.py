@@ -27,8 +27,13 @@ def get_llm_provider(
 
             return OpenAICompatibleProvider(settings)
 
+        case "deepinfra":
+            from video_core.providers.llm.deepinfra_provider import DeepInfraProvider
+
+            return DeepInfraProvider(settings)
+
         case _:
             raise ValueError(
                 f"Unsupported LLM provider: {settings.llm_provider}. "
-                "Valid options: gemini, groq, ollama, anthropic"
+                "Valid options: gemini, groq, ollama, anthropic, deepinfra"
             )

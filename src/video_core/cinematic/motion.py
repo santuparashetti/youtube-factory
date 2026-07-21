@@ -14,10 +14,13 @@ duplicate classification logic anywhere.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 
 from video_core.cinematic.profiles import ProfileConfig, get_profile_config
 from video_core.providers.tts.emotion import classify_scene
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,14 @@ def _resolve_motion(
             return (lo, hi, 0.5, 0.65, 0.0, d * 0.5)
 
         case _:
+            logger.warning(
+                "_resolve_motion: unrecognized motion_type %r for scene_index=%s — "
+                "falling back to static (no zoom/pan/drift). "
+                "Tier 2 types (fog/dust/particles/light_rays) are deferred; "
+                "add explicit case branches when assets are available.",
+                motion_type,
+                scene_index,
+            )
             return (1.0, 1.0, 0.5, 0.5, 0.0, 0.0)
 
 
@@ -151,6 +162,11 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
             ss, es, ax, ay, dx, dy = (zoom, zoom, 0.5, 0.5, d, 0.0)
             mtype = "drift"
         case _:
+            logger.warning(
+                "_asset_motion: unrecognized animation %r — "
+                "falling back to static. Expected: slow_zoom, slow_zoom_out, drift.",
+                animation,
+            )
             ss, es, ax, ay, dx, dy = (1.0, 1.0, 0.5, 0.5, 0.0, 0.0)
             mtype = "static"
 

@@ -396,7 +396,13 @@ Requires NVIDIA drivers and `nvidia-container-toolkit` installed on the host.
 
 ```bash
 # ── LLM ─────────────────────────────────────────────────────────────────────
-LLM_PROVIDER=anthropic          # gemini | anthropic | groq | ollama
+LLM_PROVIDER=deepinfra        # gemini | anthropic | groq | ollama | deepinfra
+DEEPINFRA_API_KEY=di_xxxxxxxxxxxxx
+DEEPINFRA_BASE_URL=https://api.deepinfra.com/v1/openai
+DEEPINFRA_MODEL=meta-llama/Llama-3.3-70B-Instruct
+
+# Alternative LLM providers:
+# LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-...
 ANTHROPIC_BASE_URL=https://api.anthropic.com
 ANTHROPIC_MODEL=claude-haiku-4-5

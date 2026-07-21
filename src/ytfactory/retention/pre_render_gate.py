@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import re
+from pathlib import Path
 
 from ytfactory.retention.models import (
     EmotionalIntensity,
@@ -8,6 +10,82 @@ from ytfactory.retention.models import (
     ScriptSegment,
 )
 from ytfactory.scenes.models import Scene
+from ytfactory.shared.constants import WORKSPACE_DIR
+
+
+TIER_2_MOTION_TYPES = {"fog", "dust", "particles", "light_rays"}
+
+
+# ── Script text normalization ────────────────────────────────────────────────
+
+_QUOTE_MAP = {
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u2032": "'", "\u2035": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
+    "\u2033": '"', "\u2036": '"',
+}
+
+_DASH_CHARS = (
+    "\u2010\u2011\u2012\u2013\u2014\u2015"
+    + chr(0x2E3) + chr(0x2E2)
+)
+_DASH_RE = re.compile(f"[{_DASH_CHARS}]")
+
+_CONTRACTION_SUFFIX_RE = re.compile(
+    r"(\w+)'s\b|(\w+)'re\b|(\w+)'ve\b|(\w+)'ll\b|(\w+)'d\b",
+    re.IGNORECASE,
+)
+_CONTRACTIONS_TO_STRIP = {
+    "let", "it", "he", "she", "who", "that", "there", "here",
+    "what", "where", "when", "why", "how",
+}
+
+_SPECIAL_CONTRACTIONS = {
+    "'em": "em",
+    "'til": "til",
+    "'cause": "cause",
+    "'round": "round",
+}
+
+
+def _normalize_script_text(text: str) -> str:
+    """
+    Normalize script text to a canonical form so regex pattern matching
+    is robust to natural-language variants:
+
+    1. Unicode smart quotes → ASCII apostrophes / straight quotes
+    2. Em-dash / en-dash / hyphen variants → space
+    3. Common contraction suffixes ('s, 're, 've, 'll, 'd) → removed
+    4. Special contractions ('em, 'til, 'cause, 'round) → canonical
+    5. Collapse intra-paragraph whitespace (preserves paragraph boundaries)
+    """
+    # 1. Quotes
+    for src, dst in _QUOTE_MAP.items():
+        text = text.replace(src, dst)
+
+    # 2. Dashes → space
+    text = _DASH_RE.sub(" ", text)
+
+    # 3. Contraction suffixes on word stems
+    def _strip_contraction(m: re.Match) -> str:
+        for group in m.groups():
+            if group is not None:
+                suffix = m.group(0)[len(group):]
+                if suffix == "'s" and group.lower() not in _CONTRACTIONS_TO_STRIP:
+                    return m.group(0)
+                return group
+        return m.group(0)
+
+    text = _CONTRACTION_SUFFIX_RE.sub(_strip_contraction, text)
+
+    # 4. Special contractions (no preceding word char)
+    for src, dst in _SPECIAL_CONTRACTIONS.items():
+        text = text.replace(src, dst)
+
+    # 5. Collapse whitespace within the line (do NOT collapse across paragraphs)
+    lines = text.split("\n")
+    lines = [re.sub(r"\s+", " ", line).strip() for line in lines]
+    return "\n".join(lines)
 
 
 # ── Script parsing ────────────────────────────────────────────────────────────
@@ -18,24 +96,29 @@ def parse_script_to_segments(script_md: str) -> list[ScriptSegment]:
     Heuristic splitter: paragraphs → ScriptSegments with lightweight
     classification (no LLM call). Keyword-based detection for frame labels,
     hooks, rehooks, bridges, and story-resolution markers.
+
+    Input text is normalized before matching so that natural-language
+    variants (curly quotes, em-dashes, contraction spacing) do not cause
+    silent skips.
     """
+    script_md = _normalize_script_text(script_md)
     segments: list[ScriptSegment] = []
     paragraphs = [p.strip() for p in script_md.split("\n\n") if p.strip()]
 
     frame_label_patterns = re.compile(
         r"\b(four truths|three lessons|five principles|"
         r"first truth|second truth|third truth|"
-        r"key takeaway|let.s explore|welcome to)\b",
+        r"key takeaway|let\s+explore|welcome to)\b",
         re.IGNORECASE,
     )
     hook_patterns = re.compile(
         r"\b(imagine|picture this|what if|have you ever|"
-        r"let me tell you|here.s the thing|the truth is)\b",
+        r"let me tell you|here\s+(is\s+)?the\s+thing|the truth is)\b",
         re.IGNORECASE,
     )
     rehook_patterns = re.compile(
-        r"\b(but here.s the thing|and yet|so why|"
-        r"what happens next|here.s where it|but wait)\b",
+        r"\b(but here\s+(is\s+)?the\s+thing|and yet|so why|"
+        r"what happens next|here\s+(is\s+)?where\s+it|but wait)\b",
         re.IGNORECASE,
     )
     bridge_patterns = re.compile(
@@ -226,6 +309,7 @@ def plan_text_reveal(scene: Scene) -> None:
 def run_pre_render_gate(
     segments: list[ScriptSegment],
     scenes: list[Scene],
+    project_dir: Path | None = None,
 ) -> RetentionScoreResult:
     """
     Runs §1.1–1.4 checks. Hard-reject on frame naming gate failure.
@@ -268,6 +352,11 @@ def run_pre_render_gate(
         violations.extend(f"[P2] {v}" for v in dur_violations)
         breakdown["visuals_editing"] = max(breakdown["visuals_editing"] - 10.0, 0.0)
 
+    tier2_violations = check_tier2_overlay_assets(scenes, project_dir)
+    if tier2_violations:
+        violations.extend(f"[T2] {v}" for v in tier2_violations)
+        breakdown["visuals_editing"] = max(breakdown["visuals_editing"] - 15.0, 0.0)
+
     total = sum(breakdown.values()) / len(breakdown)
     passed = not frame_violations and total >= 85.0
 
@@ -288,7 +377,14 @@ def _linked_segment(scene: Scene, segments: list[ScriptSegment]) -> ScriptSegmen
     falling back to position-based matching if no explicit link exists.
     """
     if scene.linked_segment:
-        data = dict(scene.linked_segment)
+        if isinstance(scene.linked_segment, ScriptSegment):
+            data = dataclasses.asdict(scene.linked_segment)
+        else:
+            data = dict(scene.linked_segment)
+
+        valid_fields = {f.name for f in dataclasses.fields(ScriptSegment)}
+        data = {k: v for k, v in data.items() if k in valid_fields}
+
         intensity = data.get("emotional_intensity")
         if isinstance(intensity, str):
             data["emotional_intensity"] = EmotionalIntensity(intensity)
@@ -308,14 +404,18 @@ def link_scenes_to_segments(
     """
     used: set[int] = set()
 
+    normalized_segments = [_normalize_script_text(seg.text) for seg in segments]
+    segment_word_sets = [set(text.lower().split()) for text in normalized_segments]
+
     for scene in scenes:
-        scene_words = set(scene.get("narration", "").lower().split())
+        scene_narration = _normalize_script_text(scene.get("narration", ""))
+        scene_words = set(scene_narration.lower().split())
         best_idx = -1
         best_overlap = 0
-        for j, seg in enumerate(segments):
+        for j in range(len(segments)):
             if j in used:
                 continue
-            seg_words = set(seg.text.lower().split())
+            seg_words = segment_word_sets[j]
             overlap = len(scene_words & seg_words)
             if overlap > best_overlap:
                 best_overlap = overlap
@@ -336,4 +436,44 @@ def link_scenes_to_segments(
             }
 
     return scenes
+
+
+def check_tier2_overlay_assets(
+    scenes: list[Scene],
+    project_dir: Path | None = None,
+) -> list[str]:
+    """
+    Flag Tier 2 motion types (fog/dust/particles/light_rays) when the
+    corresponding overlay asset file does not exist. This is a cheap
+    pre-render check that catches a planning-time metadata mismatch before
+    rendering cost is sunk.
+    """
+    violations: list[str] = []
+    if not project_dir:
+        return violations
+
+    search_dirs = [
+        d
+        for d in (
+            project_dir / "assets" / "overlays",
+            Path(WORKSPACE_DIR) / project_dir.name / "assets" / "overlays",
+            project_dir.parent / "assets" / "overlays",
+        )
+        if d.is_dir()
+    ]
+
+    for scene in scenes:
+        mtype = scene.motion_type
+        if not mtype or mtype not in TIER_2_MOTION_TYPES:
+            continue
+
+        asset_name = f"{mtype}.mp4"
+        found = any((d / asset_name).is_file() for d in search_dirs)
+        if not found:
+            violations.append(
+                f"Scene {scene.index}: Tier 2 motion_type '{mtype}' requested but "
+                f"no overlay asset found ({asset_name}) in assets/overlays/"
+            )
+
+    return violations
 

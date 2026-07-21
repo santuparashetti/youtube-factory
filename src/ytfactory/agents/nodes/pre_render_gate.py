@@ -37,7 +37,7 @@ def pre_render_gate_node(state: VideoState) -> dict:
     scene_plan = link_scenes_to_segments(list(scene_plan), segments)
 
     # Re-hydrate Scene objects for run_pre_render_gate
-    from ytfactory.retention.models import Scene
+    from ytfactory.scenes.models import Scene
 
     scenes = [
         Scene(
@@ -57,7 +57,12 @@ def pre_render_gate_node(state: VideoState) -> dict:
         for i, s in enumerate(scene_plan)
     ]
 
-    result = run_pre_render_gate(segments, scenes)
+    from ytfactory.shared.constants import WORKSPACE_DIR
+    from ytfactory.shared.paths import safe_project_dir
+
+    project_id = state["project_id"]
+    project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
+    result = run_pre_render_gate(segments, scenes, project_dir=project_dir)
 
     for v in result.violations:
         console.print(f"  [yellow]⚠[/yellow] {v}")

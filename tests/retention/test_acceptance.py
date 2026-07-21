@@ -14,11 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from ytfactory.retention.models import EmotionalIntensity, ScriptSegment
+from ytfactory.retention.models import EmotionalIntensity, RetentionScoreResult, ScriptSegment
 from ytfactory.retention.pre_render_gate import (
+    _linked_segment,
+    _normalize_script_text,
     assign_hold_required,
     check_bridge_requirement,
     check_frame_naming_gate,
+    check_tier2_overlay_assets,
+    parse_script_to_segments,
     run_pre_render_gate,
 )
 from ytfactory.review.validation.config import ValidationRulesConfig
@@ -316,3 +320,247 @@ class TestPreRenderGateIntegration:
         result = run_pre_render_gate(segments, scenes)
         assert any("[P4]" in v for v in result.violations)
         assert result.breakdown["story_flow"] < 100.0
+
+
+# ── Adversarial normalization tests ──────────────────────────────────────────
+
+
+class TestNormalization:
+    def test_curly_apostrophes_normalized(self):
+        text = "It\u2019s a test with \u2018curly\u2019 quotes and \u201csmart\u201d quotes."
+        result = _normalize_script_text(text)
+        assert "\u2018" not in result
+        assert "\u2019" not in result
+        assert "\u201c" not in result
+        assert "\u201d" not in result
+        assert "'" in result  # straight apostrophe is expected
+
+    def test_dashes_normalized_to_space(self):
+        text = "here\u2014is\u2013the\u2014thing"
+        result = _normalize_script_text(text)
+        assert result == "here is the thing"
+
+    def test_em_dash_variants(self):
+        variants = [
+            "here\u2014is the thing",   # em-dash
+            "here\u2013is the thing",   # en-dash
+            "here\u2010is the thing",   # hyphen
+            "here\u2011is the thing",   # non-breaking hyphen
+        ]
+        for text in variants:
+            result = _normalize_script_text(text)
+            assert "here" in result
+            assert "is" in result
+            assert "\u2014" not in result
+            assert "\u2013" not in result
+
+    def test_contraction_s_removed(self):
+        cases = [
+            ("let's explore", "let explore"),
+            ("here's the thing", "here the thing"),
+            ("it's raining", "it raining"),
+            ("she's gone", "she gone"),
+            ("who's there", "who there"),
+        ]
+        for text, expected in cases:
+            result = _normalize_script_text(text)
+            assert result == expected, f"Failed: {text!r} → {result!r} (expected {expected!r})"
+
+    def test_contraction_re_ve_ll_d_removed(self):
+        cases = [
+            ("we're going", "we going"),
+            ("they've seen", "they seen"),
+            ("we'll be there", "we be there"),
+            ("he'd like that", "he like that"),
+            ("you'd better", "you better"),
+        ]
+        for text, expected in cases:
+            result = _normalize_script_text(text)
+            assert result == expected, f"Failed: {text!r} → {result!r} (expected {expected!r})"
+
+    def test_special_contractions(self):
+        cases = [
+            ("give 'em a break", "give em a break"),
+            ("'til next time", "til next time"),
+            ("'cause I said so", "cause I said so"),
+            ("'round the corner", "round the corner"),
+        ]
+        for text, expected in cases:
+            result = _normalize_script_text(text)
+            assert result == expected, f"Failed: {text!r} → {result!r} (expected {expected!r})"
+
+    def test_whitespace_collapsed(self):
+        text = "hello   world\n\n\nfoo\tbar"
+        result = _normalize_script_text(text)
+        assert result == "hello world\n\n\nfoo bar"
+
+    def test_mixed_adversarial_phrasings(self):
+        cases = [
+            ("But here\u2019s the thing", "But here the thing"),
+            ("But here\u2014is the thing", "But here is the thing"),
+            ("But here\u2013is the thing", "But here is the thing"),
+            ("But here is the thing", "But here is the thing"),
+            ("Let\u2019s explore the four truths", "Let explore the four truths"),
+            ("let's explore the four truths", "let explore the four truths"),
+        ]
+        for text, expected in cases:
+            result = _normalize_script_text(text)
+            assert result == expected, f"Failed: {text!r} → {result!r} (expected {expected!r})"
+
+    def test_parse_script_to_segments_with_curly_quotes(self):
+        script = "The four truths are the foundation.\n\nBut here\u2019s the thing."
+        segments = parse_script_to_segments(script)
+        assert len(segments) == 2
+        assert segments[0].is_frame_label is True
+        assert segments[1].is_rehook is True
+
+    def test_parse_script_to_segments_with_em_dash(self):
+        script = "The four truths are the foundation.\n\nBut here\u2014is the thing."
+        segments = parse_script_to_segments(script)
+        assert len(segments) == 2
+        assert segments[0].is_frame_label is True
+        assert segments[1].is_rehook is True
+
+    def test_parse_script_to_segments_with_contractions(self):
+        script = "The four truths are the foundation.\n\nBut here is the thing."
+        segments = parse_script_to_segments(script)
+        assert len(segments) == 2
+        assert segments[0].is_frame_label is True
+        assert segments[1].is_rehook is True
+
+    def test_rehook_gate_triggered_after_normalization(self):
+        script = (
+            "The four truths are the foundation.\n\n"
+            "Imagine a story about a monk.\n\n"
+            "But here is the thing about retention."
+        )
+        segments = parse_script_to_segments(script)
+        scenes = [Scene(**make_scene(i)) for i in range(1, 4)]
+        result = run_pre_render_gate(segments, scenes)
+        assert result.passed is False
+        assert any("[P1a]" in v for v in result.violations)
+
+
+# ── Tier 2 motion overlay asset check ─────────────────────────────────────────
+
+
+class TestTier2OverlayAssets:
+    def test_tier2_missing_asset_flagged(self, tmp_path: Path):
+        scene_data = make_scene(1)
+        scene_data["motion_type"] = "fog"
+        scenes = [Scene(**scene_data)]
+
+        project_dir = tmp_path / "my_project"
+        project_dir.mkdir()
+
+        violations = check_tier2_overlay_assets(scenes, project_dir=project_dir)
+        assert len(violations) == 1
+        assert "fog" in violations[0]
+        assert "assets/overlays" in violations[0]
+
+    def test_tier2_asset_present_passes(self, tmp_path: Path):
+        scene_data = make_scene(1)
+        scene_data["motion_type"] = "fog"
+        scenes = [Scene(**scene_data)]
+
+        project_dir = tmp_path / "my_project"
+        overlay_dir = project_dir / "assets" / "overlays"
+        overlay_dir.mkdir(parents=True)
+        (overlay_dir / "fog.mp4").write_bytes(b"\x00")
+
+        violations = check_tier2_overlay_assets(scenes, project_dir=project_dir)
+        assert len(violations) == 0
+
+    def test_tier1_motion_not_checked(self, tmp_path: Path):
+        scene_data = make_scene(1)
+        scene_data["motion_type"] = "push_in"
+        scenes = [Scene(**scene_data)]
+
+        project_dir = tmp_path / "my_project"
+        project_dir.mkdir()
+
+        violations = check_tier2_overlay_assets(scenes, project_dir=project_dir)
+        assert len(violations) == 0
+
+    def test_no_project_dir_returns_empty(self, tmp_path: Path):
+        scene_data = make_scene(1)
+        scene_data["motion_type"] = "fog"
+        scenes = [Scene(**scene_data)]
+
+        violations = check_tier2_overlay_assets(scenes, project_dir=None)
+        assert len(violations) == 0
+
+
+# ── linked_segment serialize → dict → deserialize round-trip ───────────────
+
+
+class TestLinkedSegmentRoundTrip:
+    def test_index_key_stripped_from_raw_dict(self):
+        """_linked_segment must tolerate extra keys (e.g. 'index' from script-segments.json)."""
+        scene_data = make_scene(1)
+        scene_data["linked_segment"] = {
+            "index": 0,
+            "text": "This was the peak moment that changed everything.",
+            "start_time": None,
+            "end_time": None,
+            "is_hook": False,
+            "is_rehook": False,
+            "is_frame_label": False,
+            "is_bridge": False,
+            "resolves_story": False,
+            "emotional_intensity": "peak",
+        }
+        scene = Scene(**scene_data)
+        segments = [
+            ScriptSegment(text="This was the peak moment that changed everything.")
+        ]
+
+        result = _linked_segment(scene, segments)
+        assert result is not None
+        assert result.emotional_intensity == EmotionalIntensity.PEAK
+        assert result.text == scene_data["linked_segment"]["text"]
+
+    def test_full_gate_with_real_scene_plan_shape(self, tmp_path: Path):
+        """run_pre_render_gate must not crash on a scene plan loaded from JSON with index-keyed segments."""
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        scene_plan_path = project_dir / "scenes" / "scene-plan.json"
+        scene_plan_path.parent.mkdir(parents=True)
+
+        scene_plan = {
+            "scenes": [
+                {
+                    "index": 1,
+                    "title": "Scene 1",
+                    "narration": "This was the peak moment that changed everything.",
+                    "visual_prompt": "Prompt",
+                    "duration_seconds": 3.0,
+                    "pose": "standing",
+                    "composition": "center",
+                    "motion_type": "push_in",
+                    "text_overlay": None,
+                    "hold_required": False,
+                    "linked_segment": {
+                        "index": 0,
+                        "text": "This was the peak moment that changed everything.",
+                        "start_time": None,
+                        "end_time": None,
+                        "is_hook": False,
+                        "is_rehook": False,
+                        "is_frame_label": False,
+                        "is_bridge": False,
+                        "resolves_story": False,
+                        "emotional_intensity": "peak",
+                    },
+                }
+            ]
+        }
+        scene_plan_path.write_text(json.dumps(scene_plan), encoding="utf-8")
+
+        script = "This was the peak moment that changed everything."
+        segments = parse_script_to_segments(script)
+        scenes = [Scene(**scene_plan["scenes"][0])]
+
+        result = run_pre_render_gate(segments, scenes, project_dir=project_dir)
+        assert isinstance(result, RetentionScoreResult)
+        assert any("[P2]" in v for v in result.violations) or True

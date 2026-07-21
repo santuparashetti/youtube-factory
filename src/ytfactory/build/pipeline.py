@@ -1,11 +1,10 @@
-from pathlib import Path
-
 from rich.console import Console
 from rich.rule import Rule
 
 from ytfactory.config.settings import Settings
 from ytfactory.incremental.engine import IncrementalBuildEngine
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.paths import safe_project_dir
 
 from ytfactory.captions.pipeline import CaptionPipeline
 from ytfactory.cta.pipeline import CTAPipeline
@@ -63,7 +62,7 @@ class BuildPipeline:
         style: str | None = None,
         target_minutes: int = 7,
     ) -> None:
-        project_dir = Path(WORKSPACE_DIR) / project_id
+        project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
         writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
 
         with activate_writer(writer):
@@ -149,7 +148,7 @@ class BuildPipeline:
         if not settings.pipeline_qa_enabled:
             return
 
-        project_dir = Path(WORKSPACE_DIR) / project_id
+        project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
         script_path = project_dir / "script" / "script.md"
         scene_plan_path = project_dir / "scenes" / "scene-plan.json"
 
@@ -186,7 +185,7 @@ class BuildPipeline:
             for i, s in enumerate(scenes)
         ]
 
-        result = run_pre_render_gate(segments, scene_objs)
+        result = run_pre_render_gate(segments, scene_objs, project_dir=project_dir)
 
         for v in result.violations:
             console.print(f"  [yellow]⚠[/yellow] {v}")
@@ -244,7 +243,7 @@ class BuildPipeline:
         A locked scene (SceneState.LOCKED) is never auto-regenerated unless
         its index appears in ``force_scene``.
         """
-        project_dir = Path(WORKSPACE_DIR) / project_id
+        project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
         engine = IncrementalBuildEngine(project_dir)
         engine.initialize_workspace()
         writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
