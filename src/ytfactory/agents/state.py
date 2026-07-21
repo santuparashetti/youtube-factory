@@ -41,6 +41,7 @@ class VideoState(TypedDict, total=False):
 
     # ── Quality review (populated by quality_review_node) ─────────────────
     review_result: Optional[dict]  # {"verdict": "PASS"|"FAIL", "errors": [...], ...}
+    pipeline_qa_score: Optional[dict]  # {"total": float, "breakdown": {...}, "violations": [...], "passed": bool}
 
     # ── Remediation (populated by remediation_node) ────────────────────────
     remediation_result: Optional[

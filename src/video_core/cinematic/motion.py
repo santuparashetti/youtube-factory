@@ -186,6 +186,7 @@ class MotionPlanner:
         self,
         scenes: list[dict],
         profile: str = "balanced",
+        emotional_intensity: dict[int, str] | None = None,
     ) -> list[dict]:
         """
         Enrich each scene dict with a 'motion' key containing a MotionSpec.
@@ -202,6 +203,9 @@ class MotionPlanner:
         Args:
             scenes:  Scene dicts from scene-plan.json.
             profile: Rendering profile name — draft | balanced | cinematic | premium.
+            emotional_intensity: Optional mapping of scene index -> intensity
+                ("normal" | "emotional" | "peak" | "reflection"). When provided,
+                overrides scale tier and motion type per scene.
 
         Returns:
             The same scene list with 'motion' added to every scene.
@@ -214,11 +218,14 @@ class MotionPlanner:
                 (scene["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5
             )
             scene_type = scene.get("scene_type", "generated_image")
+            intensity = "normal"
+            if emotional_intensity is not None:
+                intensity = emotional_intensity.get(scene["index"], "normal")
 
             if scene_type == "asset":
                 spec = _asset_motion(scene, cfg)
             else:
-                spec = self._plan_generated(scene, scene_position, cfg)
+                spec = self._plan_generated(scene, scene_position, cfg, intensity)
 
             scene["motion"] = spec.to_dict()
 
@@ -229,6 +236,7 @@ class MotionPlanner:
         scene: dict,
         scene_position: float,
         cfg: ProfileConfig,
+        emotional_intensity: str = "normal",
     ) -> MotionSpec:
         """Classify emotion and assign motion for an AI-generated scene."""
         narration = scene.get("narration", "")
@@ -239,6 +247,16 @@ class MotionPlanner:
         emotion_name = emotion_profile.emotion.value  # e.g. "curiosity"
 
         motion_type, scale_tier = profile_map.get(emotion_name, ("static", "small"))
+
+        # Override motion type and scale tier based on emotional intensity
+        if emotional_intensity == "peak":
+            motion_type = "push_in_slow"
+            scale_tier = "large"
+        elif emotional_intensity == "emotional":
+            scale_tier = "medium"
+        elif emotional_intensity == "reflection":
+            motion_type = "drift"
+            scale_tier = "small"
 
         start_s, end_s, ax, ay, dx, dy = _resolve_motion(
             motion_type, scale_tier, cfg, scene["index"]

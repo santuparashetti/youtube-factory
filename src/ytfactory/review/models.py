@@ -110,6 +110,10 @@ class ReviewReport:
     # Video Validation Rules V1 — populated by ValidationRunner
     validation_report: dict | None = None
 
+    # Pipeline QA — populated by VideoQualityReviewEngine after combining
+    # pre-render gate and post-render audit scores
+    pipeline_qa_score: dict | None = None
+
     # Root Cause Analysis Engine V1 — populated by RootCauseAnalysisEngine
     rca_report: dict | None = None
 

@@ -49,6 +49,11 @@ def validation_report_path(project_id: str) -> Path:
     return review_directory(project_id) / "validation-report.json"
 
 
+def pipeline_qa_score_path(project_id: str) -> Path:
+    """Path to the Pipeline QA score summary."""
+    return review_directory(project_id) / "pipeline-qa-score.json"
+
+
 def debug_directory(project_id: str) -> Path:
     """Return (and create) workspace/jobs/<project_id>/review/debug/."""
     directory = review_directory(project_id) / "debug"

@@ -16,6 +16,11 @@ from ytfactory.review.remediation.config import RemediationConfig
 from ytfactory.review.remediation.engine import AutoRemediationEngine
 from ytfactory.scenes.pipeline import ScenePipeline
 from ytfactory.light_normalization.pipeline import LightNormalizationPipeline
+from ytfactory.retention.pre_render_gate import (
+    link_scenes_to_segments,
+    parse_script_to_segments,
+    run_pre_render_gate,
+)
 from ytfactory.script_enhancer.pipeline import (
     DocumentaryScriptEnhancerPipeline,
     DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # noqa: F401 — backward compat for tests
@@ -74,6 +79,7 @@ class BuildPipeline:
                     )
                 if not skip_scenes:
                     self.scenes.run(project_id)
+                    self._run_pre_render_gate(project_id)
                 if not skip_images:
                     self.images.run(project_id)
                 self.voice.run(project_id)
@@ -135,6 +141,88 @@ class BuildPipeline:
                 console.print()
                 return
 
+    def _run_pre_render_gate(self, project_id: str) -> None:
+        """Read scene-plan.json + script.md, run pre-render retention gate."""
+        import json
+
+        settings = Settings()
+        if not settings.pipeline_qa_enabled:
+            return
+
+        project_dir = Path(WORKSPACE_DIR) / project_id
+        script_path = project_dir / "script" / "script.md"
+        scene_plan_path = project_dir / "scenes" / "scene-plan.json"
+
+        if not script_path.is_file() or not scene_plan_path.is_file():
+            console.print(
+                "  [yellow]⚠[/yellow] Pre-render gate skipped: missing script or scene plan."
+            )
+            return
+
+        script_md = script_path.read_text(encoding="utf-8")
+        scene_plan_data = json.loads(scene_plan_path.read_text(encoding="utf-8"))
+        scenes = scene_plan_data.get("scenes", [])
+
+        segments = parse_script_to_segments(script_md)
+        scenes = link_scenes_to_segments(scenes, segments)
+
+        from ytfactory.retention.models import Scene
+
+        scene_objs = [
+            Scene(
+                index=s.get("index", i + 1),
+                title=s.get("title", ""),
+                narration=s.get("narration", ""),
+                visual_prompt=s.get("visual_prompt", ""),
+                duration_seconds=float(s.get("duration_seconds", 0.0)),
+                pose=s.get("pose"),
+                composition=s.get("composition"),
+                motion_type=s.get("motion_type"),
+                text_overlay=s.get("text_overlay"),
+                text_reveal_segments=s.get("text_reveal_segments", []),
+                hold_required=s.get("hold_required", False),
+                linked_segment=s.get("linked_segment"),
+            )
+            for i, s in enumerate(scenes)
+        ]
+
+        result = run_pre_render_gate(segments, scene_objs)
+
+        for v in result.violations:
+            console.print(f"  [yellow]⚠[/yellow] {v}")
+
+        if not result.passed:
+            writer = get_writer()
+            if writer:
+                writer.stage_fail(
+                    f"Pre-render gate failed (score {result.total}/100): "
+                    + "; ".join(result.violations[:3])
+                )
+
+            hard_reject = (
+                any("[P1a]" in v for v in result.violations)
+                and settings.frame_naming_gate_enabled
+            )
+            if hard_reject:
+                raise PipelineAbort(
+                    stage="pre_render_gate",
+                    reason=(
+                        f"Frame naming gate failed (score {result.total}/100): "
+                        + "; ".join(result.violations[:3])
+                    ),
+                )
+
+        console.print(
+            f"  [green]✓[/green] Pre-render gate passed (score {result.total}/100)"
+        )
+
+        # Persist enriched scene plan back to disk
+        scene_plan_data["scenes"] = [s.model_dump() for s in scene_objs]
+        scene_plan_path.write_text(
+            json.dumps(scene_plan_data, indent=2, default=str),
+            encoding="utf-8",
+        )
+
     # ── Incremental / resume mode ─────────────────────────────────────────────
 
     def run_incremental(
@@ -193,6 +281,7 @@ class BuildPipeline:
             # scenes — always skipped if scene-plan.json exists and unchanged
             if _should_run("scenes"):
                 self.scenes.run(project_id)
+                self._run_pre_render_gate(project_id)
                 engine.record_stage_outputs("scenes")
                 engine.initialize_workspace()
 

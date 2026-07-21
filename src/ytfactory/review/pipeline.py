@@ -28,12 +28,16 @@ class ReviewPipeline:
         self._engine = VideoQualityReviewEngine(config, validation_config)
         self._reporter = ReviewReporter()
 
-    def run(self, project_id: str) -> ReviewReport:
+    def run(
+        self,
+        project_id: str,
+        pre_render_score: dict | None = None,
+    ) -> ReviewReport:
         """Execute review, write outputs, print summary.  Returns ReviewReport."""
         console.print(Rule("[bold cyan]Video Quality Review Engine V1[/bold cyan]"))
         console.print()
 
-        report = self._engine.review(project_id)
+        report = self._engine.review(project_id, pre_render_score=pre_render_score)
         review_dir = self._reporter.write(report)
 
         _print_summary(report, review_dir)

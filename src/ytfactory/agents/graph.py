@@ -28,6 +28,7 @@ from ytfactory.agents.nodes.human_review import (
     human_review_scenes_node,
     human_review_script_node,
 )
+from ytfactory.agents.nodes.pre_render_gate import pre_render_gate_node
 from ytfactory.agents.nodes.research import research_node
 from ytfactory.agents.nodes.scene_assets import generate_scene_assets
 from ytfactory.agents.nodes.scene_planner import scene_planner_node
@@ -88,6 +89,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("script_enhancer", script_enhancer_node)
     workflow.add_node("human_review_script", human_review_script_node)
     workflow.add_node("scene_planner", scene_planner_node)
+    workflow.add_node("pre_render_gate", pre_render_gate_node)
     workflow.add_node("human_review_scenes", human_review_scenes_node)
     workflow.add_node("generate_scene_assets", generate_scene_assets)
     workflow.add_node("video_renderer", video_renderer_node)
@@ -112,7 +114,8 @@ def build_graph() -> StateGraph:
     workflow.add_edge("script_writer", "human_review_script")
     workflow.add_edge("human_review_script", "scene_planner")
     workflow.add_edge("script_enhancer", "scene_planner")
-    workflow.add_edge("scene_planner", "human_review_scenes")
+    workflow.add_edge("scene_planner", "pre_render_gate")
+    workflow.add_edge("pre_render_gate", "human_review_scenes")
 
     # ── Parallel fan-out: one node call per scene ─────────────────────────
     workflow.add_conditional_edges("human_review_scenes", _dispatch_scenes)

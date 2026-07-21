@@ -160,6 +160,100 @@ class DocumentaryEnhancerValidator:
         return len(errors) == 0, errors, warnings
 
 
+# ── Emotional metadata tagging ─────────────────────────────────────────────────
+
+
+_PEAK_PATTERNS = re.compile(
+    r"\b(never forget|this changed everything|the most important|"
+    r"nothing else mattered|forever changed|critical|essential|"
+    r"peak|deepest|most profound|turning point)\b",
+    re.IGNORECASE,
+)
+_EMOTIONAL_PATTERNS = re.compile(
+    r"\b(profound|deeply|powerful|moving|heartbreaking|joy|grief|"
+    r"transformation|breakthrough|awakening|realization|shock|"
+    r"emotional|intense|stirring|touching|painful|beautiful|"
+    r"struggle|suffering|hope|despair|courage|fear|love|loss)\b",
+    re.IGNORECASE,
+)
+_REFLECTION_PATTERNS = re.compile(
+    r"\b(pause|reflect|consider|contemplate|meditate|stillness|"
+    r"silence|breathe|witness|observe|notice|aware|present)\b",
+    re.IGNORECASE,
+)
+_FRAME_LABEL_PATTERNS = re.compile(
+    r"\b(four truths|three lessons|five principles|first truth|"
+    r"second truth|third truth|key takeaway|let.s explore|"
+    r"welcome to|truth number|lesson number)\b",
+    re.IGNORECASE,
+)
+_REHOOK_PATTERNS = re.compile(
+    r"\b(but here.s the thing|and yet|so why|what happens next|"
+    r"here.s where it|but wait|yet here|still|and yet)\b",
+    re.IGNORECASE,
+)
+_BRIDGE_PATTERNS = re.compile(
+    r"\b(this is the key|what this means|the deeper lesson|"
+    r"reflection|pause and consider|think about this)\b",
+    re.IGNORECASE,
+)
+_RESOLVES_STORY_PATTERNS = re.compile(
+    r"\b(and so it ended|in the end|ultimately|the moral|"
+    r"that was the moment|from that day|the lesson was|"
+    r"what he learned|what she realized)\b",
+    re.IGNORECASE,
+)
+
+
+def _classify_intensity(text: str) -> str:
+    if _PEAK_PATTERNS.search(text):
+        return "peak"
+    if _EMOTIONAL_PATTERNS.search(text):
+        return "emotional"
+    if _REFLECTION_PATTERNS.search(text):
+        return "reflection"
+    return "normal"
+
+
+def _write_script_segments(script_text: str, script_dir: Path) -> None:
+    """
+    Parse the final Pass 2 script into ScriptSegment dicts with emotional
+    intensity and structural tags. Writes script-segments.json — the single
+    source of truth for downstream stages (scene planning, motion, pauses,
+    music, retention scoring).
+
+    This is core metadata, not optional enrichment.
+    """
+    paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+
+    segments = []
+    for i, para in enumerate(paragraphs):
+        text = para.strip()
+        if not text:
+            continue
+
+        intensity = _classify_intensity(text)
+        segments.append(
+            {
+                "index": i,
+                "text": text,
+                "start_time": None,
+                "end_time": None,
+                "is_hook": i == 0 and len(text.split()) < 60,
+                "is_rehook": bool(_REHOOK_PATTERNS.search(text)),
+                "is_frame_label": bool(_FRAME_LABEL_PATTERNS.search(text)),
+                "is_bridge": bool(_BRIDGE_PATTERNS.search(text)),
+                "resolves_story": bool(_RESOLVES_STORY_PATTERNS.search(text)),
+                "emotional_intensity": intensity,
+            }
+        )
+
+    (script_dir / "script-segments.json").write_text(
+        json.dumps({"segments": segments, "count": len(segments)}, indent=2),
+        encoding="utf-8",
+    )
+
+
 class DocumentaryScriptEnhancerPipeline:
     """Transform a normalized transcript into a cinematic YouTube documentary narration.
 
@@ -491,6 +585,10 @@ class DocumentaryScriptEnhancerPipeline:
 
         (script_dir / "script_original.md").write_text(script_text, encoding="utf-8")
         (script_dir / "script.md").write_text(final_restored, encoding="utf-8")
+
+        # ── Emotional metadata tagging (core metadata for downstream stages) ────
+        _write_script_segments(final_restored, script_dir)
+
         (script_dir / "script.json").write_text(
             json.dumps(
                 {

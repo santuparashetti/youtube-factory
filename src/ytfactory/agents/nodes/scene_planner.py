@@ -17,6 +17,7 @@ from ytfactory.agents.state import VideoState
 from ytfactory.branding.config import get_brand_config
 from ytfactory.config.settings import Settings
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
+from video_core.providers.llm.base import LLMProvider
 from video_core.providers.llm.factory import get_llm_provider
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.script_utils import strip_script_heading
@@ -32,6 +33,42 @@ _CLOSING_TRIGGERS: frozenset[str] = frozenset(
 console = Console()
 
 _TARGET_WORDS_PER_SCENE = 28  # ~14s at 120 wpm spiritual pace
+
+
+def _attach_emotional_metadata(project_id: str, scenes: list[dict]) -> None:
+    """
+    Read script-segments.json (produced by Pass 2 of the script enhancer) and
+    attach the closest matching segment to each scene as linked_segment.
+
+    This populates emotional_intensity, is_hook, is_rehook, is_frame_label,
+    is_bridge, and resolves_story on every scene — core metadata used by
+    motion assignment, pause timing, BGM mixing, and retention scoring.
+    """
+    script_dir = Path(WORKSPACE_DIR) / project_id / "script"
+    segments_path = script_dir / "script-segments.json"
+    if not segments_path.exists():
+        return
+
+    try:
+        data = json.loads(segments_path.read_text(encoding="utf-8"))
+        segments = data.get("segments", [])
+    except (json.JSONDecodeError, OSError):
+        return
+
+    for scene in scenes:
+        scene_words = set(scene.get("narration", "").lower().split())
+        best_idx = -1
+        best_overlap = 0
+
+        for j, seg in enumerate(segments):
+            seg_words = set(seg["text"].lower().split())
+            overlap = len(scene_words & seg_words)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = j
+
+        if best_idx >= 0 and best_overlap > 0:
+            scene["linked_segment"] = segments[best_idx]
 
 
 def _split_script_to_scenes(
@@ -495,6 +532,11 @@ def scene_planner_node(state: VideoState) -> dict:
             f"  [green]✓[/green] {asset_count} closing scene(s) marked as asset scenes "
             f"[dim]({brand_asset})[/dim]"
         )
+
+    # Attach emotional metadata from script-segments.json (produced by Pass 2
+    # of the script enhancer). This is core metadata used by motion, pauses,
+    # music, and retention scoring downstream.
+    _attach_emotional_metadata(project_id, scenes)
 
     total = sum(s.get("duration_seconds", 0) for s in scenes)
     narration_words = sum(len(s.get("narration", "").split()) for s in scenes)

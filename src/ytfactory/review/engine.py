@@ -40,6 +40,8 @@ from ytfactory.review.validation.config import ValidationRulesConfig
 from ytfactory.review.validation.reporter import ValidationReporter
 from ytfactory.review.validation.runner import ValidationRunner
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.retention.scoring import build_post_render_score, combine_scores
+from ytfactory.retention.models import RetentionScoreResult
 
 
 class VideoQualityReviewEngine:
@@ -78,7 +80,11 @@ class VideoQualityReviewEngine:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def review(self, project_id: str) -> ReviewReport:
+    def review(
+        self,
+        project_id: str,
+        pre_render_score: dict | None = None,
+    ) -> ReviewReport:
         """Run the full review pipeline and return a ReviewReport."""
         t0 = time.perf_counter()
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -111,6 +117,14 @@ class VideoQualityReviewEngine:
         except Exception:
             context["bgm_enabled"] = False
 
+        # Post-render artifact paths for retention QA detectors
+        context["final_video_path"] = str(project_dir / "video" / "final.mp4")
+        context["cta_timing_path"] = str(project_dir / "cta" / "cta-timing.json")
+        context["script_md_path"] = str(project_dir / "script" / "script.md")
+        context["subtitle_report_path"] = str(project_dir / "subtitles" / "subtitle-report.json")
+        context["audio_dir"] = str(project_dir / "audio")
+        context["scene_plan_path"] = str(project_dir / "scenes" / "scene-plan.json")
+
         # Debug collector — zero overhead when level is OFF
         debug = DebugCollector(self._debug_config.level)
 
@@ -142,6 +156,33 @@ class VideoQualityReviewEngine:
         # Critical validation failures bubble up into all_errors → affect verdict
         for failure in val_report.critical_failures:
             all_errors.append(f"[validation:{failure.rule_id}] {failure.description}")
+
+        # ── Pipeline QA Scoring ────────────────────────────────────────────
+        post_render_score = build_post_render_score(val_report)
+        if pre_render_score:
+            pre_render = RetentionScoreResult(
+                total=pre_render_score.get("total", 100.0),
+                breakdown=pre_render_score.get("breakdown", {}),
+                violations=pre_render_score.get("violations", []),
+                passed=pre_render_score.get("passed", True),
+            )
+            pipeline_qa_score = combine_scores(pre_render, post_render_score)
+        else:
+            pipeline_qa_score = post_render_score
+
+        hard_reject_keywords = ("[P1a]", "MOT_005", "STOR_006")
+        has_hard_reject = any(
+            kw in v for v in pipeline_qa_score.violations for kw in hard_reject_keywords
+        )
+        if pipeline_qa_score.total < 85.0:
+            all_errors.append(
+                f"[pipeline_qa] Score {pipeline_qa_score.total:.0f}/100 below upload gate "
+                f"(≥85 required)"
+            )
+        if has_hard_reject:
+            for v in pipeline_qa_score.violations:
+                if any(kw in v for kw in hard_reject_keywords):
+                    all_errors.append(f"[pipeline_qa:{v}]")
 
         # ── Root Cause Analysis Engine V1 ────────────────────────────────
         rca_engine = RootCauseAnalysisEngine(self._rca_config)
@@ -217,6 +258,12 @@ class VideoQualityReviewEngine:
             ),
             processing_time_seconds=round(elapsed, 3),
             validation_report=val_report.to_dict(),
+            pipeline_qa_score={
+                "total": pipeline_qa_score.total,
+                "breakdown": pipeline_qa_score.breakdown,
+                "violations": pipeline_qa_score.violations,
+                "passed": pipeline_qa_score.passed,
+            },
             rca_report=rca_report.to_dict(),
             quality_score=score_report.overall_score,
             quality_score_report=score_report.to_dict(),

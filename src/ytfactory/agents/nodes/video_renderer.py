@@ -44,7 +44,20 @@ def video_renderer_node(state: VideoState) -> dict:
     cinematic_cfg = CinematicConfig(
         profile=state.get("render_profile") or _settings.render_profile
     )
-    scene_plan = _motion_planner.plan(list(scene_plan), profile=cinematic_cfg.profile)
+
+    # Build emotional intensity mapping from linked_segment metadata
+    intensity_map: dict[int, str] = {}
+    for scene in scene_plan:
+        seg = scene.get("linked_segment") or {}
+        raw = seg.get("emotional_intensity", "normal")
+        # Normalize: accept both enum values ("peak") and raw strings
+        intensity_map[scene["index"]] = str(raw).lower() if isinstance(raw, str) else "normal"
+
+    scene_plan = _motion_planner.plan(
+        list(scene_plan),
+        profile=cinematic_cfg.profile,
+        emotional_intensity=intensity_map,
+    )
     scene_plan = _transition_planner.plan(scene_plan, profile=cinematic_cfg.profile)
     scene_plan = _effects_planner.plan(scene_plan, profile=cinematic_cfg.profile)
 

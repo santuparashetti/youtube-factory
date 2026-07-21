@@ -25,6 +25,7 @@ from ytfactory.review.validation.rules.story import StoryValidator
 from ytfactory.review.validation.rules.subtitle import SubtitleValidator
 from ytfactory.review.validation.rules.cta import CTAValidator
 from ytfactory.review.validation.rules.vision_review import VisionReviewValidator
+from ytfactory.shared.pipeline_status import PipelineAbort
 
 
 class ValidationRunner:
@@ -73,6 +74,8 @@ class ValidationRunner:
             try:
                 results = validator.validate(project_dir, scenes, context)
                 all_results.extend(results)
+            except PipelineAbort:
+                raise
             except Exception as exc:  # noqa: BLE001
                 all_results.append(
                     ValidationResult(

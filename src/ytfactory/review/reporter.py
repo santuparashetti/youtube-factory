@@ -4,6 +4,7 @@ Produces:
   - review-report.md  — human-readable Markdown summary
   - scene-review.json — per-scene detail
   - review-debug.json — full machine-readable diagnostics
+  - retention-score.json — retention QA score summary
 
 Implemented (written by dedicated reporters, not stubs):
   - quality-score.json / quality-report.md / score-breakdown.json /
@@ -12,6 +13,7 @@ Implemented (written by dedicated reporters, not stubs):
     recurring-issues.json — written by RCAReporter
   - engine-feedback.json / engine-feedback.md / engine-priority-report.json /
     recurring-patterns.json / improvement-roadmap.md — written by EFLReporter
+  - retention-score.json — written by ReviewReporter
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import json
 from pathlib import Path
 
 from ytfactory.review.artifacts import (
+    pipeline_qa_score_path,
     review_debug_path,
     review_directory,
     review_report_path,
@@ -39,6 +42,7 @@ class ReviewReporter:
         self._write_report_md(report)
         self._write_scene_review(report)
         self._write_debug_json(report)
+        self._write_pipeline_qa_score(report)
         self._write_extension_stubs(report)
 
         return _dir
@@ -145,6 +149,25 @@ class ReviewReporter:
                 lines.append("")
             lines += ["_Full details: `review/validation-report.json`_", ""]
 
+        # Pipeline QA
+        if report.pipeline_qa_score:
+            rs = report.pipeline_qa_score
+            lines += ["---", "", "## Pipeline QA", ""]
+            lines.append(f"**Pipeline QA Score:** {rs.get('total', 0):.0f}/100  ")
+            lines.append("")
+            breakdown = rs.get("breakdown", {})
+            if breakdown:
+                lines += ["| Category | Score |", "|----------|-------|"]
+                for cat, score in sorted(breakdown.items()):
+                    lines.append(f"| {cat} | {score:.0f}/100 |")
+                lines.append("")
+            violations = rs.get("violations", [])
+            if violations:
+                lines.append("**Violations:**")
+                for v in violations[:10]:
+                    lines.append(f"- {v}")
+                lines.append("")
+
         # Extension points note
         lines += [
             "---",
@@ -206,12 +229,29 @@ class ReviewReporter:
             "quality_score": report.quality_score,
             "root_cause_hint": report.root_cause_hint,
             "feedback_payload": report.feedback_payload,
+            "pipeline_qa_score": report.pipeline_qa_score,
         }
         review_debug_path(report.project_id).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-    # ── Extension-point stub files ────────────────────────────────────────
+    # ── Pipeline QA ──────────────────────────────────────────────────────
+
+    def _write_pipeline_qa_score(self, report: ReviewReport) -> None:
+        """Write Pipeline QA score summary."""
+        if not report.pipeline_qa_score:
+            return
+        payload = {
+            "project_id": report.project_id,
+            "timestamp": report.timestamp,
+            "total": report.pipeline_qa_score.get("total", 0.0),
+            "breakdown": report.pipeline_qa_score.get("breakdown", {}),
+            "violations": report.pipeline_qa_score.get("violations", []),
+            "passed": report.pipeline_qa_score.get("passed", False),
+        }
+        pipeline_qa_score_path(report.project_id).write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     def _write_extension_stubs(self, _report: ReviewReport) -> None:
         """All extension-point engines are now implemented; no stubs remain.

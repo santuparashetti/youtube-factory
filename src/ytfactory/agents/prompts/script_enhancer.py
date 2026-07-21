@@ -130,6 +130,32 @@ AUTHOR'S SCRIPT (preserve — do not rewrite):
 """
 
 
+HOOK_GENERATOR_PROMPT = """\
+Generate the opening 10–20 seconds of a video script.
+Rules:
+- No channel introduction, no "welcome to", no naming the video's frame/structure.
+- Must open with one of: unexpected story, contradiction, powerful
+  question, shocking fact, emotional situation.
+- Introduce the mystery within the first 10 seconds.
+Template: "Imagine... / But... / Because..."
+"""
+
+REHOOK_INJECTOR_PROMPT = """\
+Given a script, insert a one-sentence curiosity hook every 30–45
+seconds of estimated narration time. Never let a gap exceed 45 seconds.
+Do not repeat rehook phrasing within the same script.
+"""
+
+TRANSITION_GENERATOR_PROMPT = """\
+Replace flat "Truth N" / "Lesson N" style transitions with:
+Story → Reflection → Question → Next Story.
+If a story's resolution is followed by a return to the overarching
+theme, you MUST insert a bridge line (reflection or question) between
+the resolution and the theme recap. Never cut directly from a story's
+resolution to a theme-label sentence.
+"""
+
+
 _EXPAND_STRATEGY = """\
 ───────────────────────────────────────────────────────────────
 EXPANSION STRATEGY — follow this priority order exactly
@@ -448,13 +474,18 @@ Rule 3 — Preserve cinematic pacing.
 Do NOT merge short sentences into long paragraphs. Intentional pauses remain.
 Write for narration, not reading. Each key idea may deserve its own line.
 
-Rule 4 — Delay branding.
+Rule 4 — Delay branding and frame naming.
 Never interrupt the opening hook. Channel name, subscribe requests, and greetings belong after
 emotional engagement — naturally after the hook or near the conclusion.
+Do not name the video's structural frame ("four truths", "three lessons", "key takeaway") in
+the opening 10–20 seconds. Name the frame only after the first curiosity hook has landed.
+Introducing the frame too early turns mystery into a checklist — viewers leave.
 
 Rule 5 — Maintain curiosity.
 Whenever possible: raise a question, delay the answer, reward the audience later.
-Continuously create reasons for the viewer to keep watching.
+A question without an immediate answer creates a knowledge gap the viewer wants closed.
+Continuously create reasons for the viewer to keep watching. Never let a curiosity gap
+go unresolved for more than 45 seconds of narration — reward patience, don't abuse it.
 
 Rule 6 — End chapters with momentum.
 Avoid complete conclusions. Create transitions that pull viewers forward.

@@ -420,6 +420,23 @@ class Settings(SharedSettings):
     publish_min_chapter_seconds: int = 10
 
     # ------------------------------------------------------------------
+    # Pipeline QA Gates
+    # ------------------------------------------------------------------
+
+    # Master switch for the Pipeline QA system. When False, all pipeline
+    # gates (pre-render and post-render) are skipped entirely.
+    pipeline_qa_enabled: bool = True
+
+    # Individual gate toggles — each can be disabled independently without
+    # a code revert. Hard-reject gates raise PipelineAbort when enabled and
+    # triggered; score-deduction rules only affect the final score.
+    frame_naming_gate_enabled: bool = True
+    bridge_requirement_enabled: bool = True
+    motion_variety_enabled: bool = True
+    static_shot_detection_enabled: bool = True
+    text_overlay_duration_enabled: bool = True
+
+    # ------------------------------------------------------------------
     # Runtime
     # ------------------------------------------------------------------
 
