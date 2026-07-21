@@ -105,7 +105,7 @@ it currently passes (zero violations). Commit.
 
 ## Step 8 — Update docs
 
-Update `CLAUDE.md` and `MASTER_CONTEXT_UPDATED.md` provider-path
+Update `CLAUDE.md` and `MASTER_CONTEXT.md` provider-path
 references to `video_core.providers.*` and `video_core.models`. Do not
 change any other content in those docs in this same commit.
 

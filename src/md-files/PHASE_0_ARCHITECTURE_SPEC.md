@@ -2,7 +2,7 @@
 
 **Status:** Replaces `ARCHITECTURE_BLUEPRINT_V2`, `SDK_ARCHITECTURE_SPEC_V4`,
 `IMPLEMENTATION_SPEC_V5`, `API_SDK_REFERENCE_V6`, and `PROPOSED_SPEC`.
-**Scope:** ytfactory repo only. Grounded in `MASTER_CONTEXT_UPDATED.md`,
+**Scope:** ytfactory repo only. Grounded in `MASTER_CONTEXT.md`,
 `ARCHITECTURE_AUDIT_2026_07_10.md`, and `ARCHITECTURE_AUDIT_2026_07_12.md`
 (incremental). **Current baseline: 2159 tests passing, 0 failing** (was
 2124 at 07-10; +35 net, 3 regressions introduced and fixed in the 07-12 diff).
@@ -68,7 +68,7 @@ The only decision needed before Step 4 is what to do with the dead
 
 ## 4. Ground truth caveat
 
-Everything below is built from `MASTER_CONTEXT_UPDATED.md` and the audit
+Everything below is built from `MASTER_CONTEXT.md` and the audit
 — both are documentation, and the audit itself caught the docs being
 stale in places (validator count 8 vs 11 vs 12 actual). **Before moving
 anything, re-verify the bucket table in §5 against the live filesystem**
@@ -181,7 +181,7 @@ before, since there's nothing to enforce yet in a single-package repo.
 6. Move `models/` (LAMM) → `video_core/models/`. Update imports. Run tests. Commit.
 7. Move generic `domain/` response models → `video_core/domain/`. Leave `Project` in place. Run tests. Commit.
 8. Add the CI/lint import-direction check from §7.
-9. Update `CLAUDE.md` and `MASTER_CONTEXT_UPDATED.md` to reflect new import paths.
+9. Update `CLAUDE.md` and `MASTER_CONTEXT.md` to reflect new import paths.
 
 No parallelism across steps 4–7 — sequential, one module per commit, so
 a regression maps to exactly one change.

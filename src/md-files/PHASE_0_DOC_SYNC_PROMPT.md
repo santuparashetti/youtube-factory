@@ -6,7 +6,7 @@ Both files are large; don't regenerate them wholesale.
 
 ---
 
-## File 1: `docs/MASTER_CONTEXT_UPDATED.md`
+## File 1: `docs/MASTER_CONTEXT.md`
 
 ### Edit A — Repo layout section
 Find the section showing the `src/` tree. Add `video_core/` as a

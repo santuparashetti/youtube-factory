@@ -1,7 +1,7 @@
 # YouTube Factory — End-to-End Architecture Audit
 
 **Date:** 2026-07-10
-**Reference:** `docs/context/MASTER_CONTEXT_UPDATED.md`
+**Reference:** `docs/context/MASTER_CONTEXT.md`
 **Test count at audit time:** 2124 passing
 **Auditor:** Claude Sonnet 4.6 via parallel agent inspection
 
@@ -492,7 +492,7 @@ CI-001 through CI-006 are all code defaults vs documented `.env` values. The act
 
 - **File:** `review/validation/runner.py:1` and `runner.py:42`
 - **Fix:** Line 1: "orchestrates all **12** category validators". Line 42: "Run all **12** validators".
-- Also update `MASTER_CONTEXT_UPDATED.md`: "ValidationRunner now runs **12** validators (was 11)".
+- Also update `MASTER_CONTEXT.md`: "ValidationRunner now runs **12** validators (was 11)".
 
 **[P2-C] Rename `GeminiScenePlanner` to `LLMScenePlanner`**
 
@@ -540,7 +540,7 @@ Change `image_review_min_score: int = 90` and `image_review_confidence: int = 80
 **[P4-C] Fix `ImagePromptEngineV4` vs V5 docstring**
 Align class name and module docstring version marker.
 
-**[P4-D] Update `MASTER_CONTEXT_UPDATED.md`**
+**[P4-D] Update `MASTER_CONTEXT.md`**
 Correct validator count from 11 → 12 (CTAValidator was added). Update test count to 2124.
 
 **[P4-E] Document `BGMPipeline` scope in CLI help**

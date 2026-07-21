@@ -2,7 +2,7 @@
 
 > **Implementation Specification for Claude Code**
 
-**Prerequisite:** Read `MASTER_CONTEXT_V4.md` before implementation.
+**Prerequisite:** Read `MASTER_CONTEXT.md` before implementation.
 
 ## Objective
 

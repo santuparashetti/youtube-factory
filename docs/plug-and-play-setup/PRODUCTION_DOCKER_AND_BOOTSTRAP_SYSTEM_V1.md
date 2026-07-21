@@ -2,7 +2,7 @@
 
 > **Implementation Specification for Claude Code**
 >
-> **Prerequisite:** Read `MASTER_CONTEXT_V4.md` before implementation.
+> **Prerequisite:** Read `MASTER_CONTEXT.md` before implementation.
 >
 > **Purpose:** Convert YouTube Factory into a true production-ready,
 > plug-and-play application that can be cloned and run on any supported

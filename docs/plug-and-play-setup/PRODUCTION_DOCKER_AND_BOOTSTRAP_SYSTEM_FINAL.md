@@ -2,7 +2,7 @@
 
 > **Implementation Specification for Claude Code**
 >
-> **Read First:** `MASTER_CONTEXT_V4.md`
+> **Read First:** `MASTER_CONTEXT.md`
 >
 > **Mission:** Transform YouTube Factory into a production-grade,
 > plug-and-play application that can be cloned onto a completely fresh

@@ -4,7 +4,7 @@
 
 **Prerequisites**
 
--   Read `MASTER_CONTEXT_V4.md`
+-   Read `MASTER_CONTEXT.md`
 -   Read `PRODUCTION_DOCKER_AND_BOOTSTRAP_SYSTEM.md`
 
 ## Purpose

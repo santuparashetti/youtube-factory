@@ -4,7 +4,7 @@ Paste into Claude Code, run from repo root. Targeted edits only.
 
 ---
 
-## File 1: `docs/context/MASTER_CONTEXT_UPDATED.md`
+## File 1: `docs/context/MASTER_CONTEXT.md`
 
 ### Edit A — Changelog
 Add above the Phase 0 entry:

@@ -81,7 +81,7 @@ subtitle-debug.json
 
 ## Claude Implementation Prompt
 
-Read MASTER_CONTEXT_V1.md first.
+Read MASTER_CONTEXT.md first.
 
 Implement ASS_SUBTITLE_ENGINE_V1 following the existing architecture.
 

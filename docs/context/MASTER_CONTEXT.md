@@ -11,7 +11,7 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2165 passing (as of 2026-07-13)  
+**Test count:** 2545 passing (as of 2026-07-21)  
 **Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
 
 ## 2026-07-13 — Chapters capped at 10 (logical scene-merge); CTA overlay enabled
@@ -52,6 +52,102 @@ Layering enforced via `scripts/check_layering.py`.
 Known allowlisted Bucket-C exceptions (tracked for Phase 1, not yet
 extracted): `ytfactory.config.settings`, `ytfactory.shared.constants`.
 
+## 2026-07-21 — TTS Analytics & Cost Tracking + Pipeline Quality Gate
+**TTS Analytics & Cost Tracking** (`src/video_core/providers/tts/analytics/`):
+- `TTSAnalyticsRecord` — per-request telemetry: scene_id, provider, model, voice, text, characters, words, sentences, cache_hit, retry_count, latency_ms, request_timestamp, output_bytes, audio_duration, estimated_credits, estimated_cost, provider_response_metadata
+- `TTSAnalyticsCollector` — accumulates provider metrics (`TTSProviderMetrics`: cache_hit_rate, avg_latency_ms, retry_rate), per-video summaries (`TTSVideoSummary`: providers_used, models_used, voices_used, scene_summaries), duplicate detection, cost optimization reports
+- `ProviderPricingConfig` / `TTSProviderPricing` — configurable pricing abstraction: credits_per_character, credits_per_request, usd_per_credit. Cartesia pricing loaded from `SharedSettings` fields (`cartesia_credits_per_character`, `cartesia_credits_per_request`, `cartesia_usd_per_credit`) or `TTS_PRICING_*` env vars. Never hardcoded.
+- `count_text()` — character/word/sentence counting utility
+- Per-scene log: `Scene 07 | Provider: cartesia | Model: sonic-3.5 | Voice: Nolan | Characters: 184 | Words: 31 | Duration: 11.2s | Cache Hit: true | Retries: 0 | Latency: 1.84s | Estimated Credits: XXX | Estimated Cost: $0.00XX`
+- Per-video TTS SUMMARY block after generation: Scenes, Requests, Characters, Words, Total Audio Duration, Average Scene Duration, Average Characters, Cache Hits, Cache Misses, Cache Hit %, Retries, Average Latency, Estimated Credits, Estimated Cost, Providers, Models, Voices
+- New settings: `tts_analytics_enabled`, `tts_cost_tracking_enabled`, `tts_log_per_scene`, `tts_summary_enabled`, `tts_verify_cache` (all default true)
+
+**Pipeline Quality Gate:** `PipelineAbort` exception in `ytfactory.shared.pipeline_status`. Critical gates raise `PipelineAbort(stage, reason)` when `STOP_ON_QUALITY_GATE_FAILURE=true` (default). Downstream stages skipped; concise abort summary printed. Wired in `DocumentaryScriptEnhancerPipeline` for:
+- Narrative Score below 8.5 after max iterations → stage `documentary_enhancer_pass2`
+- Final validation failure (scripture missing, coverage too low) → stage `documentary_enhancer_final`
+- Duration out of tolerance after Pass 3 correction → stage `documentary_enhancer_duration`
+- `BuildPipeline.run()` and `run_pipeline()` catch `PipelineAbort` and exit gracefully with skipped stages list.
+
+**Cache fix:** `TTSCache.make_key()` now includes `emotion` and `sample_rate` in key. Cartesia provider logs actual `cache_hit=true/false` instead of `pending`.
+
+**Tests:** +18 new TTS analytics tests in `tests/test_tts_analytics.py`; +3 pipeline quality gate tests in `tests/test_documentary_script_enhancer.py`.
+
+## 2026-07-20 — Visual Intelligence Architecture (Phases 2–6)
+New `src/video_core/visual_intelligence/` package:
+- **Phase 2 — Visual Intelligence Prompt Builder:** `PromptBuilder` consumes `VisualMetadata` and assembles provider-ready prompts via `PromptPackage`. Prompt assembly layers: Scene Description → Visual Profile → Era Rules → Environment → Narrative Role → Mood → Provider formatting. `PromptPackage` fields: final_prompt, negative_prompt, visual_profile, prompt_fingerprint, metadata_snapshot, assembly_report. Visual profiles for each era (ancient, historical, modern, symbolic, transitional) with positive/negative prompt fragments, lighting/architecture/materials/atmosphere/camera/color hints. Era behavior: ANCIENT injects historically authentic constraints and rejects anachronisms; HISTORICAL requires authenticity; MODERN allows technology; SYMBOLIC allows surreal/abstract; TRANSITIONAL allows intentional coexistence.
+- **Phase 3 — Era-Aware Vision QA:** `VisualMetadata` domain model (era, narrative_role, environment, mood, visual_style, allow_modern_objects, reason, identities, is_populated). Era-aware prompt builder injects era-specific anachronism constraints, narrative-role hints, environment/mood validation blocks. Hand-anatomy verification block injected when `is_hand_focal()` returns True. New `VisionIssue` categories: anatomy, face, lighting, environment, artifact, cinematic, anachronism, historical_accuracy, mood, composition, camera, text, style. All vision providers extended with `visual_metadata` and `prompt_package` parameters.
+- **Phase 4 — Intelligent Prompt Remediation Engine:** `RemediationEngine`, `RemediationPackage`, `RemediationStrategyEngine`. `RemediationPackage` fields: original_prompt, remediated_prompt, remediation_reason, issues_fixed, preserved_constraints, added_constraints, removed_constraints, prompt_diff, remediation_strategy, attempt_number, era, confidence, highest_severity. Era-aware remediation library selects constraints based on era and issue category. Confidence-based escalation: LOW→minimal_edit, MEDIUM→strengthen_constraints, HIGH→significant_remediation, CRITICAL→full_regeneration_hint. Wired through `ImageRemediationOrchestrator`.
+- **Phase 5 — Visual Intelligence Analytics:** `AnalyticsCollector`, `DashboardModel`, `BenchmarkResult`, `PromptAnalytics`, `CostSummary`, `QualityMetrics`, `ProviderMetrics`. JSON/Markdown exporter; report generator (daily/weekly/monthly). Tracks credits per scene/video/month, cost per video/minute, characters per minute, average latency, cache hit %, retry %, provider/voice usage.
+- **Phase 6 — Character/Object Consistency Engine:** `VisualIdentity` (identity_id, identity_type, display_name, description, canonical_attributes, reference_image_paths, created_at, updated_at). `IdentityRegistry` — central registry of visual identities loaded from config. `SceneMemory` — tracks identity usage across scenes. `PromptEnricher` — adds identity continuity hints to prompts from SceneMemory. `ContinuityValidator` — validates identity drift (attribute mismatches). Consistency reports in JSON/Markdown.
+
+**Vision provider interface extended:** `review()` now accepts `visual_metadata: VisualMetadata | None` and `prompt_package: PromptPackage | None`. All providers updated (Gemini, local, HF, llama.cpp, mock, throttled).
+
+## 2026-07-18 — ADR-0015 Human Subject Quality Gate + TTS/vision fixes
+**ADR-0015 Human Subject Quality Gate** (`docs/image-prompt-generation/ADR-0015_Human_Subject_Quality_Gate.md`):
+- If human occupies >20% of frame or is primary storytelling subject → mandatory Human QA required
+- Reject if: missing/extra body parts, broken anatomy, impossible pose, deformed face, wrong age/gender/ethnicity/emotion if specified, subject cropped incorrectly
+- Mandatory Hand QA if hands visible: reject for incorrect finger count, fused/missing/duplicate fingers, deformed thumb, distorted palm, unnatural wrist, impossible finger joints
+- Clothing validation: if clothing specified in prompt, it is mandatory
+- Prompt compliance: verify subject, clothing, pose, camera angle, environment, emotion, key props
+- Recommended pipeline: Generate → Overall Quality Review → Human QA → Hand QA → Prompt Compliance Review → Approve
+- New review rules in `review/validation/rules/human.py`: HUM_004 (anatomy specialist), HUM_005 (subject criticality — eyes/face must be visible and sharp for close-up/human-focal scenes)
+
+**TTS chunking fix:** `batch_sentences()` in `src/video_core/providers/tts/infra.py` now uses punctuation-based splitting instead of newline-based — removes mid-phrase pauses in narration.
+
+**llama.cpp SIGSEGV fix:** `set_rows()` guard + SIGABRT handler in `src/video_core/providers/vision/local.py` for Qwen2.5-VL-3B.
+
+## 2026-07-17 — ADR-0014 Pipeline Progress Reporting & Status Tracking
+(`docs/ADR-0014_Pipeline_Progress_Reporting_Status_Tracking.md`)
+- `PipelineStatusWriter` in `ytfactory.shared.pipeline_status` — atomic `pipeline-status.json` writes + terminal progress
+- Stage lifecycle: `stage_start()` / `stage_progress()` / `stage_retry()` / `stage_complete()` / `stage_fail()`
+- Progress types: Determinate (counters), Indeterminate (spinner), Iterative (retry count + score)
+- ContextVar-based writer isolation — safe across threads/tasks
+- `activate_writer()` context manager
+- Used by `BuildPipeline` and all sub-pipelines
+- Pipeline stages tracked: Research → Light Normalization → Documentary Enhancer Pass 1/2 → Scene Planning → Image Generation → Image QA → Image Regeneration → TTS → Subtitle Generation → Subtitle Editing → Background Music → Scene Rendering → Video Merge → CTA Overlay → Final Packaging
+
+## 2026-07-17 — ADR-0013 Subject Criticality & Human Anatomy Specialist Review
+(`docs/image-prompt-generation/ADR-0013_Subject_Criticality_Validation.md`)
+- If primary storytelling subject is human hand/face/eye/body/gesture → must be anatomically realistic
+- Hand validation checklist: exactly five fingers, natural thumb attachment, correct palm proportions, natural wrist transition, correct finger joint placement, no fused/duplicate/stretched fingers, natural resting pose, photorealistic skin texture
+- Review strategy: Generation → Overall Image Review → Subject Specialist Review → Approve only if BOTH pass
+- Any hand/face/anatomy failure → reject image, regenerate automatically, re-run validation
+
+## 2026-07-17 — ADR-0012 Religion-Agnostic Presentation Policy
+(`docs/script/ADR-0012-religion-agnostic-presentation.md`)
+- **What gets dropped:** Tradition/religion names (Vedanta, Advaita Vedanta, Hindu philosophy, Sanatan Dharma), named texts (Bhagavad Gita, Upanishads, Puranas), untranslated Sanskrit terms presented as Sanskrit
+- **What stays:** Philosophy and teaching exactly as is; named ancient teachers/wisdom figures presented as historical wisdom figures; universal framing devices ("the sages," "ancient teachers," "ancient wisdom"); story/analogy material
+- **Source Attribution Ladder:** (1) Named historical teacher when source provides one (e.g. "Adi Shankaracharya taught..."), (2) Generic ancient attribution ("One ancient teaching says..."), (3) No attribution when neither adds value
+- **Script title heading:** H1 heading should NOT be narrated or subtitled — it's a structural label, not spoken content
+- **Publish stage rules:** Title/description/hashtags must not include tradition/text names; Sources section genericized; hashtags replaced with universal equivalents
+- `religion_agnostic.check()` scans final script for policy violations
+- Validation: term-list check for tradition names, named texts, Sanskrit-term detection
+
+## 2026-07-17 — ADR-0011 Two-Pass Cinematic Script Enhancer
+(`docs/script/ADR-0011-documentary-script-enhancer-upgrade.md`)
+- `DocumentaryScriptEnhancerPipeline` renamed from `ScriptEnhancerPipeline` (backward-compatible alias preserved)
+- **Pass 1 (temp=0.4): Faithful Enhancement** — fidelity gate before retention optimization. Goals: preserve philosophy, emotional intent, stories, analogies, historical references, humor, speaker personality; improve clarity and flow. Must NOT optimize for engagement at cost of fidelity.
+- **Pass 2 (temp=0.7): Viewer Retention Optimization** — optimize for long-form YouTube. Goals: stronger hook, better transitions, improved storytelling, increased curiosity, emotional pacing, cinematic narration, memorable reflections.
+- **10 Viewer Retention Rules:** (1) Prefer stories over abstract philosophy, (2) Avoid long uninterrupted philosophical exposition, (3) Preserve cinematic pacing (short sentences, intentional pauses), (4) Delay branding (never interrupt opening hook), (5) Maintain curiosity (raise question, delay answer, reward later), (6) End chapters with momentum (avoid complete conclusions), (7) Create memorable lines, (8) Reduce unnecessary repetition (distinguish rhetorical from spoken-language repetition), (9) Preserve speaker voice, (10) Do not rewrite for the sake of rewriting.
+- **Narrative Score self-assessment:** Hook / Story Density / Curiosity / Emotional Rhythm / Accessibility / Overall — threshold 8.5/10. If Overall < 8.5, continue improving. Self-assessment is internal guide, not downstream gate.
+- **Validation Criteria:** Objective checks (scripture exact-match, no unattributed factual claims, coverage check, Pass 1 gate) are binding. Subjective checks (story density, narrative variety, curiosity, quote density, emotional rhythm, cinematic breathing room, audience accessibility, documentary test) are review guides, not blocking gates.
+- **Fabrication Guardrail:** New illustrative material must be drawn from source, or generic/explicitly hypothetical ("imagine someone who..."), never presented as verified fact.
+- **Scripture Protection:** Hard constraint across both passes — any scripture/Sanskrit/direct quotation span must be reproduced byte-for-byte. If uncertain, default to protected.
+- **Priority Order:** Preserve meaning → philosophy → speaker intent → stories/analogies → viewer retention → storytelling → cinematic narration → English. Fidelity always wins over retention.
+- **Settings:** `target_minutes` (default 7), `DURATION_TOLERANCE_MINUTES=1`, `NARRATION_WPM=130`
+
+## 2026-07-17 — ADR-0010 Light Normalization + Enhancer Rename
+(`docs/script/ADR-0010-light-normalization-stage.md`, `docs/script/ADR-0010-addendum.md`)
+- `LightNormalizationPipeline` — new pre-script stage in `BuildPipeline`. LLM call at temperature=0 with preserve-first prompt.
+- Scripture protection via **pre-extraction**: Devanagari/Kannada/Tamil/etc. Unicode-range spans and `<scripture>...</scripture>` markers replaced with `{{SCRIPTURE_N}}` placeholders BEFORE the LLM sees the text, restored byte-for-byte afterward. Stronger than spec — removes risk class entirely.
+- `NormalizationValidator` — four automated checks: change-ratio bound (15% threshold), scripture placeholder match, paragraph-order invariant, no-new-content (Jaccard token overlap).
+- **Fallback behavior:** On validation failure, falls back to original (unnormalized) transcript and continues pipeline — more conservative than halting. Deviation from ADR spec recorded in addendum.
+- **Open follow-ups (from addendum):** (1) Change-ratio threshold 15% vs ADR's "low single-digit" — confirm if calibrated or placeholder; (2) Span-level ambiguity flagging — status unconfirmed, may be gap; (3) Scripture detection coverage for untagged romanized Sanskrit without diacritics — test against real ASR output; (4) Option 2 (STT input path) correctly deferred.
+- `DocumentaryScriptEnhancerPipeline` — renamed from `ScriptEnhancerPipeline` (backward-compatible alias preserved)
+- Pipeline wiring in both `run()` and `run_incremental()`
+- CLI: `ytfactory normalize <id>` and `--script` import on create
+- 24 new tests
+
 ---
 
 ## Working Rules (user preferences)
@@ -67,9 +163,10 @@ extracted): `ytfactory.config.settings`, `ytfactory.shared.constants`.
 ## Two Execution Paths
 
 ### 1. Agentic pipeline — `ytfactory run <topic>` / `uv run ytfactory` (wizard)
-LangGraph graph in `src/ytfactory/agents/`. Nodes: research → script_writer → script_enhancer → scene_planner → image_generator (parallel) + voice_generator (parallel) → video_renderer → concatenator.  
-State: `VideoState` in `agents/state.py`. Entry: `run_pipeline()` in `agents/runner.py`.  
+LangGraph graph in `src/ytfactory/agents/`. Entry: `run_pipeline()` in `agents/runner.py`.  
 `--resume --project <id>` skips the LangGraph graph entirely → routes to `BuildPipeline.run_incremental()`.
+
+Nodes: START → research_agent / script_enhancer → script_writer → human_review_script → scene_planner → human_review_scenes → generate_scene_assets (per-scene parallel) → video_renderer → video_concatenator → cta → quality_review → remediation → publish → END.
 
 **Interactive wizard:** `uv run ytfactory` (no subcommand) launches `src/ytfactory/cli/wizard.py`. Must be run from repo root or `.env` won't load — Settings defaults fall back to `llm_provider="anthropic"` which fails with an empty key.
 
@@ -98,12 +195,20 @@ ytfactory publish <id>
 src/
 ├── video_core/          # Phase 0 extraction (2026-07-12, commit 06c358b)
 │   ├── providers/       # llm, search, image, tts (excl. pacing/), vision
+│   │   └── tts/
+│   │       └── analytics/  # TTS cost tracking (2026-07-19)
 │   ├── models/          # LAMM: manager, registry, bundle, capabilities
-│   ├── domain/          # LLMResponse, SearchResult, ImageRequest
+│   ├── domain/          # LLMResponse, SearchResult, ImageRequest, VisualMetadata
 │   ├── config/          # SharedSettings (Phase 1, 2026-07-12)
-│   └── cinematic/       # MotionPlanner, TransitionPlanner, profiles, effects,
-│                        # ffmpeg_filters (promoted 2026-07-13; usable by any
-│                        # factory, no shim needed)
+│   ├── cinematic/       # MotionPlanner, TransitionPlanner, profiles, effects,
+│   │                    # ffmpeg_filters (promoted 2026-07-13; usable by any
+│   │                    # factory, no shim needed)
+│   └── visual_intelligence/  # Phases 3-6 (2026-07-20)
+│       ├── analytics/   # AnalyticsCollector, DashboardModel, exporter
+│       ├── consistency/ # VisualIdentity, IdentityRegistry, SceneMemory
+│       ├── profiles/    # VisualProfile registry
+│       ├── prompt_builder.py
+│       └── prompt_package.py
 │
 └── ytfactory/           # unchanged product code — review, publish, bgm,
                          # branding, agents, build, scenes, providers/tts/pacing/,
@@ -115,19 +220,21 @@ src/
 
 ---
 
-## Current Provider Stack (`.env` as of 2026-07-09)
+## Current Provider Stack (`.env` as of 2026-07-21)
 
 | Provider type | Setting | Current value |
 |---|---|---|
-| LLM | `LLM_PROVIDER` | `anthropic` → `OpenAICompatibleProvider` |
+| LLM | `LLM_PROVIDER` | `gemini` → `OpenAICompatibleProvider` |
 | LLM model | `ANTHROPIC_MODEL` | `claude-haiku-4-5` via LiteLLM proxy |
 | Search | `SEARCH_PROVIDER` | `tavily` |
 | Image | `IMAGE_PROVIDER` | `huggingface` (FLUX.1-schnell) |
 | TTS | `TTS_PROVIDER` | `kokoro` (KokoroProvider — local neural TTS) |
-| WhisperX | `WHISPERX_ENABLED` | `true` |
+| TTS (premium) | `CARTESIA_MODEL` | `sonic-3.5` via CartesiaTTSProvider |
+| Vision | `VISION_REVIEW_PROVIDER` | `local` (Qwen2.5-VL-3B via llama.cpp) |
+| WhisperX | `WHISPERX_ENABLED` | `false` |
 | WhisperX device | `WHISPERX_DEVICE` | `cpu` |
 | Resolution | `IMAGE_WIDTH/HEIGHT` | `1280×720` |
-| BGM | `BGM_ENABLED` | `true` |
+| BGM | `BGM_ENABLED` | `false` |
 | Render profile | `RENDER_PROFILE` | set per wizard run |
 
 **Provider factory pattern:** business logic calls `get_llm_provider(settings)` / `get_image_provider(settings)` / `get_tts_provider(settings)` — never imports a concrete provider directly.
@@ -137,8 +244,8 @@ src/
 | LLM | `video_core.providers.llm.base` | Gemini, Anthropic (OpenAI-compat), Groq, Ollama | `LLM_PROVIDER` |
 | Search | `video_core.providers.search.base` | Tavily | `SEARCH_PROVIDER` |
 | Image | `video_core.providers.image.base` | HuggingFace, Gemini | `IMAGE_PROVIDER` |
-| TTS | `video_core.providers.tts.base` (pacing engine stays at `ytfactory.providers.tts.pacing`) | Kokoro, Edge TTS | `TTS_PROVIDER` |
-| Vision | `video_core.providers.vision.base` | Local (Qwen2.5-VL via llama.cpp), Mock | `VISION_REVIEW_PROVIDER` |
+| TTS | `video_core.providers.tts.base` (pacing engine stays at `ytfactory.providers.tts.pacing`) | Kokoro, Edge TTS, Cartesia | `TTS_PROVIDER` |
+| Vision | `video_core.providers.vision.base` | Gemini, Local (Qwen2.5-VL/llama.cpp), HuggingFace, llama.cpp, Mock | `VISION_REVIEW_PROVIDER` |
 
 `get_<type>_provider()` factory functions moved with their base classes — call sites unchanged, only import paths changed.
 
@@ -640,7 +747,7 @@ src/video_core/providers/vision/
 ├── base.py          # VisionProvider ABC + VISION_REVIEW_PROMPT (6-category checklist)
 ├── models.py        # VisionReviewResult, VisionIssue, IssueSeverity
 ├── mock.py          # MockVisionProvider — default PASS, configurable fail_scenes
-├── local.py         # LocalVisionProvider — lazy-loads via LAMM; MiniCPM-V 2.6 .chat() API
+├── local.py         # LocalVisionProvider — lazy-loads via LAMM; Qwen2.5-VL-3B .chat() API
 └── factory.py       # get_vision_provider("mock" | "local", local_model=...) → VisionProvider
 ```
 
@@ -697,6 +804,83 @@ IMAGE_REVIEW_DEBUG=false
 
 ---
 
+### 15. VISUAL_INTELLIGENCE_LAYER_V1
+**Spec:** `docs/video/PHASE_3_ERA_AWARE_VISION_QA.md`, `docs/video/PHASE_4_INTELLIGENT_PROMPT_REMEDIATION_ENGINE.md`, `docs/video/PHASE_5_VISUAL_INTELLIGENCE_ANALYTICS.md`, `docs/video/PHASE_6_CHARACTER_OBJECT_CONSISTENCY_ENGINE.md`  
+**New files:** `src/video_core/visual_intelligence/` package (analytics, consistency, profiles, prompt_builder.py, prompt_package.py, models.py)  
+**Modified:** `src/video_core/providers/vision/base.py`, all vision providers, `src/ytfactory/images/review_engine.py`, `src/ytfactory/workflow/image_remediation_orchestrator.py`, `src/ytfactory/agents/nodes/scene_assets.py`
+
+#### VisualMetadata domain model
+`VisualMetadata` (Pydantic): era (ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL), narrative_role (STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA), environment, mood, visual_style, allow_modern_objects, reason, identities, is_populated.
+
+#### Era-aware vision QA
+`build_era_aware_prompt()` in `vision/base.py` injects era-specific anachronism constraints, narrative-role hints, environment/mood validation blocks into the review prompt. Hand-anatomy block injected when `is_hand_focal()` returns True.
+
+#### PromptPackage
+Structured output from Prompt Builder: final_prompt, negative_prompt, visual_profile, prompt_fingerprint, metadata_snapshot, assembly_report. Stored in scene dict as `_prompt_package` for downstream consumption.
+
+#### RemediationEngine
+`RemediationPackage` with original_prompt, remediated_prompt, issues_fixed, preserved/added/removed_constraints, prompt_diff, remediation_strategy, attempt_number, era, confidence, highest_severity. Era-aware remediation library selects constraints based on era and issue category.
+
+#### Analytics
+`AnalyticsCollector` accumulates `AnalyticsRecord` per scene; builds `DashboardModel` with provider comparison, quality trends, era trends, top failure categories, cost summary. JSON/Markdown export.
+
+#### Consistency Engine
+`VisualIdentity` (character/object/animal/building/environment/symbol), `IdentityRegistry`, `SceneMemory`, `PromptEnricher`, `ContinuityValidator`. Consistency reports in JSON/Markdown.
+
+---
+
+### 16. TTS_ANALYTICS_AND_COST_TRACKING_V1
+**Spec:** `docs/tts/TTS_ANALYTICS_AND_COST_TRACKING_V1.md`  
+**New files:** `src/video_core/providers/tts/analytics/` (models.py, collector.py, pricing.py, text_counter.py, __init__.py), `tests/test_tts_analytics.py`  
+**Modified:** `src/video_core/providers/tts/cartesia.py`, `src/video_core/providers/tts/factory.py`, `src/video_core/providers/tts/infra.py`, `src/ytfactory/voice/pipeline.py`, `src/video_core/config/shared_settings.py`
+
+#### TTSAnalyticsRecord
+Per-request telemetry: scene_id, provider, model, voice, text, characters, words, sentences, cache_hit, retry_count, latency_ms, request_timestamp, output_bytes, audio_duration, estimated_credits, estimated_cost, provider_response_metadata.
+
+#### ProviderPricingConfig
+Configurable pricing abstraction — never hardcode provider pricing. `TTSProviderPricing(provider_name, credits_per_character, credits_per_request, usd_per_credit)`. Cartesia pricing loaded from `SharedSettings` fields or `TTS_PRICING_*` env vars.
+
+#### TTSAnalyticsCollector
+Accumulates `TTSAnalyticsRecord`s; computes `TTSProviderMetrics` (cache_hit_rate, avg_latency_ms, retry_rate) and `TTSVideoSummary` (per-video totals, provider/model/voice usage, scene summaries). Methods: `duplicate_detection()`, `cost_optimization_report()`.
+
+#### Cartesia integration
+`CartesiaTTSProvider` accepts optional `analytics: TTSAnalyticsCollector`; records analytics after synthesis. `TTSCache.make_key()` includes emotion and sample_rate. Logs actual `cache_hit=true/false`.
+
+#### VoicePipeline integration
+Per-scene TTS log after synthesis; per-video TTS SUMMARY block after pipeline completes. New settings: `tts_analytics_enabled`, `tts_cost_tracking_enabled`, `tts_log_per_scene`, `tts_summary_enabled`, `tts_verify_cache` (all default true).
+
+#### Tests
++18 new tests in `tests/test_tts_analytics.py`: text counting, pricing estimation, collector metrics, video summary, cache hit rate, cost optimization report, duplicate detection, cache verification.
+
+---
+
+### 17. PIPELINE_QUALITY_GATE_V1
+**Spec:** `docs/pipeline/PIPELINE_QUALITY_GATE_V1.md`  
+**New files:** none (exception added to existing `ytfactory.shared.pipeline_status`)  
+**Modified:** `src/ytfactory/shared/pipeline_status.py`, `src/ytfactory/script_enhancer/pipeline.py`, `src/ytfactory/build/pipeline.py`, `src/ytfactory/agents/runner.py`, `src/video_core/config/shared_settings.py`, `tests/test_documentary_script_enhancer.py`
+
+#### PipelineAbort exception
+`PipelineAbort(stage, reason)` in `ytfactory.shared.pipeline_status`. Carries failing stage name and human-readable reason. Caught by `BuildPipeline.run()` and `run_pipeline()` to produce concise abort summary.
+
+#### Critical quality gates
+- Documentary Enhancer: Narrative Score below threshold after max iterations
+- Documentary Enhancer: Final validation failure (scripture missing, coverage too low)
+- Documentary Enhancer: Duration out of tolerance after Pass 3 correction
+- Scene planning failure
+- Image generation exhausted retries
+- Vision QA exhausted retries
+- TTS generation failure
+- Rendering failure
+- Quality review FAIL after remediation
+
+#### Abort behavior
+When `STOP_ON_QUALITY_GATE_FAILURE=true` (default): raise `PipelineAbort`, skip all downstream stages, mark current stage failed in pipeline-status.json, print concise summary with skipped stages. When `false`: preserve old behavior (continue despite failures).
+
+#### Tests
++3 new tests in `test_documentary_script_enhancer.py`: abort on low narrative score (enabled), no abort when disabled, abort on final validation failure.
+
+---
+
 ## Image Prompt Engine Layers (order of application)
 
 1. Shot planning — `images/shot_planner.py`
@@ -724,7 +908,7 @@ IMAGE_REVIEW_DEBUG=false
 - Running `uv run ytfactory` from a wrong directory silently skips `.env` → Settings defaults (`llm_provider="anthropic"`) → crash with empty key. Always run from repo root.
 - `get_brand_config()` is a singleton — call `reset_brand_config_cache()` in any test that swaps the brand config file.
 - **Domain model split (Phase 0):** Generic provider I/O shapes (`LLMResponse`, `SearchResult`, `ImageRequest`) live in `src/video_core/domain/`. Factory-specific models (`Project` + stage-status dict, audio/scene/video models) stay in `src/ytfactory/domain/`. `ProjectRepository` (`storage/project_repository.py`) is unchanged — still factory-owned.
-- **Settings split (Phase 1):** `ytfactory.config.Settings` now inherits `video_core.config.SharedSettings`. Shared fields (API keys, provider selectors, model names, kokoro/a1111 provider config, `tts_auto_retry/max_retries`) live in `SharedSettings`; pipeline/quality/content fields stay in `Settings`. All existing `settings.<field>` call sites are unchanged. Both classes load from the same `.env` file — no `.env` change needed. One remaining Bucket-C layering exception: `ytfactory.shared.constants` (WORKSPACE_DIR, tracked for Phase 2).
+- **Settings split (Phase 1):** `ytfactory.config.Settings` now inherits `video_core.config.SharedSettings`. Shared fields (API keys, provider selectors, model names, kokoro/a1111 provider config, `tts_auto_retry/max_retries`, `tts_analytics_*`, `stop_on_quality_gate_failure`) live in `SharedSettings`; pipeline/quality/content fields stay in `Settings`. All existing `settings.<field>` call sites are unchanged. Both classes load from the same `.env` file — no `.env` change needed. One remaining Bucket-C layering exception: `ytfactory.shared.constants` (WORKSPACE_DIR, tracked for Phase 2).
 - **No feature pipeline may download/manage models directly** — all model lifecycle routes through `LocalAIModelManager` (LAMM).
 - `force=True` on a lazy model (no `hf_repo`) routes to `_verify_from_cache()`, NOT `_download_and_verify()` — prevents `snapshot_download("")` ValueError.
 - **Capability contract:** call `manager.validate_capabilities(model_name, required)` before loading. Returns `[]` on success; non-empty means `MISSING_CAPABILITY(cap)` — treat as pre-condition failure.
@@ -732,6 +916,10 @@ IMAGE_REVIEW_DEBUG=false
 - **Dockerfile uses `COPY config/ config/`** — `models-registry.yaml` and `brand_config.yaml` are baked in at `/app/config/`. Never use `COPY brand_config.yaml*` from root (that file doesn't exist; `config/` is the canonical location).
 - **`model_bootstrap.py` uses `_get_vision_model_name()`** to look up the configured vision model key from Settings — not hardcoded `"minicpm_v2_6"`.
 - **ValidationRunner runs 12 validators** (Sections: script, narration, subtitle, image, human, motion, audio, rendering, story, bgm, vision_review, cta).
+- **`STOP_ON_QUALITY_GATE_FAILURE=true`** (default): critical quality gate failures raise `PipelineAbort`, skip downstream stages, and exit gracefully. Set to `false` to preserve old behavior (continue despite failures).
+- **TTS cache key includes `emotion` and `sample_rate`** — identical text with different emotion/sample_rate produces different cache keys.
+- **`PipelineAbort` exception** carries `stage` and `reason` fields; caught by `BuildPipeline` and `run_pipeline()` to produce concise abort summary.
+- **TTS analytics disabled by default in tests** — `tts_analytics_enabled=False` in test settings to avoid side effects.
 
 ---
 
@@ -741,16 +929,18 @@ IMAGE_REVIEW_DEBUG=false
 workspace/jobs/<project-id>/
 ├── project.json
 ├── research/         research.md, research.json, sources.json
-├── script/           script.md
+├── script/           script.md, script_original.md, script_pass1.md, script.json, enhancement-report.json
 ├── scenes/           scene-plan.json, scene-status.json
 ├── images/           scene-001.png … manifest.json, image-quality-summary.json, image-review-NNN.json, image-remediation-NNN.json
 ├── audio/            scene-001.mp3, .timing.json, .alignment.json
 ├── subtitles/        scene-001.srt, .ass
-├── video/            scene-001.mp4 … final.mp4
+├── video/            scene-001.mp4 … final.mp4, final.work.mp4
 ├── review/           17+ review output files
 ├── remediation/      4 files
 ├── publish/          10 files (includes pinned-comment.txt)
-└── bgm-debug/        5 files (written when BGM_VAD_ENABLED=true): speech_timeline.json, ducking_events.json, mix_profile.json, ffmpeg_filter.txt, audio_levels.csv
+├── bgm-debug/        5 files (written when BGM_VAD_ENABLED=true): speech_timeline.json, ducking_events.json, mix_profile.json, ffmpeg_filter.txt, audio_levels.csv
+├── tts-debug/        per-scene TTS diagnostics (when TTS_DEBUG=true)
+└── cache/tts/        Cartesia audio cache (content-addressed SHA256)
 ```
 
 ---

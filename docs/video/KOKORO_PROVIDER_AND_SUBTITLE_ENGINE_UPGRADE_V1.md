@@ -2,7 +2,7 @@
 
 > Implementation Specification for Claude Code
 >
-> **Prerequisite:** Read `MASTER_CONTEXT_V4.md` completely before making
+> **Prerequisite:** Read `MASTER_CONTEXT.md` completely before making
 > any code changes.
 >
 > **Purpose:** Extend the existing architecture. Do **not** redesign it.

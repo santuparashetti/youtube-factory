@@ -2,7 +2,7 @@
 
 > **Implementation Specification for Claude Code**
 
-Read `MASTER_CONTEXT_V4.md` before implementation.
+Read `MASTER_CONTEXT.md` before implementation.
 
 ## Mission
 
