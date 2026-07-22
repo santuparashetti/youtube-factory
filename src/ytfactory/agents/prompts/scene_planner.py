@@ -386,7 +386,7 @@ WRITING RULES
 — The {style_label} feeling should come through the imagery — not by stating it as a keyword.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
-[{{"index": N, "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true|false, "reason": "..."}}}}]
+[{{"index": N, "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
 
 ═════════════════════════════════════════════════
 VISUAL METADATA — classify every scene
@@ -423,7 +423,7 @@ For EACH scene, include a visual_metadata object with these exact fields:
                  PAINTING | ANIME | WATERCOLOR
     Independent of era. DOCUMENTARY is the default for this channel.
 
-  allow_modern_objects: true | false
+  allow_modern_objects: boolean (true or false)
     ANCIENT or HISTORICAL era → false
     MODERN era → true
     SYMBOLIC → planner decides

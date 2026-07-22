@@ -19,10 +19,10 @@ class SharedSettings(BaseSettings):
     tavily_api_key: str = Field(default="")
     hf_token: str = Field(default="")
     hf_vision_provider: str = "hf-inference"
-    hf_vision_model: str = "Qwen/Qwen2.5-VL-7B-Instruct"
+    hf_vision_model: str = ""
     groq_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
-    anthropic_base_url: str = Field(default="https://litellm.smarthubai.net")
+    anthropic_base_url: str = Field(default="")
     kokoro_api_key: str = Field(default="")
 
     # ------------------------------------------------------------------
