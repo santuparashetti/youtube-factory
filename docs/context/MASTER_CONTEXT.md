@@ -964,6 +964,16 @@ patch("ytfactory.config.settings.Settings", ...)   # correct
 # NOT "ytfactory.review.remediation.executor.Settings"  ← wrong
 ```
 
+## 2026-07-22 — Fixes: single brand card, closing dedup, POLLINATIONS, Scene import, cartesia align
+- `scene_planner.py`: `_mark_asset_scenes` now scans backward from the end and marks only the LAST closing scene as an asset scene — prevents missing the brand card when closing text spans >3 scenes and prevents duplicate brand cards.
+- `scene_planner.py`: Before splitting, consecutive duplicate lines (caused by Pass 2 of the script enhancer re-appending closing/CTA phrases) are deduped.
+- `docs/fix_vision_concurrency_tests.md`: Vision concurrency test fixes.
+- `pollinations.py`, `huggingface.py`: Pillow resampling compatibility change (`Image.Resampling.LANCZOS` → `Image.LANCZOS`).
+- `huggingface_vision_provider.py`: Vision cache key now incorporates prompt_text to avoid stale revocation.
+- `build/pipeline.py`: Scene import path fixed from `ytfactory.retention.models` to `ytfactory.scenes.models`.
+- `SharedSettings`: Cartesia settings aligned to `.env` (`speed=0.88`, `timeout=90`, `sample_rate=48000`, `emotion=contemplative`, `max_chars=2500`).
+- `brand_config.yaml`: Opening disabled.
+
 For VoicePipeline tests requiring CWD to resolve `workspace/`:
 ```python
 import os
