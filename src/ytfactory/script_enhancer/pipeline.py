@@ -318,11 +318,6 @@ _FRAME_LABEL_PATTERNS = re.compile(
     r"welcome to|truth number|lesson number)\b",
     re.IGNORECASE,
 )
-_REHOOK_PATTERNS = re.compile(
-    r"\b(but here.s the thing|and yet|so why|what happens next|"
-    r"here.s where it|but wait|yet here|still|and yet)\b",
-    re.IGNORECASE,
-)
 _BRIDGE_PATTERNS = re.compile(
     r"\b(this is the key|what this means|the deeper lesson|"
     r"reflection|pause and consider|think about this)\b",
@@ -334,6 +329,45 @@ _RESOLVES_STORY_PATTERNS = re.compile(
     r"what he learned|what she realized)\b",
     re.IGNORECASE,
 )
+_REHOOK_RICH_RE = re.compile(
+    r"\b(and\s+yet|but\s+here'?s?\s+the\s+thing|but\s+wait|"
+    r"what\s+happens\s+next|here\s+is\s+where\s+it|"
+    r"but\s+here\s+is\s+the\s+thing)\b",
+    re.IGNORECASE,
+)
+_VIEWER_ADDRESS_RE = re.compile(
+    r"(?:^|[.!?]\s+)(?:\s*(?:but|and|yet|or|still)\s+)?\s*(you|your|we|us)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_rehook(text: str, index: int, total: int) -> bool:
+    """Structural rehook detection for documentary scripts.
+
+    A re-engagement beat typically lands in the opening 60% of a
+    documentary script, is short (<= 60 words), and contains either:
+    1. A viewer-address word (you/your/we/us) near a sentence boundary, OR
+    2. An early strong pivot phrase (and yet, but here's the thing, etc.)
+       within the first 50 characters of the paragraph.
+
+    Segment 0 is always the opening hook and is excluded.
+    """
+    if index == 0:
+        return False
+    if index >= total * 0.6:
+        return False
+    if len(text.split()) > 60:
+        return False
+
+    low = text.lower().strip()
+
+    # Signal 1: viewer address near a sentence boundary
+    has_viewer = bool(_VIEWER_ADDRESS_RE.search(low))
+
+    # Signal 2: early strong pivot phrase in the first ~50 characters
+    early_pivot = bool(_REHOOK_RICH_RE.search(low[:50]))
+
+    return has_viewer or early_pivot
 
 
 def _classify_intensity(text: str) -> str:
@@ -371,7 +405,7 @@ def _write_script_segments(script_text: str, script_dir: Path) -> None:
                 "start_time": None,
                 "end_time": None,
                 "is_hook": i == 0 and len(text.split()) < 60,
-                "is_rehook": bool(_REHOOK_PATTERNS.search(text)),
+                "is_rehook": _is_rehook(text, i, len(paragraphs)),
                 "is_frame_label": bool(_FRAME_LABEL_PATTERNS.search(text)),
                 "is_bridge": bool(_BRIDGE_PATTERNS.search(text)),
                 "resolves_story": bool(_RESOLVES_STORY_PATTERNS.search(text)),

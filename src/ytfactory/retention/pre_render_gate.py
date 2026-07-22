@@ -88,14 +88,60 @@ def _normalize_script_text(text: str) -> str:
     return "\n".join(lines)
 
 
+# ── Rehook structural detection ───────────────────────────────────────────────
+
+_REHOOK_RICH_RE = re.compile(
+    r"\b(and\s+yet|but\s+here'?s?\s+the\s+thing|but\s+wait|"
+    r"what\s+happens\s+next|here\s+is\s+where\s+it|"
+    r"but\s+here\s+is\s+the\s+thing)\b",
+    re.IGNORECASE,
+)
+_VIEWER_ADDRESS_RE = re.compile(
+    r"(?:^|[.!?]\s+)(?:\s*(?:but|and|yet|or|still)\s+)?\s*(you|your|we|us)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_rehook(text: str, index: int, total: int) -> bool:
+    """Structural rehook detection for documentary scripts.
+
+    A re-engagement beat typically lands in the opening 60% of a
+    documentary script, is short (<= 60 words), and contains either:
+    1. A viewer-address word (you/your/we/us) near a sentence boundary, OR
+    2. An early strong pivot phrase (and yet, but here's the thing, etc.)
+       within the first 50 characters of the paragraph.
+
+    Segment 0 is always the opening hook and is excluded.
+    """
+    if index == 0:
+        return False
+    if index >= total * 0.6:
+        return False
+    if len(text.split()) > 60:
+        return False
+
+    low = text.lower().strip()
+
+    # Signal 1: viewer address near a sentence boundary
+    has_viewer = bool(_VIEWER_ADDRESS_RE.search(low))
+
+    # Signal 2: early strong pivot phrase in the first ~50 characters
+    early_pivot = bool(_REHOOK_RICH_RE.search(low[:50]))
+
+    return has_viewer or early_pivot
+
+
 # ── Script parsing ────────────────────────────────────────────────────────────
 
 
 def parse_script_to_segments(script_md: str) -> list[ScriptSegment]:
     """
     Heuristic splitter: paragraphs → ScriptSegments with lightweight
-    classification (no LLM call). Keyword-based detection for frame labels,
+    classification (no LLM call). Structural detection for frame labels,
     hooks, rehooks, bridges, and story-resolution markers.
+
+    rehook detection is position/lead-word based (not a phrase keyword
+    list) so it generalises across enhancer rewordings at temp=0.7.
 
     Input text is normalized before matching so that natural-language
     variants (curly quotes, em-dashes, contraction spacing) do not cause
@@ -116,11 +162,6 @@ def parse_script_to_segments(script_md: str) -> list[ScriptSegment]:
         r"let me tell you|here\s+(is\s+)?the\s+thing|the truth is)\b",
         re.IGNORECASE,
     )
-    rehook_patterns = re.compile(
-        r"\b(but here\s+(is\s+)?the\s+thing|and yet|so why|"
-        r"what happens next|here\s+(is\s+)?where\s+it|but wait)\b",
-        re.IGNORECASE,
-    )
     bridge_patterns = re.compile(
         r"\b(this is the key|what this means|the deeper lesson|"
         r"reflection|pause and consider|think about this)\b",
@@ -137,13 +178,13 @@ def parse_script_to_segments(script_md: str) -> list[ScriptSegment]:
         re.IGNORECASE,
     )
 
-    for para in paragraphs:
+    for i, para in enumerate(paragraphs):
         text = para.strip()
         if not text:
             continue
         is_frame = bool(frame_label_patterns.search(text))
         is_hook = bool(hook_patterns.search(text))
-        is_rehook = bool(rehook_patterns.search(text))
+        is_rehook = _is_rehook(text, i, len(paragraphs))
         is_bridge = bool(bridge_patterns.search(text))
         resolves = bool(resolves_story_patterns.search(text))
         intensity = EmotionalIntensity.PEAK if peak_patterns.search(text) else EmotionalIntensity.NORMAL
@@ -271,7 +312,8 @@ def check_composition_variety(scenes: list[Scene]) -> list[str]:
 
 
 def check_scene_durations(scenes: list[Scene]) -> list[str]:
-    """Flag scenes outside 2–5s unless hold_required=True."""
+    """Flag scenes below 2s unless hold_required=True. Upper-bound is enforced
+    post-render by MOT_001 (configurable per validation profile)."""
     violations: list[str] = []
     for scene in scenes:
         if scene.hold_required:
@@ -280,10 +322,6 @@ def check_scene_durations(scenes: list[Scene]) -> list[str]:
         if dur < 2.0:
             violations.append(
                 f"Scene {scene.index}: duration {dur}s below 2s minimum."
-            )
-        elif dur > 5.0:
-            violations.append(
-                f"Scene {scene.index}: duration {dur}s exceeds 5s maximum."
             )
     return violations
 
