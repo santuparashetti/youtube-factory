@@ -101,14 +101,14 @@ class SharedSettings(BaseSettings):
     cartesia_api_key: str = Field(default="")
     cartesia_model: str = "sonic-3.5"
     cartesia_voice_id: str = ""
-    cartesia_speed: float = 0.84
+    cartesia_speed: float = 0.88
     cartesia_output_format: str = "wav"
-    cartesia_timeout: int = 60
+    cartesia_timeout: int = 90
     cartesia_max_chars: int = 2000
     cartesia_cache_enabled: bool = True
     cartesia_pronunciation_dict_id: str = Field(default="")
-    cartesia_sample_rate: int = 44100
-    cartesia_emotion: str = "calm"
+    cartesia_sample_rate: int = 48000
+    cartesia_emotion: str = "contemplative"
 
     # ------------------------------------------------------------------
     # TTS Retry Control

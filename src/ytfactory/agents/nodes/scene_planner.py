@@ -204,13 +204,15 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
     asset_path = brand_cfg.branding.asset_path
     animation = brand_cfg.branding.asset_animation
 
-    tail = min(3, len(scenes))
-    for scene in scenes[-tail:]:
-        if _is_closing_scene(scene.get("narration", "")):
-            scene["scene_type"] = "asset"
-            scene["asset_path"] = asset_path
-            scene["animation"] = animation
-            scene["visual_prompt"] = ""
+    for i in range(len(scenes) - 1, -1, -1):
+        if scenes[i].get("scene_type") == "asset":
+            break
+        if _is_closing_scene(scenes[i].get("narration", "")):
+            scenes[i]["scene_type"] = "asset"
+            scenes[i]["asset_path"] = asset_path
+            scenes[i]["animation"] = animation
+            scenes[i]["visual_prompt"] = ""
+            break
     return scenes
 
 
@@ -514,6 +516,16 @@ def scene_planner_node(state: VideoState) -> dict:
 
     # Strip leading H1 heading — it is a structural label, not spoken narration.
     script_md, _ = strip_script_heading(script_md)
+
+    # Remove duplicate consecutive brand-signature lines that can accumulate
+    # when Pass 2 of the script enhancer re-appends closing/CTA phrases.
+    lines = script_md.splitlines()
+    if lines:
+        deduped = [lines[0]]
+        for line in lines[1:]:
+            if line.strip() != deduped[-1].strip():
+                deduped.append(line)
+        script_md = "\n".join(deduped)
 
     # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
     # The LLM was reliably failing to return 25+ scenes in one JSON response —

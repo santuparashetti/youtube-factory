@@ -1,7 +1,7 @@
 channel_name: "Atma Theory"
 
 opening:
-  enabled: true
+  enabled: false
   template: |
     Welcome to Atma Theory...
     where ancient wisdom meets modern life.

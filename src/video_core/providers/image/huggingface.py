@@ -138,5 +138,5 @@ class HuggingFaceImageProvider(ImageProvider):
                 width,
                 height,
             ),
-            Image.Resampling.LANCZOS,
+            Image.LANCZOS,
         )

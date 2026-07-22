@@ -120,9 +120,11 @@ class HuggingFaceVisionProvider(VisionProvider):
 
         return buffer.getvalue(), mime_type
 
-    def _get_cache_key(self, image_bytes: bytes) -> str:
+    def _get_cache_key(self, image_bytes: bytes, prompt_text: str) -> str:
         return hashlib.sha256(
-            image_bytes + self._settings.hf_vision_model.encode()
+            image_bytes
+            + self._settings.hf_vision_model.encode()
+            + prompt_text.encode()
         ).hexdigest()
 
     @retry(
@@ -221,7 +223,8 @@ class HuggingFaceVisionProvider(VisionProvider):
             return VisionReviewResult.error_result(f"Image optimization failed: {exc}")
 
         image_size_kb = len(image_bytes) / 1024
-        cache_key = self._get_cache_key(image_bytes)
+        prompt_text = self._build_prompt(visual_prompt, visual_metadata, prompt_package)
+        cache_key = self._get_cache_key(image_bytes, prompt_text)
         if cache_key in self._cache:
             self._metrics["cache_hits"] += 1
             logger.info(
@@ -231,8 +234,6 @@ class HuggingFaceVisionProvider(VisionProvider):
                 image_size_kb,
             )
             return self._cache[cache_key]
-
-        prompt_text = self._build_prompt(visual_prompt, visual_metadata, prompt_package)
         b64 = base64.b64encode(image_bytes).decode()
         data_uri = f"data:{mime_type};base64,{b64}"
 

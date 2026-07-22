@@ -126,4 +126,4 @@ class PollinationsImageProvider(ImageProvider):
             top = (image.height - new_height) // 2
             image = image.crop((0, top, image.width, top + new_height))
 
-        return image.resize((width, height), Image.Resampling.LANCZOS)
+        return image.resize((width, height), Image.LANCZOS)

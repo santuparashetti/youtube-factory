@@ -166,7 +166,7 @@ class BuildPipeline:
         segments = parse_script_to_segments(script_md)
         scenes = link_scenes_to_segments(scenes, segments)
 
-        from ytfactory.retention.models import Scene
+        from ytfactory.scenes.models import Scene
 
         scene_objs = [
             Scene(
