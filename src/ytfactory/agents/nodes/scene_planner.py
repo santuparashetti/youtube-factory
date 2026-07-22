@@ -32,7 +32,7 @@ _CLOSING_TRIGGERS: frozenset[str] = frozenset(
 
 console = Console()
 
-_TARGET_WORDS_PER_SCENE = 28  # ~14s at 120 wpm spiritual pace
+_TARGET_WORDS_PER_SCENE = 35  # ~16s scenes at 130 wpm → ~30-35 scenes per 9 min video
 
 
 def _attach_emotional_metadata(project_id: str, scenes: list[dict]) -> None:
