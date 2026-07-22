@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from ytfactory.scenes.models import ScenePlan
+from ytfactory.shared.constants import WORKSPACE_DIR
 
 
 class SceneRepository:
@@ -25,6 +26,57 @@ class SceneRepository:
             markdown,
             encoding="utf-8",
         )
+
+    def save_scenes(
+        self,
+        project_dir: Path,
+        scenes: list[dict],
+        extra: dict | None = None,
+    ) -> None:
+        """Persist an enriched scene list to scene-plan.json.
+
+        Preserves the existing on-disk JSON format/schema. Merges ``scenes``
+        into the existing document under the ``scenes`` key and updates
+        ``total_duration_seconds`` when not supplied in ``extra``.
+        """
+        import json
+
+        scenes_dir = project_dir / "scenes"
+        scenes_dir.mkdir(parents=True, exist_ok=True)
+
+        path = scenes_dir / "scene-plan.json"
+        existing: dict = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
+        existing["scenes"] = scenes
+        if extra:
+            existing.update(extra)
+        if "total_duration_seconds" not in existing:
+            existing["total_duration_seconds"] = sum(
+                s.get("duration_seconds", 0) for s in scenes
+            )
+
+        path.write_text(
+            json.dumps(existing, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    def load_scenes(self, project_dir: Path) -> list[dict]:
+        """Load the scene list from scene-plan.json."""
+        import json
+
+        path = project_dir / "scenes" / "scene-plan.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get("scenes", [])
+        except (json.JSONDecodeError, OSError):
+            return []
 
     def _to_markdown(self, scene_plan: ScenePlan) -> str:
         lines: list[str] = []

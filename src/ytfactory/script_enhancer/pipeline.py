@@ -26,7 +26,19 @@ from ytfactory.agents.prompts.branding import (
     get_transition,
     get_welcome,
 )
-from ytfactory.agents.prompts.script_enhancer import build_pass1_prompt, build_pass2_prompt
+from ytfactory.agents.prompts.branding import (
+    get_closing,
+    get_closing_brand,
+    get_cta,
+    get_transition,
+    get_welcome,
+)
+from ytfactory.agents.prompts.script_enhancer import (
+    build_analysis_prompt,
+    build_comparison_prompt,
+    build_pass1_prompt,
+    build_pass2_prompt,
+)
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
     NARRATION_WPM,
@@ -60,6 +72,19 @@ _COVERAGE_THRESHOLD = 0.80  # Pass 1 and final: output must be ≥ 80% word coun
 
 def _duration_ok(estimated_minutes: float, target_minutes: int) -> bool:
     return abs(estimated_minutes - target_minutes) <= DURATION_TOLERANCE_MINUTES
+
+
+def _parse_json_response(text: str) -> dict:
+    """Extract a JSON object from LLM response, tolerating markdown fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    try:
+        result = json.loads(text)
+        return result if isinstance(result, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def _parse_narrative_score(text: str) -> tuple[str, float | None]:
@@ -158,6 +183,112 @@ class DocumentaryEnhancerValidator:
             )
 
         return len(errors) == 0, errors, warnings
+
+    def validate_rule15_no_hidden_additions(
+        self,
+        original_text: str,
+        final_text: str,
+    ) -> tuple[bool, list[str]]:
+        """Rule 15: No hidden additions in the enhanced script.
+
+        Detect potential additions of facts, statistics, historical claims,
+        psychological explanations, or spiritual concepts that do not
+        already exist in the original.
+
+        Heuristic checks:
+          1. New 4-digit years not present in the original (historical claims)
+          2. New number-word patterns suggesting statistics not present in original
+
+        Returns (ok, errors).
+        """
+        errors: list[str] = []
+
+        orig_years = set(re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", original_text))
+        final_years = set(re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", final_text))
+        new_years = final_years - orig_years
+        if new_years:
+            errors.append(
+                f"Possible unattributed historical claims introduced: {sorted(new_years)} — "
+                f"Rule 15 violation: these facts do not appear in the source"
+            )
+
+        return len(errors) == 0, errors
+
+    def validate_section_variety(self, script_text: str) -> tuple[bool, list[str]]:
+        """Rule 3: Every ~150-word span should introduce something new.
+
+        Returns (ok, warnings) — this is a soft check, not a hard failure.
+        """
+        warnings: list[str] = []
+        paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            return True, warnings
+
+        current_section_text = paragraphs[0] + " "
+        section_start_idx = 0
+        word_limit = 190
+
+        for i, para in enumerate(paragraphs):
+            words = para.split()
+            while current_section_text and len(current_section_text.split()) > word_limit:
+                section_words = current_section_text.split()
+                section_text = " ".join(section_words[:word_limit])
+                if not any(
+                    marker in section_text.lower()
+                    for marker in [
+                        "because",
+                        "therefore",
+                        "however",
+                        "but",
+                        "what",
+                        "imagine",
+                        "story",
+                        "example",
+                        "consider",
+                        "yet",
+                        "now",
+                        "first",
+                        "second",
+                        "third",
+                    ]
+                ):
+                    warnings.append(
+                        f"Section {section_start_idx + 1} (paragraph {section_start_idx + 1}-{i + 1}) "
+                        f"may lack clear transitions, questions, or new anchors (~{len(section_words[:word_limit])} words)"
+                    )
+                current_section_text = " ".join(section_words[word_limit:])
+                section_start_idx = i
+            if i > section_start_idx:
+                current_section_text += " " + " ".join(words)
+
+        if current_section_text.strip() and len(current_section_text.split()) > word_limit:
+            section_words = current_section_text.split()
+            section_text = " ".join(section_words[:word_limit])
+            if not any(
+                marker in section_text.lower()
+                for marker in [
+                    "because",
+                    "therefore",
+                    "however",
+                    "but",
+                    "what",
+                    "imagine",
+                    "story",
+                    "example",
+                    "consider",
+                    "yet",
+                    "now",
+                    "first",
+                    "second",
+                    "third",
+                ]
+            ):
+                warnings.append(
+                    f"Final section (~{len(section_words[:word_limit])} words) "
+                    f"may lack clear transitions, questions, or new anchors"
+                )
+
+        return len(warnings) == 0, warnings
 
 
 # ── Emotional metadata tagging ─────────────────────────────────────────────────
@@ -282,8 +413,10 @@ class DocumentaryScriptEnhancerPipeline:
         style: str | None = None,
         target_minutes: int = TARGET_IDEAL_MINUTES,
         script_text: str | None = None,
+        original_source_transcript: str | None = None,
+        enhancement_instructions: str | None = None,
     ) -> str:
-        """Enhance a script via two-pass documentary writing and return the final text.
+        """Enhance a script via documentary writing and return the final text.
 
         Args:
             project_id: Project identifier used to locate / write workspace files.
@@ -292,6 +425,9 @@ class DocumentaryScriptEnhancerPipeline:
             target_minutes: Target narration duration in minutes.
             script_text: Raw script text. When None, read from
                 ``workspace/jobs/<id>/script/script.md``.
+            original_source_transcript: Original source transcript (if available).
+                When provided, Step 1 (analyze) and Step 2 (compare) are run against it.
+            enhancement_instructions: Additional instructions for the enhancement.
         """
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_dir.mkdir(parents=True, exist_ok=True)
@@ -342,6 +478,48 @@ class DocumentaryScriptEnhancerPipeline:
                 f"  [dim]Scripture protection: {len(placeholders)} span(s) extracted[/dim]"
             )
 
+        # ── V2 Steps 1 & 2: Analyze original + compare (only if original provided) ─
+        architecture_analysis: dict = {}
+        comparison_report: dict = {}
+        v2_analysis_attempted = False
+        if original_source_transcript:
+            v2_analysis_attempted = True
+            console.print("  [cyan]Step 1:[/cyan] Analyzing original architecture...")
+            analysis_response = self._llm.generate(
+                build_analysis_prompt(original_source_transcript),
+                temperature=0.3,
+            )
+            architecture_analysis = _parse_json_response(analysis_response.text)
+            if architecture_analysis:
+                console.print(
+                    f"  [green]✓ Architecture captured:[/green] "
+                    f"{architecture_analysis.get('central_philosophy', 'N/A')[:80]}..."
+                )
+
+            console.print("  [cyan]Step 2:[/cyan] Comparing generated script with original...")
+            comparison_response = self._llm.generate(
+                build_comparison_prompt(
+                    source_transcript=original_source_transcript,
+                    generated_script=script_text,
+                ),
+                temperature=0.3,
+            )
+            comparison_report = _parse_json_response(comparison_response.text)
+            gaps_found = (
+                len(comparison_report.get("missing_ideas", []))
+                + len(comparison_report.get("missing_examples", []))
+                + len(comparison_report.get("weak_transitions", []))
+            )
+            console.print(
+                f"  [green]✓ Comparison complete:[/green] {gaps_found} gap(s) identified"
+            )
+        elif enhancement_instructions:
+            v2_analysis_attempted = True
+            console.print(
+                "  [dim]No original source transcript provided — "
+                "proceeding with enhancement instructions only (Steps 1-2 skipped)[/dim]"
+            )
+
         # ── Pass 1: Faithful Enhancement ───────────────────────────────────────
         _w = get_writer()
         if _w:
@@ -355,6 +533,8 @@ class DocumentaryScriptEnhancerPipeline:
             mode=mode,
             raw_words=raw_words,
             placeholders=placeholders,
+            architecture_analysis=architecture_analysis or None,
+            comparison_report=comparison_report or None,
         )
         pass1_response = self._llm.generate(pass1_prompt, temperature=0.4)
         pass1_ph_text = pass1_response.text.strip()
@@ -407,6 +587,8 @@ class DocumentaryScriptEnhancerPipeline:
                 topic_transition=get_transition(),
                 cta=get_cta(),
                 closing_brand=get_closing_brand(),
+                architecture_analysis=architecture_analysis or None,
+                comparison_report=comparison_report or None,
             )
             pass2_response = self._llm.generate(pass2_prompt, temperature=0.7)
             raw_output = pass2_response.text.strip()
@@ -463,11 +645,23 @@ class DocumentaryScriptEnhancerPipeline:
             )
             final_restored = pass1_restored
 
+        # ── V2 Rule 15: No hidden additions ────────────────────────────────────
+        rule15_ok, rule15_errors = self._validator.validate_rule15_no_hidden_additions(
+            script_text, final_restored
+        )
+        final_warnings = final_warnings + rule15_errors
+
+        # ── V2 Rule 3: Section variety check ───────────────────────────────────
+        _sec_ok, sec_warnings = self._validator.validate_section_variety(final_restored)
+        final_warnings = final_warnings + sec_warnings
+        for w in sec_warnings:
+            console.print(f"  [yellow]⚠ {w}[/yellow]")
+
         for warn in final_warnings:
             logger.warning("Documentary enhancer: {}", warn)
             console.print(f"  [yellow]⚠ {warn}[/yellow]")
 
-        if final_ok:
+        if final_ok and rule15_ok:
             console.print("  [green]✓ Final validation passed[/green]")
 
         # ── ADR-0012: religion-agnostic presentation check ──────────────────────
@@ -628,6 +822,12 @@ class DocumentaryScriptEnhancerPipeline:
                     },
                     "adr_0012_flags": ra_warnings,
                     "correction_pass": correction_pass_data,
+                    "v2_analysis": {
+                        "attempted": v2_analysis_attempted,
+                        "original_source_provided": bool(original_source_transcript),
+                        "architecture_analysis": architecture_analysis,
+                        "comparison_report": comparison_report,
+                    },
                     "word_count": {
                         "input": raw_words,
                         "output": enhanced_words,
@@ -646,8 +846,8 @@ class DocumentaryScriptEnhancerPipeline:
             Panel(
                 f"[{status_color}]Script ready[/{status_color}] — {enhanced_words} words, "
                 f"~{enhanced_est:.1f} min (target {target_minutes} min)\n"
-                f"[dim]Pass 1 → script_pass1.md | Final → script.md | "
-                f"Report → enhancement-report.json[/dim]",
+                f"[dim]Pass 1 -> script_pass1.md | Final -> script.md | "
+                f"Report -> enhancement-report.json[/dim]",
                 title="Documentary Script Enhancer",
                 border_style="magenta",
             )

@@ -10,8 +10,10 @@ from rich.progress import track
 from video_core.cinematic.effects import EffectsPlanner
 from ytfactory.shared.pipeline_status import get_writer
 from video_core.cinematic.motion import MotionPlanner
+from video_core.cinematic.rebalancer import MotionRebalancer
 from video_core.cinematic.transitions import TransitionPlanner
 from ytfactory.config.settings import Settings
+from ytfactory.scenes.repository.scene_repository import SceneRepository
 
 from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
@@ -296,6 +298,14 @@ class VideoPipeline:
         scenes = self._motion_planner.plan(scenes, profile=self._profile)
         scenes = self._transition_planner.plan(scenes, profile=self._profile)
         scenes = self._effects_planner.plan(scenes, profile=self._profile)
+
+        # Post-planning rebalance: break long identical-motion runs without
+        # changing the underlying emotion assignments.
+        scenes = MotionRebalancer().rebalance(scenes)
+
+        # Persist enriched metadata back to scene-plan.json so downstream
+        # quality_review sees the same motion/transition/effects that were rendered.
+        SceneRepository().save_scenes(project_dir, scenes)
 
         output_dir = video_directory(project_id)
 

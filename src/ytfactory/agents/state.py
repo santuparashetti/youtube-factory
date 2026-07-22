@@ -25,6 +25,8 @@ class VideoState(TypedDict, total=False):
     # ── Stage text outputs ────────────────────────────────────────────────
     research_md: str
     script_md: str
+    original_source_transcript: Optional[str]
+    enhancement_instructions: Optional[str]
     scene_plan: list[dict]  # validated JSON list from scene planner
 
     # ── Per-scene current pointer (set by Send during parallel fan-out) ───

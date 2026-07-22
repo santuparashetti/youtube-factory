@@ -101,7 +101,7 @@ def build_graph() -> StateGraph:
 
     # ── Entry ─────────────────────────────────────────────────────────────
     # User provided --script → enhance it → plan scenes
-    # No script → full research → script writer → plan scenes
+    # No script → full research → script writer → enhance → plan scenes
     workflow.add_conditional_edges(
         START,
         _route_entry,
@@ -112,7 +112,7 @@ def build_graph() -> StateGraph:
     )
     workflow.add_edge("research_agent", "script_writer")
     workflow.add_edge("script_writer", "human_review_script")
-    workflow.add_edge("human_review_script", "scene_planner")
+    workflow.add_edge("human_review_script", "script_enhancer")
     workflow.add_edge("script_enhancer", "scene_planner")
     workflow.add_edge("scene_planner", "pre_render_gate")
     workflow.add_edge("pre_render_gate", "human_review_scenes")

@@ -11,8 +11,10 @@ from ytfactory.agents.state import VideoState
 from video_core.cinematic.config import CinematicConfig
 from video_core.cinematic.effects import EffectsPlanner
 from video_core.cinematic.motion import MotionPlanner
+from video_core.cinematic.rebalancer import MotionRebalancer
 from video_core.cinematic.transitions import TransitionPlanner
 from ytfactory.config.settings import Settings
+from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.video.ffmpeg import FFmpegRenderer
 
@@ -50,7 +52,6 @@ def video_renderer_node(state: VideoState) -> dict:
     for scene in scene_plan:
         seg = scene.get("linked_segment") or {}
         raw = seg.get("emotional_intensity", "normal")
-        # Normalize: accept both enum values ("peak") and raw strings
         intensity_map[scene["index"]] = str(raw).lower() if isinstance(raw, str) else "normal"
 
     scene_plan = _motion_planner.plan(
@@ -60,6 +61,10 @@ def video_renderer_node(state: VideoState) -> dict:
     )
     scene_plan = _transition_planner.plan(scene_plan, profile=cinematic_cfg.profile)
     scene_plan = _effects_planner.plan(scene_plan, profile=cinematic_cfg.profile)
+
+    scene_plan = MotionRebalancer().rebalance(scene_plan)
+
+    SceneRepository().save_scenes(project_dir, scene_plan)
 
     renderer = FFmpegRenderer()
     errors: list[str] = []
@@ -133,5 +138,6 @@ def video_renderer_node(state: VideoState) -> dict:
 
     return {
         "scene_video_paths": scene_video_paths,
+        "scene_plan": scene_plan,
         "stage_errors": errors,
     }

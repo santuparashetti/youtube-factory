@@ -3,6 +3,7 @@ from rich.rule import Rule
 
 from ytfactory.config.settings import Settings
 from ytfactory.incremental.engine import IncrementalBuildEngine
+from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.paths import safe_project_dir
 
@@ -216,11 +217,7 @@ class BuildPipeline:
         )
 
         # Persist enriched scene plan back to disk
-        scene_plan_data["scenes"] = [s.model_dump() for s in scene_objs]
-        scene_plan_path.write_text(
-            json.dumps(scene_plan_data, indent=2, default=str),
-            encoding="utf-8",
-        )
+        SceneRepository().save_scenes(project_dir, scene_plan_data)
 
     # ── Incremental / resume mode ─────────────────────────────────────────────
 

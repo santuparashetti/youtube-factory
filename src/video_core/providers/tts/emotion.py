@@ -298,25 +298,36 @@ _LEXICONS: dict[Emotion, list[str]] = {
         "keep going",
     ],
     Emotion.REVELATION: [
-        "this is",
         "the truth is",
-        "here is",
         "what that means",
-        "and that",
-        "so here",
         "the answer",
         "simply this",
-        "one thing",
         "everything changes",
         "changes everything",
         "that is why",
-        "which means",
-        "and so",
-        "in other words",
+        "reveal",
+        "realize",
+        "understand now",
     ],
 }
 
 _DEFAULT_EMOTION = Emotion.REFLECTION
+
+_REVELATION_KEYWORDS: list[str] = [
+    kw for kw in _LEXICONS[Emotion.REVELATION]
+    if kw in {
+        "the truth is",
+        "what that means",
+        "the answer",
+        "simply this",
+        "everything changes",
+        "changes everything",
+        "that is why",
+        "reveal",
+        "realize",
+        "understand now",
+    }
+]
 
 
 # ── Sentence splitter ──────────────────────────────────────────────────────────
@@ -341,9 +352,13 @@ def _score_sentence(sentence: str) -> dict[Emotion, float]:
         scores[Emotion.CURIOSITY] += 2.0
     if stripped.endswith("!"):
         scores[Emotion.URGENCY] += 1.5
-    # Very short sentences (≤ 6 words) after the first are likely revelations
+    # Very short sentences (<= 6 words) are only treated as weak revelation
+    # signals when they also contain a curated revelation keyword.  This
+    # prevents every short declarative sentence from defaulting to
+    # `revelation` just because it is brief.
     if len(stripped.split()) <= 6:
-        scores[Emotion.REVELATION] += 1.5
+        if any(kw in low for kw in _REVELATION_KEYWORDS):
+            scores[Emotion.REVELATION] += 1.0
 
     # Keyword matching (multi-word phrases score higher)
     for emotion, keywords in _LEXICONS.items():

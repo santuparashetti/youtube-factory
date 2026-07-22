@@ -333,10 +333,14 @@ the original discourse as a clean, documentary-quality narration that loses noth
 
 TOPIC: {topic}
 TARGET DURATION: {target_minutes} minutes of spoken narration
-ACCEPTABLE RANGE: {min_m}–{max_m} minutes ({min_words}–{max_words} words at ~{wpm} wpm)
+ACCEPTABLE RANGE: {min_m}-{max_m} minutes ({min_words}-{max_words} words at ~{wpm} wpm)
 CURRENT LENGTH: {raw_words} words (~{raw_est:.1f} min) — you must {direction_verb} by ~{word_gap} words
 
 {voice_guide}
+
+{architecture_context}
+
+{comparison_context}
 
 ───────────────────────────────────────────────────────────────
 SCRIPTURE PROTECTION (absolute hard constraint — overrides every other rule)
@@ -411,6 +415,10 @@ TOPIC: {topic}
 TARGET DURATION: {target_minutes} minutes (~{target_words} words at ~{wpm} wpm)
 
 {voice_guide}
+
+{architecture_context}
+
+{comparison_context}
 
 ───────────────────────────────────────────────────────────────
 SCRIPTURE PROTECTION (absolute hard constraint)
@@ -580,6 +588,8 @@ def build_pass1_prompt(
     mode: str = "expand",
     raw_words: int = 0,
     placeholders: dict[str, str] | None = None,
+    architecture_analysis: dict | None = None,
+    comparison_report: dict | None = None,
 ) -> str:
     """ADR-0011 Pass 1: faithful documentary rendering prompt (no retention optimization)."""
     min_m = target_minutes - DURATION_TOLERANCE_MINUTES
@@ -603,6 +613,17 @@ def build_pass1_prompt(
     voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
     voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
 
+    architecture_context = (
+        _format_architecture_summary(architecture_analysis)
+        if architecture_analysis
+        else ""
+    )
+    comparison_context = (
+        _format_comparison_summary(comparison_report)
+        if comparison_report
+        else ""
+    )
+
     return _PASS1_TEMPLATE.format(
         topic=topic,
         target_minutes=target_minutes,
@@ -621,6 +642,8 @@ def build_pass1_prompt(
         strategy_section=strategy_section,
         voiceover_rules=_VOICEOVER_RULES,
         script=script,
+        architecture_context=architecture_context,
+        comparison_context=comparison_context,
     )
 
 
@@ -635,6 +658,8 @@ def build_pass2_prompt(
     topic_transition: str | None = None,
     cta: str | None = None,
     closing_brand: str | None = None,
+    architecture_analysis: dict | None = None,
+    comparison_report: dict | None = None,
 ) -> str:
     """ADR-0011 Pass 2: viewer retention optimization prompt with Narrative Score block."""
     from ytfactory.agents.prompts.branding import (
@@ -649,6 +674,17 @@ def build_pass2_prompt(
 
     voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
     voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
+
+    architecture_context = (
+        _format_architecture_summary(architecture_analysis)
+        if architecture_analysis
+        else ""
+    )
+    comparison_context = (
+        _format_comparison_summary(comparison_report)
+        if comparison_report
+        else ""
+    )
 
     return _PASS2_TEMPLATE.format(
         topic=topic,
@@ -665,7 +701,196 @@ def build_pass2_prompt(
         closing_brand=closing_brand or get_closing_brand(),
         voiceover_rules=_VOICEOVER_RULES,
         script=script,
+        architecture_context=architecture_context,
+        comparison_context=comparison_context,
     )
+
+
+def build_analysis_prompt(source_transcript: str) -> str:
+    return """\
+You are an expert YouTube documentary editor analyzing an author's original source material.
+
+Your task is to understand and map the author's architecture. Do NOT rewrite anything.
+
+SOURCE TRANSCRIPT:
+{source_transcript}
+
+Extract and output the following in a concise structured format:
+- central_philosophy: The core belief or thesis in 1-2 sentences
+- main_thesis: The primary argument or message
+- supporting_ideas: List of key supporting points
+- stories: Any stories, parables, or anecdotes (titles/brief descriptions)
+- historical_examples: Any historical references
+- analogies: Any analogies used
+- emotional_progression: The emotional arc of the piece (e.g., curiosity -> story -> reflection -> insight)
+- ending_message: The closing takeaway
+- progression_of_ideas: The step-by-step flow of ideas — describe the exact order in which the author builds their argument. Use the format:
+  Idea A
+  ->
+  Idea B
+  ->
+  Idea C
+  etc.
+- has_clear_progression: true if there is a clear narrative architecture; false if it is built from repeated refrains, parallel parables, or a meditative/poetic structure
+- implicit_structure: the closest implicit structure present if has_clear_progression is false; empty string otherwise
+
+Output ONLY valid JSON. No explanations. No markdown fences.
+""".format(source_transcript=source_transcript)
+
+
+def build_comparison_prompt(
+    source_transcript: str,
+    generated_script: str,
+) -> str:
+    return """\
+You are an expert YouTube documentary editor comparing a generated script against the original author's source material.
+
+Your task is to identify gaps, losses, and weaknesses in the generated script compared to the original. Do NOT rewrite anything yet — just report.
+
+ORIGINAL SOURCE TRANSCRIPT:
+{source_transcript}
+
+GENERATED SCRIPT:
+{script}
+
+Analyze and return ONLY valid JSON with these fields:
+- missing_ideas: Ideas present in the original but missing or only weakly represented in the generated script
+- missing_examples: Specific examples, stories, or analogies from the original that were dropped or weakened
+- lost_progression: Any breaks or reordering in the progression of ideas compared to the original
+- flattened_emotional_arc: Places where the emotional intensity was reduced
+- weak_transitions: Sections where transitions feel abrupt or missing
+- repetition: Ideas that are repeated unnecessarily in the generated script
+- missed_curiosity_opportunities: Places where the original built curiosity that the generated script lost
+- abrupt_jumps: Ideas that jump without smooth transition in the generated script
+- lost_storytelling_moments: Story beats that were diluted or removed
+- overall_assessment: concise summary of the gaps
+
+No explanations. No markdown fences. Output ONLY valid JSON.
+""".format(source_transcript=source_transcript, script=generated_script)
+
+
+def _format_architecture_summary(analysis: dict) -> str:
+    lines = [
+        f"CENTRAL PHILOSOPHY: {analysis.get('central_philosophy', 'N/A')}",
+        f"MAIN THESIS: {analysis.get('main_thesis', 'N/A')}",
+        "",
+        "SUPPORTING IDEAS:",
+    ]
+    for idea in analysis.get("supporting_ideas", []):
+        lines.append(f"  - {idea}")
+    lines.extend(
+        [
+            "",
+            "STORIES:",
+        ]
+    )
+    for story in analysis.get("stories", []):
+        lines.append(f"  - {story}")
+    lines.extend(
+        [
+            "",
+            "HISTORICAL EXAMPLES:",
+        ]
+    )
+    for ex in analysis.get("historical_examples", []):
+        lines.append(f"  - {ex}")
+    lines.extend(
+        [
+            "",
+            "ANALOGIES:",
+        ]
+    )
+    for analogy in analysis.get("analogies", []):
+        lines.append(f"  - {analogy}")
+    lines.extend(
+        [
+            "",
+            f"EMOTIONAL PROGRESSION: {analysis.get('emotional_progression', 'N/A')}",
+            f"ENDING MESSAGE: {analysis.get('ending_message', 'N/A')}",
+            "",
+            "PROGRESSION OF IDEAS:",
+        ]
+    )
+    has_clear = analysis.get("has_clear_progression", True)
+    if has_clear:
+        for step in analysis.get("progression_of_ideas", []):
+            lines.append(f"  {step}")
+    else:
+        implicit = analysis.get("implicit_structure", "unknown")
+        lines.append(f"  [No clear linear progression — closest implicit structure: {implicit}]")
+    return "\n".join(lines)
+
+
+def _format_comparison_summary(comparison: dict) -> str:
+    lines = [
+        "GENERATED SCRIPT GAPS (generated script vs original source):",
+        "",
+        f"OVERALL ASSESSMENT: {comparison.get('overall_assessment', 'N/A')}",
+        "",
+        "MISSING IDEAS:",
+    ]
+    for idea in comparison.get("missing_ideas", []):
+        lines.append(f"  - {idea}")
+    lines.extend(
+        [
+            "",
+            "MISSING EXAMPLES / STORIES:",
+        ]
+    )
+    for ex in comparison.get("missing_examples", []):
+        lines.append(f"  - {ex}")
+    lines.extend(
+        [
+            "",
+            "LOST PROGRESSION:",
+            f"  {comparison.get('lost_progression', 'None detected')}",
+            "",
+            "FLATTENED EMOTIONAL ARC:",
+        ]
+    )
+    for arc in comparison.get("flattened_emotional_arc", []):
+        lines.append(f"  - {arc}")
+    lines.extend(
+        [
+            "",
+            "WEAK TRANSITIONS:",
+        ]
+    )
+    for t in comparison.get("weak_transitions", []):
+        lines.append(f"  - {t}")
+    lines.extend(
+        [
+            "",
+            "REPETITION:",
+        ]
+    )
+    for r in comparison.get("repetition", []):
+        lines.append(f"  - {r}")
+    lines.extend(
+        [
+            "",
+            "MISSED CURIOSITY OPPORTUNITIES:",
+        ]
+    )
+    for c in comparison.get("missed_curiosity_opportunities", []):
+        lines.append(f"  - {c}")
+    lines.extend(
+        [
+            "",
+            "ABRUPT JUMPS:",
+        ]
+    )
+    for j in comparison.get("abrupt_jumps", []):
+        lines.append(f"  - {j}")
+    lines.extend(
+        [
+            "",
+            "LOST STORYTELLING MOMENTS:",
+        ]
+    )
+    for s in comparison.get("lost_storytelling_moments", []):
+        lines.append(f"  - {s}")
+    return "\n".join(lines)
 
 
 def build_enhance_script_prompt(

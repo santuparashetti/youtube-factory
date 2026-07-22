@@ -108,6 +108,30 @@ _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
     "revelation": ("static", "small"),
 }
 
+# Acceptable-motion sets for the motion-variety rebalancer.
+# Each emotion maps to a small ranked set of alternatives appropriate to its
+# emotional register.  The rebalancer falls back within the same emotion rather
+# than substituting an unrelated motion type.
+_ACCEPTABLE_MOTIONS: dict[str, list[str]] = {
+    "curiosity": ["push_in", "drift"],
+    "wonder": ["pull_out", "drift"],
+    "reflection": ["drift", "static"],
+    "mystery": ["push_in", "drift"],
+    "peace": ["static", "drift"],
+    "hope": ["pull_out", "push_in"],
+    "compassion": ["push_in", "drift"],
+    "urgency": ["push_in", "drift"],
+    "sadness": ["pull_out", "drift"],
+    "awe": ["pull_out", "drift"],
+    "determination": ["push_in", "drift"],
+    "revelation": ["static", "drift"],
+}
+
+
+def get_acceptable_motions(emotion: str) -> list[str]:
+    """Return ranked acceptable motion types for an emotion."""
+    return list(_ACCEPTABLE_MOTIONS.get(emotion, ["static"]))
+
 
 # ── Profile registry ─────────────────────────────────────────────────────────
 

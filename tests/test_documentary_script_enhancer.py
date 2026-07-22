@@ -610,3 +610,146 @@ class TestPipelineQualityGate:
                     script_text=SAMPLE_SCRIPT,
                 )
             assert exc_info.value.stage == "documentary_enhancer_final"
+
+
+# ── V2 Pipeline Quality Gate ─────────────────────────────────────────────────
+
+class TestV2ScriptEnhancer:
+    def test_parse_json_response_handles_valid_dict(self):
+        from ytfactory.script_enhancer.pipeline import _parse_json_response
+        result = _parse_json_response('{"key": "value"}')
+        assert result == {"key": "value"}
+
+    def test_parse_json_response_handles_markdown_fenced_json(self):
+        from ytfactory.script_enhancer.pipeline import _parse_json_response
+        text = "```json\n{\n  \"key\": \"value\"\n}\n```"
+        result = _parse_json_response(text)
+        assert result == {"key": "value"}
+
+    def test_parse_json_response_returns_empty_on_invalid(self):
+        from ytfactory.script_enhancer.pipeline import _parse_json_response
+        result = _parse_json_response("Not JSON here")
+        assert result == {}
+
+    def test_rule15_passes_when_no_new_years(self):
+        from ytfactory.script_enhancer.pipeline import DocumentaryEnhancerValidator
+        v = DocumentaryEnhancerValidator()
+        original = "Ancient wisdom from long ago."
+        final = "Ancient wisdom passed down through generations."
+        ok, errors = v.validate_rule15_no_hidden_additions(original, final)
+        assert ok
+        assert errors == []
+
+    def test_rule15_fails_when_new_years_introduced(self):
+        from ytfactory.script_enhancer.pipeline import DocumentaryEnhancerValidator
+        v = DocumentaryEnhancerValidator()
+        original = "Ancient wisdom from long ago."
+        final = "Ancient wisdom as documented in 1845."
+        ok, errors = v.validate_rule15_no_hidden_additions(original, final)
+        assert not ok
+        assert any("1845" in e for e in errors)
+
+    def test_section_variety_ok_with_clear_anchors(self):
+        from ytfactory.script_enhancer.pipeline import DocumentaryEnhancerValidator
+        v = DocumentaryEnhancerValidator()
+        script = "Imagine a river that flows. " * 200
+        ok, warnings = v.validate_section_variety(script)
+        assert ok
+        assert warnings == []
+
+    def test_analysis_prompt_builder_returns_text(self):
+        from ytfactory.agents.prompts.script_enhancer import build_analysis_prompt
+        prompt = build_analysis_prompt("Some source transcript.")
+        assert "author's architecture" in prompt
+        assert "SOURCE TRANSCRIPT" in prompt
+
+    def test_comparison_prompt_builder_returns_text(self):
+        from ytfactory.agents.prompts.script_enhancer import build_comparison_prompt
+        prompt = build_comparison_prompt("Original text.", "Generated text.")
+        assert "ORIGINAL SOURCE TRANSCRIPT" in prompt
+        assert "GENERATED SCRIPT" in prompt
+
+    def test_pass1_prompt_includes_analysis_when_provided(self):
+        from ytfactory.agents.prompts.script_enhancer import build_pass1_prompt
+        analysis = {"central_philosophy": "Test philosophy"}
+        prompt = build_pass1_prompt(
+            topic="T",
+            script="Some script.",
+            architecture_analysis=analysis,
+        )
+        assert "CENTRAL PHILOSOPHY" in prompt
+
+    def test_pass2_prompt_includes_comparison_when_provided(self):
+        from ytfactory.agents.prompts.script_enhancer import build_pass2_prompt
+        comparison = {"missing_ideas": ["idea1"]}
+        prompt = build_pass2_prompt(
+            topic="T",
+            script="Some script.",
+            comparison_report=comparison,
+        )
+        assert "MISSING IDEAS" in prompt
+
+    def test_v2_analysis_fields_in_report(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from ytfactory.script_enhancer.pipeline import DocumentaryScriptEnhancerPipeline
+
+        settings = MagicMock()
+        settings.stop_on_quality_gate_failure = False
+        mock_llm = MagicMock()
+        mock_llm.generate.side_effect = [
+            MagicMock(text='{"central_philosophy": "test"}'),
+            MagicMock(text='{"missing_ideas": []}'),
+            MagicMock(text=PASS1_CLEAN),
+            MagicMock(text=PASS2_SCORED_GOOD),
+            MagicMock(text=PASS3_EXPANDED),
+        ]
+
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider", return_value=mock_llm):
+            pipeline = DocumentaryScriptEnhancerPipeline(settings)
+
+        with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            pipeline.run(
+                "proj-v2-1",
+                topic="Test",
+                script_text=SAMPLE_SCRIPT,
+                original_source_transcript="Some original transcript.",
+            )
+
+        report = json.loads(
+            (tmp_path / "proj-v2-1" / "script" / "enhancement-report.json").read_text()
+        )
+        assert report["v2_analysis"]["attempted"] is True
+        assert report["v2_analysis"]["original_source_provided"] is True
+        assert "architecture_analysis" in report["v2_analysis"]
+        assert "comparison_report" in report["v2_analysis"]
+
+    def test_v2_skips_analysis_when_no_original(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from ytfactory.script_enhancer.pipeline import DocumentaryScriptEnhancerPipeline
+
+        settings = MagicMock()
+        settings.stop_on_quality_gate_failure = False
+        mock_llm = MagicMock()
+        mock_llm.generate.side_effect = [
+            MagicMock(text=PASS1_CLEAN),
+            MagicMock(text=PASS2_SCORED_GOOD),
+            MagicMock(text=PASS3_EXPANDED),
+        ]
+
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider", return_value=mock_llm):
+            pipeline = DocumentaryScriptEnhancerPipeline(settings)
+
+        with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            pipeline.run(
+                "proj-v2-2",
+                topic="Test",
+                script_text=SAMPLE_SCRIPT,
+            )
+
+        report = json.loads(
+            (tmp_path / "proj-v2-2" / "script" / "enhancement-report.json").read_text()
+        )
+        assert report["v2_analysis"]["attempted"] is False
+        assert report["v2_analysis"]["original_source_provided"] is False
+        assert report["v2_analysis"]["architecture_analysis"] == {}
+        assert report["v2_analysis"]["comparison_report"] == {}
