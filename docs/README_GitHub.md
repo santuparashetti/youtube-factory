@@ -82,7 +82,17 @@ IMAGE_PROVIDER=huggingface
 TTS_PROVIDER=edge
 
 GEMINI_TEXT_MODEL=gemini-2.5-flash
-HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
+# Tier 1 — default / first-pass (cheap, fast)
+IMAGE_MODEL_TIER1_ID=black-forest-labs/FLUX.1-schnell
+IMAGE_MODEL_TIER1_PROVIDER=auto
+
+# Tier 2 — first escalation (quality)
+IMAGE_MODEL_TIER2_ID=Qwen/Qwen-Image
+IMAGE_MODEL_TIER2_PROVIDER=auto
+
+# Tier 3 — final escalation (premium, last resort)
+IMAGE_MODEL_TIER3_ID=black-forest-labs/FLUX.1-dev
+IMAGE_MODEL_TIER3_PROVIDER=auto
 
 IMAGE_WIDTH=1920
 IMAGE_HEIGHT=1080

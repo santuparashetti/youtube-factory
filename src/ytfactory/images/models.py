@@ -14,6 +14,10 @@ class ImageArtifact:
 
     path: Path
 
+    qa_status: str = ""
+    qa_score: float = 0.0
+    qa_failure_reason: str = ""
+
 
 @dataclass(slots=True)
 class ImageManifest:

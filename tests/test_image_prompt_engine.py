@@ -861,3 +861,32 @@ class TestHumanEnrichment:
         assert report.human_scenes_count == 1
         assert report.human_quality_enforced == 0
         assert 1 in report.human_quality_missing
+
+
+# ── Image Model Registry ─────────────────────────────────────────────────────
+
+
+class TestImageModelRegistry:
+    def test_tier_defaults(self):
+        from video_core.config.shared_settings import SharedSettings
+
+        s = SharedSettings()
+        registry = s.image_model_registry
+        assert registry.for_tier(1).id == "black-forest-labs/FLUX.1-schnell"
+        assert registry.for_tier(2).id == "Qwen/Qwen-Image"
+        assert registry.for_tier(3).id == "black-forest-labs/FLUX.1-dev"
+
+    def test_tier_providers_default_to_auto(self):
+        from video_core.config.shared_settings import SharedSettings
+
+        s = SharedSettings()
+        registry = s.image_model_registry
+        for tier in [1, 2, 3]:
+            assert registry.for_tier(tier).provider == "auto"
+
+    def test_hf_image_model_fallback_maps_to_tier1(self):
+        from video_core.config.shared_settings import SharedSettings
+
+        s = SharedSettings()
+        assert s.hf_image_model == s.image_model_registry.for_tier(1).id
+

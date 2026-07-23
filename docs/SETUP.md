@@ -124,7 +124,10 @@ TAVILY_API_KEY=tvly-...
 # Required — image generation
 IMAGE_PROVIDER=huggingface
 HF_TOKEN=hf_...
-HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
+
+# Tier 1 — default / first-pass (cheap, fast)
+IMAGE_MODEL_TIER1_ID=black-forest-labs/FLUX.1-schnell
+IMAGE_MODEL_TIER1_PROVIDER=auto
 
 # TTS provider (kokoro = local, no API key needed)
 TTS_PROVIDER=kokoro
@@ -418,7 +421,18 @@ TAVILY_API_KEY=tvly-...
 # ── Image Generation ─────────────────────────────────────────────────────────
 IMAGE_PROVIDER=huggingface      # huggingface | gemini | pollinations
 HF_TOKEN=hf_...
-HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
+
+# Tier 1 — default / first-pass (cheap, fast)
+IMAGE_MODEL_TIER1_ID=black-forest-labs/FLUX.1-schnell
+IMAGE_MODEL_TIER1_PROVIDER=auto        # auto | hf-inference | fireworks-ai | featherless-ai | together
+
+# Tier 2 — first escalation (quality)
+IMAGE_MODEL_TIER2_ID=Qwen/Qwen-Image
+IMAGE_MODEL_TIER2_PROVIDER=auto
+
+# Tier 3 — final escalation (premium, last resort)
+IMAGE_MODEL_TIER3_ID=black-forest-labs/FLUX.1-dev
+IMAGE_MODEL_TIER3_PROVIDER=auto
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
 IMAGE_WIDTH=1280
 IMAGE_HEIGHT=720

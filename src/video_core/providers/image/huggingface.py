@@ -20,11 +20,19 @@ class HuggingFaceImageProvider(ImageProvider):
 
     def __init__(self, settings: SharedSettings):
         self._settings = settings
-
-        self._client = InferenceClient(
+        self._default_client = InferenceClient(
             provider=settings.hf_inference_provider,
             api_key=os.environ.get("HF_TOKEN", settings.hf_token),
         )
+        self._client_cache: dict[str, InferenceClient] = {}
+
+    def _client_for(self, provider: str) -> InferenceClient:
+        if provider not in self._client_cache:
+            self._client_cache[provider] = InferenceClient(
+                provider=provider,
+                api_key=os.environ.get("HF_TOKEN", self._settings.hf_token),
+            )
+        return self._client_cache[provider]
 
     def generate(
         self,
@@ -33,17 +41,13 @@ class HuggingFaceImageProvider(ImageProvider):
 
         start = time.perf_counter()
 
-        # Claude-generated prompts are already highly specific — pass through directly.
-        # enriched_prompt = (
-        #     "Ultra realistic cinematic YouTube documentary style, "
-        #     "16:9 landscape composition, wide shot, 1920x1080 framing, "
-        #     "professional photography, sharp focus, high detail. "
-        #     + request.prompt
-        # )
+        model = request.model or self._settings.hf_image_model
+        provider = request.provider or self._settings.hf_inference_provider
+        client = self._default_client if provider == self._settings.hf_inference_provider else self._client_for(provider)
 
         kwargs: dict = {
             "prompt": request.prompt,
-            "model": self._settings.hf_image_model,
+            "model": model,
             "width": request.width,
             "height": request.height,
         }
@@ -57,7 +61,7 @@ class HuggingFaceImageProvider(ImageProvider):
         if request.seed is not None:
             kwargs["seed"] = request.seed
 
-        image = self._client.text_to_image(**kwargs)
+        image = client.text_to_image(**kwargs)
 
         request.output_path.parent.mkdir(
             parents=True,

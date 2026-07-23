@@ -1,5 +1,19 @@
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ImageModelTier(BaseModel):
+    id: str = ""
+    provider: str = "auto"
+
+
+class ImageModelRegistry(BaseModel):
+    tier1: ImageModelTier = ImageModelTier(id="black-forest-labs/FLUX.1-schnell", provider="auto")
+    tier2: ImageModelTier = ImageModelTier(id="Qwen/Qwen-Image", provider="auto")
+    tier3: ImageModelTier = ImageModelTier(id="black-forest-labs/FLUX.1-dev", provider="auto")
+
+    def for_tier(self, tier: int) -> ImageModelTier:
+        return {1: self.tier1, 2: self.tier2, 3: self.tier3}[tier]
 
 
 class SharedSettings(BaseSettings):
@@ -53,7 +67,40 @@ class SharedSettings(BaseSettings):
     gemini_image_model: str = "gemini-3.1-flash-lite-image"
 
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
-    hf_inference_provider: str = "auto"  # "auto" | "together" | "fal-ai" | "nebius" | "hf-inference"
+    hf_inference_provider: str = "auto"
+
+    image_model_tier1_id: str = "black-forest-labs/FLUX.1-schnell"
+    image_model_tier1_provider: str = "auto"
+    image_model_tier2_id: str = "Qwen/Qwen-Image"
+    image_model_tier2_provider: str = "auto"
+    image_model_tier3_id: str = "black-forest-labs/FLUX.1-dev"
+    image_model_tier3_provider: str = "auto"
+
+    @model_validator(mode="after")
+    def _warn_deprecated_image_model_env(self) -> "SharedSettings":
+        import logging
+        import os
+
+        logger = logging.getLogger(__name__)
+        deprecated = []
+        if os.getenv("HF_IMAGE_MODEL"):
+            deprecated.append("HF_IMAGE_MODEL")
+        if os.getenv("HF_INFERENCE_PROVIDER"):
+            deprecated.append("HF_INFERENCE_PROVIDER")
+        if deprecated:
+            logger.warning(
+                "{} is deprecated, use IMAGE_MODEL_TIER{{1,2,3}}_ID and IMAGE_MODEL_TIER{{1,2,3}}_PROVIDER instead.",
+                " and ".join(deprecated),
+            )
+        return self
+
+    @property
+    def image_model_registry(self) -> ImageModelRegistry:
+        return ImageModelRegistry(
+            tier1=ImageModelTier(id=self.image_model_tier1_id, provider=self.image_model_tier1_provider),
+            tier2=ImageModelTier(id=self.image_model_tier2_id, provider=self.image_model_tier2_provider),
+            tier3=ImageModelTier(id=self.image_model_tier3_id, provider=self.image_model_tier3_provider),
+        )
 
     groq_model: str = "llama-3.1-8b-instant"
     anthropic_model: str = "claude-haiku-4-5"

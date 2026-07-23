@@ -11,8 +11,16 @@ Responsibilities (this module only)
 * Persist per-attempt history to  images/remediation/scene-NNN/attempt-N/.
 * Return a SceneReviewArtifact that the pipeline consumes unchanged.
 
+Relationship to ImagePipeline tier escalation
+----------------------------------------------
+ImagePipeline._run_generation_strategy runs a separate tier-escalation loop
+before this orchestrator is invoked. This orchestrator handles only the
+human-scene post-hoc remediation (anatomy, hand avoidance, prompt refinement).
+The two loops are independent by design and should not be merged without a
+design decision.
+
 Non-responsibilities
---------------------
+---------------------
 * Does NOT know how prompts are refined — that is PromptRemediationBuilder.
 * Does NOT call the vision provider directly — that is ImageReviewEngine.
 * Does NOT know about scenes, project IDs, or manifests — that is ImagePipeline.
@@ -101,11 +109,13 @@ class ImageRemediationOrchestrator:
         image_provider: ImageProvider,
         builder: PromptRemediationBuilder | None = None,
         remediation_engine: RemediationEngine | None = None,
+        settings: object | None = None,
     ) -> None:
         self._config = config
         self._image_provider = image_provider
         self._builder = builder or PromptRemediationBuilder()
         self._remediation_engine = remediation_engine or RemediationEngine()
+        self._settings = settings
 
         # Single-attempt review engine: orchestrator owns the retry loop.
         single_shot = dataclasses.replace(config, max_attempts=1, auto_remediate=False)
@@ -155,7 +165,7 @@ class ImageRemediationOrchestrator:
             scene_for_attempt = {**scene, "visual_prompt": current_prompt}
             artifact = self._review_engine.review_scene(scene_for_attempt, image_path, output_dir)
             final_artifact = artifact
-            passed = artifact.status == "PASS"
+            passed = getattr(artifact, "overall_status", "") == "PASS" or (not getattr(artifact, "overall_status", "") and artifact.status == "PASS")
 
             logger.info(
                 "Scene {:03d} | Attempt {}/{} | {} (score={:.0f}, confidence={:.0f})",
@@ -208,7 +218,7 @@ class ImageRemediationOrchestrator:
                 "Scene {:03d} | Refining prompt [{}] → attempt {}/{}",
                 idx, package.remediation_strategy, attempt + 1, self._config.max_attempts,
             )
-            self._regenerate(scene, current_prompt, image_path)
+            self._regenerate(scene, current_prompt, image_path, attempt)
 
         if final_artifact is None:
             final_artifact = SceneReviewArtifact(
@@ -253,22 +263,49 @@ class ImageRemediationOrchestrator:
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    def _regenerate(self, scene: dict, refined_prompt: str, image_path: Path) -> None:
+    def _regenerate(self, scene: dict, refined_prompt: str, image_path: Path, attempt: int) -> None:
         """Delete existing image and regenerate with the refined prompt."""
         from video_core.domain.image import ImageRequest
 
         image_path.unlink(missing_ok=True)
+        model = None
+        provider = None
+        prompt = refined_prompt
+        if self._settings is not None:
+            tier = 2 if attempt == 1 else min(attempt + 1, 3)
+            try:
+                tier_config = self._settings.image_model_registry.for_tier(tier)
+            except AttributeError:
+                pass
+            else:
+                model = tier_config.id
+                provider = tier_config.provider
+                prompt = self._adapt_prompt_for_tier(refined_prompt, tier_config)
         request = ImageRequest(
-            prompt=refined_prompt,
+            prompt=prompt,
             output_path=image_path,
             width=scene.get("width", 1920),
             height=scene.get("height", 1080),
-            seed=None,  # new random seed for diversity
+            seed=None,
+            model=model,
+            provider=provider,
         )
         try:
             self._image_provider.generate(request)
         except Exception as exc:
             logger.warning("Scene {:03d} | Regeneration failed: {}", scene.get("index", 0), exc)
+
+    def _adapt_prompt_for_tier(self, prompt: str, tier_config: object) -> str:
+        """Return tier-specific adapted prompt."""
+        tier_id = getattr(tier_config, "id", "").lower()
+        if "qwen-image" in tier_id:
+            return f"{prompt}, cinematic lighting, rich environmental detail, enhanced realism, strong atmosphere"
+        if "flux.1-dev" in tier_id:
+            return (
+                f"{prompt}, maximum realism, fine texture detail, rich environmental complexity, "
+                "fine cinematic lighting, highest prompt fidelity"
+            )
+        return prompt
 
     def _write_attempt(
         self,

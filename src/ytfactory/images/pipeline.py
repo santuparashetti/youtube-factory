@@ -17,7 +17,7 @@ from ytfactory.images.prompt_engine import (
     apply_hand_avoidance,
 )
 from ytfactory.images.repository import ImageRepository
-from ytfactory.images.review_config import ImageReviewConfig
+from ytfactory.images.review_config import EscalationConfig, ImageReviewConfig
 from ytfactory.images.review_engine import write_image_quality_summary
 from ytfactory.images.review_models import SceneReviewArtifact
 from video_core.providers.image.factory import get_image_provider
@@ -26,7 +26,18 @@ from ytfactory.shared.pipeline_status import get_writer
 
 
 class ImagePipeline:
-    """Generate YouTube-ready images."""
+    """Generate YouTube-ready images.
+
+    Two independent remediation mechanisms exist in this pipeline:
+      (a) tier-escalation loop in ``_run_generation_strategy`` — runs for every
+          scene and can see ``overall_status`` from Vision QA.
+      (b) ``ImageRemediationOrchestrator`` — runs only for scenes with humans,
+          after tier-escalation has finished, and has its own ``max_attempts``/``auto_remediate``
+          config with deeper anatomy/hand-avoidance passes.
+
+    Do not merge these without a design decision: (b) may do something
+    genuinely different from (a)'s generic escalation path.
+    """
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -36,7 +47,9 @@ class ImagePipeline:
             settings.image_provider.lower() in _PROVIDERS_WITH_NEGATIVE_PROMPTS
         )
         self._review_config = ImageReviewConfig.from_settings(settings)
+        self._escalation_config = EscalationConfig.from_settings(settings)
         self._orchestrator: ImageRemediationOrchestrator | None = self._build_orchestrator()
+        self._flagged_scenes: dict[int, dict] = {}
 
     def _build_orchestrator(self) -> ImageRemediationOrchestrator | None:
         """Build the remediation orchestrator if image review is enabled."""
@@ -49,9 +62,293 @@ class ImagePipeline:
                 self._review_config.provider,
                 local_model=self._review_config.local_model,
             )
-            return ImageRemediationOrchestrator(self._review_config, vision, self._provider)
+            return ImageRemediationOrchestrator(self._review_config, vision, self._provider, settings=self._settings)
         except Exception:
             return None
+
+    def _is_hero_scene(self, scene: dict) -> bool:
+        importance = scene.get("importance", "").upper()
+        shot_type = scene.get("shot_type", "").upper()
+        return importance in ("HERO", "CLIMAX") or shot_type in ("HERO", "CLIMAX")
+
+    def _adapt_prompt_for_tier(self, prompt: str, tier: int) -> str:
+        tier_config = self._settings.image_model_registry.for_tier(tier) if hasattr(self._settings, "image_model_registry") else None
+        if tier_config is None:
+            return prompt
+        tier_id = tier_config.id.lower()
+        if "qwen-image" in tier_id:
+            return f"{prompt}, cinematic lighting, rich environmental detail, enhanced realism, strong atmosphere"
+        if "flux.1-dev" in tier_id:
+            return (
+                f"{prompt}, maximum realism, fine texture detail, rich environmental complexity, "
+                "fine cinematic lighting, highest prompt fidelity"
+            )
+        return prompt
+
+    def _score_image(
+        self,
+        scene: dict,
+        image_path: Path,
+        scoring_dir: Path,
+    ) -> tuple[float, str, str]:
+        scoring_dir.mkdir(parents=True, exist_ok=True)
+        reviewer = self._create_single_shot_reviewer()
+        if reviewer is None:
+            return 0.0, "SKIP", "no_reviewer"
+        try:
+            artifact = reviewer.review_scene(scene, image_path, scoring_dir)
+            overall_status = getattr(artifact, "overall_status", "") or artifact.status
+            failure_reason = ""
+            if overall_status == "FAIL":
+                failure_categories = getattr(artifact, "failure_categories", [])
+                if failure_categories:
+                    failure_reason = ", ".join(failure_categories)
+                else:
+                    failure_reason = artifact.status
+            return artifact.score, overall_status, failure_reason
+        except Exception:
+            return 0.0, "ERROR", "scoring_exception"
+
+    def _run_generation_strategy(
+        self,
+        scene: dict,
+        request: ImageRequest,
+        output_path: Path,
+        scene_with_dims: dict,
+        output_dir: Path,
+    ) -> Path:
+        """Adaptive quality optimization with two-candidate generation and tier escalation."""
+        base_prompt = request.prompt
+        scoring_dir = output_dir / "scoring" / f"scene-{scene['index']:03d}"
+        scoring_dir.mkdir(parents=True, exist_ok=True)
+
+        target = self._escalation_config.target_quality_score
+        retry_threshold = self._escalation_config.retry_threshold
+        premium_threshold = self._escalation_config.premium_model_threshold
+
+        # Hero scenes: skip tier 1, generate directly with tier 2
+        if self._is_hero_scene(scene):
+            tier2 = self._settings.image_model_registry.for_tier(2)
+            hero_request = ImageRequest(
+                prompt=self._adapt_prompt_for_tier(base_prompt, 2),
+                output_path=output_path,
+                width=request.width,
+                height=request.height,
+                negative_prompt=request.negative_prompt,
+                model=tier2.id,
+                provider=tier2.provider,
+            )
+            self._provider.generate(hero_request)
+            score, overall_status, _ = self._score_image(scene_with_dims, output_path, scoring_dir / "hero")
+            if score < target or overall_status == "FAIL":
+                tier3 = self._settings.image_model_registry.for_tier(3)
+                tier3_request = ImageRequest(
+                    prompt=self._adapt_prompt_for_tier(base_prompt, 3),
+                    output_path=output_path,
+                    width=request.width,
+                    height=request.height,
+                    negative_prompt=request.negative_prompt,
+                    model=tier3.id,
+                    provider=tier3.provider,
+                )
+                output_path.unlink(missing_ok=True)
+                self._provider.generate(tier3_request)
+            return output_path
+
+        # Stage 1: Two tier-1 candidates, keep highest scoring
+        candidates = self._generate_two_candidates(
+            scene, request, output_path, scene_with_dims, output_dir
+        )
+        if not candidates:
+            return output_path
+
+        best_score, best_path, best_overall_status, best_failure_reason = max(
+            candidates, key=lambda item: item[0]
+        )
+        if best_path != output_path:
+            if output_path.exists():
+                output_path.unlink(missing_ok=True)
+            best_path.rename(output_path)
+        for _, path, status, reason in candidates:
+            if path.exists() and path != output_path:
+                path.unlink(missing_ok=True)
+
+        # Stage 2: Accept if quality target met and no hard-constraint failure
+        if best_overall_status == "PASS" and best_score >= target:
+            return output_path
+
+        # Stage 2a: retry threshold met → refine and retry tier 1 up to max_prompt_refinements times
+        refinement_count = 0
+        current_score = best_score
+        current_overall_status = best_overall_status
+        current_failure_reason = best_failure_reason
+        current_prompt = request.prompt
+        max_refinements = self._escalation_config.max_prompt_refinements
+
+        while (
+            refinement_count < max_refinements
+            and current_score < target
+            and current_score >= retry_threshold
+            and current_overall_status != "PASS"
+        ):
+            refined_prompt = self._refine_prompt_from_score(
+                current_prompt, current_score, current_failure_reason
+            )
+            tier1 = self._settings.image_model_registry.for_tier(1)
+            retry_request = ImageRequest(
+                prompt=refined_prompt,
+                output_path=output_path,
+                width=request.width,
+                height=request.height,
+                negative_prompt=request.negative_prompt,
+                model=tier1.id,
+                provider=tier1.provider,
+                seed=42,
+            )
+            output_path.unlink(missing_ok=True)
+            self._provider.generate(retry_request)
+            retry_score, retry_overall_status, retry_reason = self._score_image(
+                scene_with_dims, output_path, scoring_dir / f"retry-{refinement_count + 1}"
+            )
+            refinement_count += 1
+            if retry_overall_status == "PASS" and retry_score >= target:
+                return output_path
+            current_score = retry_score
+            current_overall_status = retry_overall_status
+            current_failure_reason = retry_reason
+            current_prompt = refined_prompt
+
+        best_score = current_score
+        best_overall_status = current_overall_status
+        best_failure_reason = current_failure_reason
+
+        # Stage 3: Escalate to tier 2
+        if best_score < premium_threshold or best_overall_status == "FAIL":
+            tier2 = self._settings.image_model_registry.for_tier(2)
+            tier2_request = ImageRequest(
+                prompt=self._adapt_prompt_for_tier(base_prompt, 2),
+                output_path=output_path,
+                width=request.width,
+                height=request.height,
+                negative_prompt=request.negative_prompt,
+                model=tier2.id,
+                provider=tier2.provider,
+            )
+            output_path.unlink(missing_ok=True)
+            self._provider.generate(tier2_request)
+            tier2_score, tier2_overall_status, tier2_reason = self._score_image(
+                scene_with_dims, output_path, scoring_dir / "tier2"
+            )
+            if tier2_score < premium_threshold or tier2_overall_status == "FAIL":
+                tier3 = self._settings.image_model_registry.for_tier(3)
+                tier3_request = ImageRequest(
+                    prompt=self._adapt_prompt_for_tier(base_prompt, 3),
+                    output_path=output_path,
+                    width=request.width,
+                    height=request.height,
+                    negative_prompt=request.negative_prompt,
+                    model=tier3.id,
+                    provider=tier3.provider,
+                )
+                output_path.unlink(missing_ok=True)
+                self._provider.generate(tier3_request)
+                tier3_score, tier3_overall_status, tier3_reason = self._score_image(
+                    scene_with_dims, output_path, scoring_dir / "tier3"
+                )
+                if tier3_overall_status == "FAIL" or tier3_score < target:
+                    self._flagged_scenes[scene.get("index", 0)] = {
+                        "status": "flagged_below_target",
+                        "score": tier3_score,
+                        "reason": tier3_reason,
+                    }
+
+        return output_path
+
+    def _refine_prompt_from_score(self, prompt: str, score: float, failed_constraint: str = "") -> str:
+        adaptations = []
+        constraint_lower = failed_constraint.lower()
+        if "anatomy" in constraint_lower or "hand" in constraint_lower:
+            adaptations.append("anatomically correct hands with exactly five fingers per hand")
+        if "composition" in constraint_lower or "crop" in constraint_lower or "framing" in constraint_lower:
+            adaptations.append("strong composition, single focal point, natural leading lines")
+        if "lighting" in constraint_lower or "shadow" in constraint_lower:
+            adaptations.append("cinematic lighting, realistic shadows and highlights")
+        if "face" in constraint_lower or "eye" in constraint_lower:
+            adaptations.append("natural facial expression, symmetric face, realistic eyes")
+        if "text" in constraint_lower or "watermark" in constraint_lower:
+            adaptations.append("no text, no watermark, no artifacts")
+        if "realism" in constraint_lower or "style" in constraint_lower:
+            adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")
+        if not adaptations:
+            if score < 8.5:
+                adaptations.append("cinematic lighting, strong atmosphere")
+            adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")
+        return f"{prompt}, {', '.join(adaptations)}"
+
+    def _create_single_shot_reviewer(self) -> ImageReviewEngine | None:
+        """Create a single-attempt review engine for candidate scoring."""
+        try:
+            from video_core.providers.vision.factory import get_vision_provider
+            from dataclasses import replace
+
+            vision = get_vision_provider(
+                self._review_config.provider,
+                local_model=self._review_config.local_model,
+            )
+            single_shot = replace(self._review_config, max_attempts=1, auto_remediate=False)
+            return ImageReviewEngine(single_shot, vision, self._provider)
+        except Exception:
+            return None
+
+    def _generate_two_candidates(
+        self,
+        scene: dict,
+        request: ImageRequest,
+        output_path: Path,
+        scene_with_dims: dict,
+        output_dir: Path,
+    ) -> list[tuple[float, Path, str, str]]:
+        """Generate two tier-1 candidates, score both with Vision QA, return candidate tuples."""
+        scoring_dir = output_dir / "scoring" / f"scene-{scene['index']:03d}"
+        scoring_dir.mkdir(parents=True, exist_ok=True)
+
+        candidates: list[tuple[float, Path, str, str]] = []
+        reviewer = self._create_single_shot_reviewer()
+
+        for i, seed in enumerate([None, 42], start=1):
+            candidate_path = output_path.with_suffix(f".candidate{i}.png")
+            candidate_request = ImageRequest(
+                prompt=request.prompt,
+                output_path=candidate_path,
+                width=request.width,
+                height=request.height,
+                negative_prompt=request.negative_prompt,
+                model=request.model,
+                provider=request.provider,
+                seed=seed,
+            )
+
+            try:
+                self._provider.generate(candidate_request)
+            except Exception:
+                continue
+
+            score, overall_status, failure_reason = (0.0, "SKIP", "generation_failed")
+            if reviewer is not None:
+                score, overall_status, failure_reason = self._score_image(
+                    scene_with_dims, candidate_path, scoring_dir / f"candidate{i}"
+                )
+
+            candidates.append((score, candidate_path, overall_status, failure_reason))
+
+        if not candidates:
+            try:
+                self._provider.generate(request)
+            except Exception:
+                pass
+            return candidates
+
+        return candidates
 
     def run(
         self,
@@ -82,6 +379,7 @@ class ImagePipeline:
 
         manifest = ImageManifest()
         review_artifacts: list[SceneReviewArtifact] = []
+        self._flagged_scenes = {}
 
         total = len(scenes)
 
@@ -140,12 +438,15 @@ class ImagePipeline:
             )
             from video_core.visual_intelligence.prompt_builder import merge_negative_prompts
             negative_prompt = merge_negative_prompts(negative_prompt, _vi_negative_prompt)
+            tier1 = self._settings.image_model_registry.for_tier(1)
             request = ImageRequest(
                 prompt=scene["visual_prompt"],
                 output_path=output_path,
                 width=self._settings.image_width,
                 height=self._settings.image_height,
                 negative_prompt=negative_prompt,
+                model=tier1.id,
+                provider=tier1.provider,
             )
 
             image_was_new = not output_path.exists()
@@ -156,7 +457,21 @@ class ImagePipeline:
             if image_was_new:
                 if not _w:
                     print(f"[{index}/{total}] {filename}")
-                self._provider.generate(request)
+
+                scene_with_dims = {
+                    **scene,
+                    "width": self._settings.image_width,
+                    "height": self._settings.image_height,
+                }
+                if (
+                    self._review_config.enabled
+                    and self._orchestrator is not None
+                ):
+                    output_path = self._run_generation_strategy(
+                        scene, request, output_path, scene_with_dims, output_dir
+                    )
+                else:
+                    self._provider.generate(request)
 
                 # Human quality validation: regenerate if sharpness is below threshold
                 if (
@@ -207,10 +522,11 @@ class ImagePipeline:
                     output_dir=output_dir,
                 )
                 review_artifacts.append(review_artifact)
+                display_status = getattr(review_artifact, "overall_status", "") or review_artifact.status
                 status_tag = (
                     "PASS"
-                    if review_artifact.status == "PASS"
-                    else review_artifact.status
+                    if display_status == "PASS"
+                    else display_status
                 )
                 if not _w:
                     print(
@@ -219,12 +535,16 @@ class ImagePipeline:
                         f"attempts={review_artifact.attempts})"
                     )
 
+            flagged = self._flagged_scenes.get(scene["index"], {})
             manifest.images.append(
                 ImageArtifact(
                     scene_index=scene["index"],
                     prompt=scene["visual_prompt"],
                     filename=filename,
                     path=output_path,
+                    qa_status=flagged.get("status", ""),
+                    qa_score=flagged.get("score", 0.0),
+                    qa_failure_reason=flagged.get("reason", ""),
                 )
             )
             if _w:
@@ -238,6 +558,19 @@ class ImagePipeline:
             output_dir,
             manifest,
         )
+
+        if self._flagged_scenes:
+            flagged_path = output_dir / "flagged_scenes.json"
+            flagged_path.write_text(
+                json.dumps(
+                    [
+                        {"scene_index": idx, **data}
+                        for idx, data in self._flagged_scenes.items()
+                    ],
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
         if _w:
             _w.stage_complete()

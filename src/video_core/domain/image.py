@@ -24,6 +24,8 @@ class ImageRequest:
 
     model: str | None = None
 
+    provider: str | None = None
+
 
 @dataclass(slots=True)
 class ImageResponse:

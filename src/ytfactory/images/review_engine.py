@@ -97,6 +97,7 @@ class ImageReviewEngine:
         final_specialist_result: VisionReviewResult | None = None
         final_specialist_subject: str = ""
         final_human_qa_stage: dict = {}
+        final_hand_passes: bool = True
 
         for attempt in range(1, self._config.max_attempts + 1):
             if not image_path.exists():
@@ -210,6 +211,7 @@ class ImageReviewEngine:
                 if not hp_passes:
                     passes = False
                     attempt_record["hand_presence_detected"] = True
+                final_hand_passes = hp_passes
 
             remediation.attempt_history.append(attempt_record)
             remediation.total_attempts = attempt
@@ -236,7 +238,20 @@ class ImageReviewEngine:
                     if specialist_result is not None and specialist_subject
                     else result
                 )
-                current_prompt = self._refine_prompt(current_prompt, refinement_result)
+                refined_prompt, sections_changed = self._refine_prompt(current_prompt, refinement_result)
+                attempt_record.update(
+                    {
+                        "failure_category": ", ".join(
+                            sorted({i.category for i in refinement_result.issues if i.severity in ("HIGH", "CRITICAL")})
+                        ) or "score_only",
+                        "confidence": result.confidence,
+                        "root_cause": "; ".join(
+                            {i.description for i in refinement_result.issues if i.severity in ("HIGH", "CRITICAL")}
+                        ) or "quality below threshold",
+                        "sections_changed": sections_changed,
+                    }
+                )
+                current_prompt = refined_prompt
                 remediation.remediation_applied = True
                 logger.info(
                     "Scene {}: review FAIL (score={:.0f}) — refining prompt, attempt {}/{}",
@@ -251,7 +266,14 @@ class ImageReviewEngine:
         if final_result is None:
             final_result = VisionReviewResult.skipped("Image not found")
 
-        # Write per-scene artifacts
+        hqa_passes = final_human_qa_stage.get("human_qa_passed", True)
+        critical = self._compute_overall(
+            result=final_result,
+            specialist_result=final_specialist_result,
+            hand_passes=final_hand_passes,
+            hqa_passes=hqa_passes,
+        )
+
         artifact = SceneReviewArtifact(
             scene_index=idx,
             status=final_result.status,
@@ -262,7 +284,6 @@ class ImageReviewEngine:
             final_prompt=current_prompt,
             model_name=final_result.model_name,
             backend=final_result.backend,
-            recommend_regeneration=final_result.recommend_regeneration,
             error=final_result.error,
             subject_critical=bool(final_specialist_subject),
             specialist_subject=final_specialist_subject,
@@ -279,6 +300,14 @@ class ImageReviewEngine:
             hand_qa_status=final_human_qa_stage.get("hand_qa_status", ""),
             clothing_qa_status=final_human_qa_stage.get("clothing_qa_status", ""),
             prompt_compliance_status=final_human_qa_stage.get("prompt_compliance_status", ""),
+            # Critical Validation Rule — two-stage evaluation
+            overall_status=critical["overall_status"],
+            overall_score=critical["overall_score"],
+            recommend_regeneration=critical["recommend_regeneration"],
+            hard_constraints=critical["hard_constraints"],
+            quality_scores=critical["quality_scores"],
+            failure_categories=critical["failure_categories"],
+            summary=critical["summary"],
         )
         remediation.final_status = final_result.status
 
@@ -492,43 +521,224 @@ class ImageReviewEngine:
 
         return True, "ok"
 
-    def _refine_prompt(self, prompt: str, result: VisionReviewResult) -> str:
+    def _refine_prompt(self, prompt: str, result: VisionReviewResult) -> tuple[str, list[str]]:
         """Append targeted improvements based on review findings.
 
         Never rewrites the original prompt — only appends corrections.
+        Returns (refined_prompt, sections_changed).
         """
         additions: list[str] = []
+        sections_changed: list[str] = []
 
         for issue in result.high_severity_issues:
             cat = issue.category.lower()
-            if "anatomy" in cat or "hand" in issue.description.lower():
+            desc = issue.description.lower()
+            if "anatomy" in cat or "hand" in desc:
                 additions.append(
                     "anatomically correct hands with exactly five fingers per hand"
                 )
+                if "subject" not in sections_changed:
+                    sections_changed.append("subject")
+                if "composition" not in sections_changed:
+                    sections_changed.append("composition")
             elif "face" in cat:
-                additions.append(
-                    "natural facial expression, symmetric face, realistic eyes"
-                )
-            elif "artifact" in cat or "watermark" in issue.description.lower():
+                additions.append("natural facial expression, symmetric face, realistic eyes")
+                if "subject" not in sections_changed:
+                    sections_changed.append("subject")
+            elif "artifact" in cat or "watermark" in desc:
                 additions.append("no watermarks, no text artifacts, no distortions")
+                if "negative_constraints" not in sections_changed:
+                    sections_changed.append("negative_constraints")
             elif "lighting" in cat:
-                additions.append(
-                    "correct lighting direction, realistic shadows and highlights"
-                )
+                additions.append("correct lighting direction, realistic shadows and highlights")
+                if "lighting" not in sections_changed:
+                    sections_changed.append("lighting")
 
         for issue in result.medium_severity_issues:
-            if "blur" in issue.description.lower():
+            desc = issue.description.lower()
+            if "blur" in desc:
                 additions.append("sharp focus, high detail, crisp edges")
-            elif "proportion" in issue.description.lower():
+                if "style" not in sections_changed:
+                    sections_changed.append("style")
+            elif "proportion" in desc:
                 additions.append("correct body proportions, natural posture")
+                if "subject" not in sections_changed:
+                    sections_changed.append("subject")
 
         if not additions:
             additions.append("high quality, no artifacts, photorealistic, sharp focus")
+            if "style" not in sections_changed:
+                sections_changed.append("style")
 
         # Deduplicate while preserving order
         seen: set[str] = set()
         unique = [a for a in additions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
-        return prompt + ", " + ", ".join(unique)
+        return prompt + ", " + ", ".join(unique), sections_changed
+
+    def _compute_overall(
+        self,
+        result: VisionReviewResult,
+        specialist_result: VisionReviewResult | None,
+        hand_passes: bool,
+        hqa_passes: bool,
+    ) -> dict:
+        issues = list(result.issues)
+        if specialist_result:
+            issues.extend(specialist_result.issues)
+
+        hard_constraints = self._compute_hard_constraints(result, specialist_result, hand_passes, hqa_passes)
+        quality_scores = self._compute_quality_scores(result, issues)
+        composite = sum(quality_scores.values()) / max(len(quality_scores), 1) if quality_scores else 0.0
+
+        anatomy_floor = getattr(self._config, "anatomy_floor_threshold", 6.0)
+        anatomy_cap = getattr(self._config, "anatomy_quality_cap", 6.0)
+        anatomy_component = quality_scores.get("anatomy")
+        if anatomy_component is not None and anatomy_component < anatomy_floor:
+            composite = min(composite, anatomy_cap)
+
+        target_score = getattr(self._config, "target_quality_score", 85.0)
+
+        all_hard_pass = all(c["passed"] for c in hard_constraints.values())
+        if not all_hard_pass:
+            overall_status = "FAIL"
+            recommend_regeneration = True
+        elif composite >= target_score:
+            overall_status = "PASS"
+            recommend_regeneration = False
+        else:
+            overall_status = "FAIL"
+            recommend_regeneration = True
+
+        failure_categories = [
+            name
+            for name, constraint in hard_constraints.items()
+            if not constraint["passed"]
+        ]
+        # Add categories from quality score failures when all hard pass but score fails
+        if (
+            all_hard_pass
+            and overall_status == "FAIL"
+            and not failure_categories
+        ):
+            for key, score in quality_scores.items():
+                if score < target_score:
+                    failure_categories.append(key)
+
+        summary_parts = []
+        if not all_hard_pass:
+            summary_parts.append("hard constraint failure")
+        if failure_categories:
+            summary_parts.append(f"failures: {', '.join(failure_categories)}")
+        if not all_hard_pass:
+            summary_parts.append("regeneration required")
+        elif overall_status == "FAIL":
+            summary_parts.append("below quality threshold")
+        if overall_status == "PASS":
+            summary_parts.append("all checks passed")
+
+        return {
+            "overall_status": overall_status,
+            "overall_score": round(composite, 1),
+            "recommend_regeneration": recommend_regeneration,
+            "hard_constraints": hard_constraints,
+            "quality_scores": {k: round(v, 1) for k, v in quality_scores.items()},
+            "failure_categories": list(dict.fromkeys(failure_categories)),
+            "summary": "; ".join(summary_parts) if summary_parts else "validated",
+        }
+
+    def _prompt_compliance_passed(self, result: VisionReviewResult) -> bool:
+        categories = [i.category.lower() for i in result.issues]
+        descriptions = " ".join(i.description.lower() for i in result.issues)
+        if (
+            any("prompt" in c and "compliance" in c for c in categories)
+            or "prompt compliance" in descriptions
+        ):
+            failing = any(
+                i.severity in ("HIGH", "CRITICAL")
+                and ("prompt" in i.category.lower() or "compliance" in i.description.lower())
+                for i in result.issues
+            )
+            return not failing
+        return True
+
+    def _compute_hard_constraints(
+        self,
+        result: VisionReviewResult,
+        specialist_result: VisionReviewResult | None,
+        hand_passes: bool,
+        hqa_passes: bool,
+    ) -> dict:
+        issues = list(result.issues)
+        if specialist_result:
+            issues.extend(specialist_result.issues)
+
+        def _high_sev(category_keywords: list[str]) -> bool:
+            return any(
+                i.severity in ("HIGH", "CRITICAL")
+                and any(kw in i.category.lower() for kw in category_keywords)
+                for i in issues
+            )
+
+        # Prompt compliance
+        prompt_compliance_passed = self._prompt_compliance_passed(result)
+        # Required visibility
+        required_visibility_passed = hand_passes
+        # Composition
+        composition_passed = not _high_sev(["composition", "crop", "framing", "foreground", "background"])
+        # Required objects
+        required_objects_passed = not _high_sev(["object", "missing", "required"])
+        # Anatomy
+        anatomy_passed = not _high_sev(["anatomy", "hand", "finger", "face", "eye", "body", "limb", "arm", "leg", "proportion"])
+        # Text / watermark
+        text_watermark_passed = not _high_sev(["text", "watermark", "logo", "letter", "word", "subtitle", "signature"])
+
+        def _reason(passed: bool) -> str:
+            if passed:
+                return "passed"
+            return "failed"
+
+        return {
+            "prompt_compliance": {"passed": prompt_compliance_passed, "reason": _reason(prompt_compliance_passed)},
+            "required_visibility": {"passed": required_visibility_passed, "reason": _reason(required_visibility_passed)},
+            "composition": {"passed": composition_passed, "reason": _reason(composition_passed)},
+            "required_objects": {"passed": required_objects_passed, "reason": _reason(required_objects_passed)},
+            "anatomy": {"passed": anatomy_passed, "reason": _reason(anatomy_passed)},
+            "text_watermark": {"passed": text_watermark_passed, "reason": _reason(text_watermark_passed)},
+        }
+
+    def _compute_quality_scores(self, result: VisionReviewResult, issues: list[VisionIssue]) -> dict:
+        base = result.score if result.score > 0 else 85.0
+        scores = {
+            "prompt_adherence": base,
+            "composition": base,
+            "lighting": base,
+            "anatomy": base,
+            "realism": base,
+            "storytelling": base,
+        }
+        sev_deduction = {"HIGH": 18.0, "CRITICAL": 20.0, "MEDIUM": 8.0, "LOW": 3.0}
+
+        for issue in issues:
+            category = issue.category.lower()
+            deduction = sev_deduction.get(issue.severity, 8.0)
+
+            if "composition" in category or "crop" in category or "framing" in category:
+                scores["composition"] = max(0.0, scores["composition"] - deduction)
+            if "lighting" in category or "shadow" in category:
+                scores["lighting"] = max(0.0, scores["lighting"] - deduction)
+            if any(
+                kw in category
+                for kw in ["anatomy", "hand", "finger", "face", "eye", "body", "limb", "arm", "leg"]
+            ):
+                scores["anatomy"] = max(0.0, scores["anatomy"] - deduction)
+                scores["realism"] = max(0.0, scores["realism"] - deduction)
+            if any(
+                kw in category
+                for kw in ["text", "watermark", "logo", "letter", "word", "subtitle", "signature"]
+            ):
+                scores["storytelling"] = max(0.0, scores["storytelling"] - deduction)
+
+        return scores
 
     def _regenerate(
         self,

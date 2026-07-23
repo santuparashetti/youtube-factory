@@ -555,7 +555,12 @@ These environment variables in `.env` apply globally to every run.
 | `ANTHROPIC_MODEL` | `claude-haiku-4-5` | Anthropic model ID |
 | `GEMINI_TEXT_MODEL` | `gemini-2.5-flash` | Gemini text model |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-lite-image` | Gemini image model |
-| `HF_IMAGE_MODEL` | `black-forest-labs/FLUX.1-schnell` | Hugging Face image model |
+| `IMAGE_MODEL_TIER1_ID` | `black-forest-labs/FLUX.1-schnell` | Hugging Face image model (tier 1) |
+| `IMAGE_MODEL_TIER1_PROVIDER` | `auto` | HF inference provider for tier 1 |
+| `IMAGE_MODEL_TIER2_ID` | `Qwen/Qwen-Image` | Hugging Face image model (tier 2) |
+| `IMAGE_MODEL_TIER2_PROVIDER` | `auto` | HF inference provider for tier 2 |
+| `IMAGE_MODEL_TIER3_ID` | `black-forest-labs/FLUX.1-dev` | Hugging Face image model (tier 3) |
+| `IMAGE_MODEL_TIER3_PROVIDER` | `auto` | HF inference provider for tier 3 |
 | `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model ID |
 
 ### Image & Video

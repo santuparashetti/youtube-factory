@@ -34,6 +34,15 @@ class SceneReviewArtifact:
     hand_qa_status: str = ""           # Hand QA stage: PASS | FAIL | SKIP | ""
     clothing_qa_status: str = ""       # Clothing QA stage: PASS | FAIL | SKIP | ""
     prompt_compliance_status: str = "" # Prompt Compliance stage: PASS | FAIL | SKIP | ""
+    # Two-stage critical validation result
+    overall_status: str = ""
+    overall_score: float = 0.0
+    recommend_regeneration: bool = False
+    # Critical Validation Rule outputs
+    hard_constraints: dict = field(default_factory=dict)
+    quality_scores: dict = field(default_factory=dict)
+    failure_categories: list[str] = field(default_factory=list)
+    summary: str = ""
 
 
 @dataclass

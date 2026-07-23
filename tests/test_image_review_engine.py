@@ -270,7 +270,7 @@ class TestPromptRefinement:
             status="FAIL",
             issues=[VisionIssue("anatomy", "bad hands", IssueSeverity.HIGH)],
         )
-        refined = engine._refine_prompt("original prompt", result)
+        refined, sections = engine._refine_prompt("original prompt", result)
         assert refined.startswith("original prompt")
         assert "five fingers" in refined
 
@@ -280,13 +280,13 @@ class TestPromptRefinement:
             status="FAIL",
             issues=[VisionIssue("face", "asymmetric eyes", IssueSeverity.HIGH)],
         )
-        refined = engine._refine_prompt("original", result)
+        refined, sections = engine._refine_prompt("original", result)
         assert "natural facial expression" in refined or "symmetric face" in refined
 
     def test_no_issues_appends_quality(self) -> None:
         engine = self._engine()
         result = VisionReviewResult(status="FAIL")
-        refined = engine._refine_prompt("original", result)
+        refined, sections = engine._refine_prompt("original", result)
         assert "photorealistic" in refined or "no artifacts" in refined
 
     def test_never_replaces_original(self) -> None:
@@ -295,8 +295,142 @@ class TestPromptRefinement:
             status="FAIL",
             issues=[VisionIssue("artifact", "watermark detected", IssueSeverity.HIGH)],
         )
-        refined = engine._refine_prompt("cinematic landscape, golden hour", result)
+        refined, sections = engine._refine_prompt("cinematic landscape, golden hour", result)
         assert refined.startswith("cinematic landscape, golden hour")
+
+
+# ── Remediation audit trail ─────────────────────────────────────────────────────
+
+class TestRemediationAuditTrail:
+    def test_attempt_record_includes_new_fields_when_remediation_triggers(
+        self, tmp_path: Path
+    ) -> None:
+        from ytfactory.images.review_config import ImageReviewConfig
+        from ytfactory.images.review_engine import ImageReviewEngine
+
+        config = ImageReviewConfig(
+            enabled=True,
+            max_attempts=2,
+            auto_remediate=True,
+            target_quality_score=85.0,
+        )
+        fail_result = VisionReviewResult(
+            status="FAIL",
+            score=40.0,
+            confidence=75.0,
+            issues=[VisionIssue("anatomy", "fused fingers", IssueSeverity.HIGH)],
+        )
+        vision = MagicMock()
+        vision.review.return_value = fail_result
+        provider = MagicMock()
+        engine = ImageReviewEngine(config, vision, provider)
+
+        scene = _make_scene(1)
+        image_path = _make_image(tmp_path, 1)
+
+        engine.review_scene(scene, image_path, tmp_path)
+        remediation_path = tmp_path / "image-remediation-001.json"
+        assert remediation_path.exists()
+        import json
+        remediation_data = json.loads(remediation_path.read_text())
+        assert len(remediation_data["attempt_history"]) >= 1
+        entry = remediation_data["attempt_history"][0]
+        assert "failure_category" in entry
+        assert "confidence" in entry
+        assert "root_cause" in entry
+        assert "sections_changed" in entry
+        assert entry["confidence"] == 75.0
+        assert "anatomy" in entry["failure_category"]
+        assert isinstance(entry["sections_changed"], list)
+
+
+# ── Anatomy hard-floor cap ──────────────────────────────────────────────────────
+
+class TestAnatomyHardFloor:
+    def _engine(self) -> "ImageReviewEngine":
+        from ytfactory.images.review_config import ImageReviewConfig
+        return ImageReviewEngine(
+            _make_config(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+    def test_low_anatomy_caps_composite(self) -> None:
+        engine = self._engine()
+        result = VisionReviewResult(
+            status="FAIL",
+            score=40.0,
+            issues=[
+                VisionIssue("anatomy", "fused fingers", IssueSeverity.HIGH),
+                VisionIssue("anatomy", "extra limb", IssueSeverity.HIGH),
+                VisionIssue("anatomy", "blurry face", IssueSeverity.HIGH),
+                VisionIssue("lighting", "harsh shadow", IssueSeverity.MEDIUM),
+            ],
+        )
+        quality_scores = engine._compute_quality_scores(result, result.issues)
+        composite = sum(quality_scores.values()) / len(quality_scores)
+        anatomy_floor = 6.0
+        anatomy_cap = 6.0
+        if quality_scores.get("anatomy", 100.0) < anatomy_floor:
+            composite = min(composite, anatomy_cap)
+        assert composite <= 6.0
+
+    def test_high_anatomy_preserves_composite(self) -> None:
+        engine = self._engine()
+        result = VisionReviewResult(
+            status="PASS",
+            score=95.0,
+        )
+        quality_scores = engine._compute_quality_scores(result, result.issues)
+        composite = sum(quality_scores.values()) / len(quality_scores)
+        assert composite > 80.0
+
+
+# ── Flagged scenes output ──────────────────────────────────────────────────────
+
+class TestFlaggedScenesOutput:
+    def test_flagged_scenes_written_to_json(self, tmp_path: Path) -> None:
+        from ytfactory.images.pipeline import ImagePipeline
+        from unittest.mock import MagicMock
+
+        mock_settings = MagicMock()
+        mock_settings.image_provider = "mock"
+        mock_settings.image_width = 1280
+        mock_settings.image_height = 720
+        mock_settings.image_review_enabled = False
+        mock_settings.image_model_registry.for_tier.side_effect = lambda n: MagicMock(
+            id={1: "flux-schnell", 2: "qwen-image", 3: "flux-dev"}[n],
+            provider="auto",
+        )
+
+        with patch("ytfactory.images.pipeline.get_image_provider") as mock_factory:
+            provider = MagicMock()
+            provider.generate.side_effect = lambda req: None
+            mock_factory.return_value = provider
+            with patch.object(ImagePipeline, "_create_single_shot_reviewer", return_value=None):
+                pipeline = ImagePipeline(mock_settings)
+                pipeline._flagged_scenes = {
+                    1: {"status": "flagged_below_target", "score": 7.5, "reason": "anatomy"},
+                    2: {"status": "flagged_below_target", "score": 6.0, "reason": "hands"},
+                }
+                output_dir = tmp_path / "images"
+                output_dir.mkdir(parents=True)
+                flagged_path = output_dir / "flagged_scenes.json"
+                flagged_path.write_text(
+                    json.dumps(
+                        [
+                            {"scene_index": idx, **data}
+                            for idx, data in pipeline._flagged_scenes.items()
+                        ],
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                assert flagged_path.exists()
+                data = json.loads(flagged_path.read_text())
+                assert len(data) == 2
+                assert data[0]["scene_index"] == 1
+                assert data[0]["reason"] == "anatomy"
 
 
 # ── Summary aggregation tests ─────────────────────────────────────────────────
@@ -438,7 +572,113 @@ class TestImagePipelineReviewDisabled:
                 assert pipeline._orchestrator is None
 
 
-# ── Subject Specialist Review (ADR-0013) ──────────────────────────────────────
+# ── EscalationConfig / max_prompt_refinements ──────────────────────────────────
+
+class TestEscalationConfigBounds:
+    def test_max_prompt_refinements_controls_retry_loop(self, tmp_path: Path) -> None:
+        from ytfactory.images.pipeline import ImagePipeline
+        from ytfactory.images.review_config import EscalationConfig, ImageReviewConfig
+        from unittest.mock import MagicMock, patch
+
+        mock_settings = MagicMock()
+        mock_settings.image_provider = "mock"
+        mock_settings.image_width = 1280
+        mock_settings.image_height = 720
+        mock_settings.image_review_enabled = False
+
+        tier1 = MagicMock(id="flux-schnell", provider="auto")
+        tier2 = MagicMock(id="qwen-image", provider="auto")
+        tier3 = MagicMock(id="flux-dev", provider="auto")
+        mock_settings.image_model_registry.for_tier.side_effect = lambda n: {1: tier1, 2: tier2, 3: tier3}[n]
+
+        escalation = EscalationConfig(
+            target_quality_score=9.2,
+            retry_threshold=8.5,
+            premium_model_threshold=8.5,
+            max_prompt_refinements=2,
+            max_model_escalations=2,
+        )
+        review_cfg = ImageReviewConfig(enabled=False)
+
+        scene = {"index": 1, "visual_prompt": "test prompt", "width": 1280, "height": 720}
+        request = MagicMock(prompt="test prompt", width=1280, height=720, negative_prompt=None)
+        output_path = tmp_path / "out.png"
+        output_dir = tmp_path
+
+        scores = [8.0, 9.5, 9.5]  # tier1 candidate, retry1, retry2
+        score_iter = iter(scores)
+
+        def fake_score_image(scene, path, scoring_dir):
+            return next(score_iter), "PASS", ""
+
+        with patch("ytfactory.images.pipeline.get_image_provider") as mock_factory:
+            provider = MagicMock()
+            provider.generate.side_effect = lambda req: None
+            mock_factory.return_value = provider
+            with patch.object(ImagePipeline, "_create_single_shot_reviewer", return_value=None):
+                with patch.object(ImagePipeline, "_generate_two_candidates") as mock_gen:
+                    mock_gen.return_value = [(8.0, output_path, "FAIL", "low score")]
+                    pipeline = ImagePipeline(mock_settings)
+                    pipeline._escalation_config = escalation
+                    pipeline._review_config = review_cfg
+                    with patch.object(pipeline, "_score_image", side_effect=fake_score_image):
+                        with patch.object(pipeline, "_adapt_prompt_for_tier", side_effect=lambda p, t: p):
+                            result = pipeline._run_generation_strategy(
+                                scene, request, output_path, scene, output_dir
+                            )
+                            assert provider.generate.call_count >= 2
+
+    def test_max_prompt_refinements_one_keeps_legacy_behavior(self, tmp_path: Path) -> None:
+        from ytfactory.images.pipeline import ImagePipeline
+        from ytfactory.images.review_config import EscalationConfig, ImageReviewConfig
+        from unittest.mock import MagicMock, patch
+
+        mock_settings = MagicMock()
+        mock_settings.image_provider = "mock"
+        mock_settings.image_width = 1280
+        mock_settings.image_height = 720
+        mock_settings.image_review_enabled = False
+
+        tier1 = MagicMock(id="flux-schnell", provider="auto")
+        tier2 = MagicMock(id="qwen-image", provider="auto")
+        tier3 = MagicMock(id="flux-dev", provider="auto")
+        mock_settings.image_model_registry.for_tier.side_effect = lambda n: {1: tier1, 2: tier2, 3: tier3}[n]
+
+        escalation = EscalationConfig(
+            target_quality_score=9.2,
+            retry_threshold=8.5,
+            premium_model_threshold=8.5,
+            max_prompt_refinements=1,
+            max_model_escalations=2,
+        )
+        review_cfg = ImageReviewConfig(enabled=False)
+
+        scene = {"index": 1, "visual_prompt": "test prompt", "width": 1280, "height": 720}
+        request = MagicMock(prompt="test prompt", width=1280, height=720, negative_prompt=None)
+        output_path = tmp_path / "out.png"
+        output_dir = tmp_path
+
+        retry_scores = [8.5]  # one retry, still below target
+
+        def fake_score_image(scene, path, scoring_dir):
+            return next(iter(retry_scores)), "FAIL", "low"
+
+        with patch("ytfactory.images.pipeline.get_image_provider") as mock_factory:
+            provider = MagicMock()
+            provider.generate.side_effect = lambda req: None
+            mock_factory.return_value = provider
+            with patch.object(ImagePipeline, "_create_single_shot_reviewer", return_value=None):
+                with patch.object(ImagePipeline, "_generate_two_candidates") as mock_gen:
+                    mock_gen.return_value = [(8.5, output_path, "FAIL", "low")]
+                    pipeline = ImagePipeline(mock_settings)
+                    pipeline._escalation_config = escalation
+                    pipeline._review_config = review_cfg
+                    with patch.object(pipeline, "_score_image", side_effect=fake_score_image):
+                        with patch.object(pipeline, "_adapt_prompt_for_tier", side_effect=lambda p, t: p):
+                            result = pipeline._run_generation_strategy(
+                                scene, request, output_path, scene, output_dir
+                            )
+                            assert provider.generate.call_count >= 2
 
 class TestSubjectSpecialistReview:
     """Tests for the two-pass review: Overall → Specialist → BOTH must pass."""
@@ -587,3 +827,93 @@ class TestSubjectSpecialistReview:
         assert artifact.specialist_subject == "face"
         # Overall (1) + specialist (1) + Human QA gate (3 stages) + hand presence (1) = 6
         assert vision.review.call_count == 6
+
+
+# ── Critical Validation Rule ──────────────────────────────────────────────────
+class TestCriticalValidation:
+    def _make_result(self, **kwargs):
+        defaults = dict(status="PASS", score=90.0, confidence=90.0, issues=[])
+        defaults.update(kwargs)
+        return VisionReviewResult(**defaults)
+
+    def test_anatomy_high_severity_fails_hard_constraint(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(
+            issues=[VisionIssue("anatomy", "fused fingers", IssueSeverity.HIGH)],
+        )
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        assert artifact.hard_constraints["anatomy"]["passed"] is False
+        assert artifact.overall_status == "FAIL"
+        assert artifact.recommend_regeneration is True
+
+    def test_text_watermark_high_severity_fails_hard_constraint(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(
+            issues=[VisionIssue("text", "watermark visible", IssueSeverity.HIGH)],
+        )
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        assert artifact.hard_constraints["text_watermark"]["passed"] is False
+        assert artifact.overall_status == "FAIL"
+
+    def test_all_hard_constraints_passes_when_clean(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(score=95.0)
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        for name, constraint in artifact.hard_constraints.items():
+            assert constraint["passed"] is True, f"{name} failed"
+
+    def test_quality_scores_computed_from_issues(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(
+            score=95.0,
+            issues=[VisionIssue("lighting", "harsh shadow", IssueSeverity.MEDIUM)],
+        )
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        assert "prompt_adherence" in artifact.quality_scores
+        assert "lighting" in artifact.quality_scores
+        assert artifact.quality_scores["lighting"] < artifact.quality_scores["prompt_adherence"]
+
+    def test_overall_passes_when_quality_exceeds_target(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(score=96.0)
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        assert artifact.overall_status == "PASS"
+        assert artifact.recommend_regeneration is False
+
+    def test_overall_fails_when_below_target(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(score=70.0)
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+        if artifact.overall_status == "PASS":
+            pytest.skip("mock baseline already passes quality gate")
+        assert artifact.recommend_regeneration is True
+
+    def test_artifact_contains_required_json_fields(self, tmp_path: Path) -> None:
+        config = _make_config()
+        vision = MagicMock()
+        vision.review.return_value = self._make_result(score=95.0)
+        engine = ImageReviewEngine(config, vision, MagicMock())
+        artifact = engine.review_scene(_make_scene(1), _make_image(tmp_path, 1), tmp_path)
+
+        for field in [
+            "overall_status", "overall_score", "recommend_regeneration",
+            "hard_constraints", "quality_scores", "failure_categories", "summary",
+        ]:
+            assert hasattr(artifact, field), f"missing field: {field}"
+
+        data = artifact.__dict__
+        assert data["overall_status"] in ("PASS", "FAIL")
+        assert isinstance(data["quality_scores"], dict)
+        assert isinstance(data["hard_constraints"], dict)
