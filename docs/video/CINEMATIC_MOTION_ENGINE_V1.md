@@ -196,9 +196,13 @@ Rendering should remain efficient.
 Allow configurable quality profiles:
 
 -   Draft
--   Balanced
--   Cinematic
+-   Balanced (default)
+-   Cinematic (new default)
 -   Premium
+
+**Static fallback eliminated:** Unmapped emotions and unrecognized motion types now fall back to `drift` rather than `static`. Asset scenes with unknown animation strings fall back to `slow_zoom` instead of static.
+
+**Duration-aware drift:** Drift magnitude scales with scene duration relative to `reference_duration_seconds` (default 5s), clamped by `max_drift_scale_factor` (default 2.0), so longer scenes maintain continuous motion without fading to a hold.
 
 Premium may enable parallax, depth motion and more advanced transitions.
 

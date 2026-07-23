@@ -56,9 +56,9 @@ def _isolate():
 
 
 class TestConfigValidation:
-    def test_default_is_five(self):
+    def test_default_is_one(self):
         s = SharedSettings()
-        assert s.vision_max_concurrency == 5
+        assert s.vision_max_concurrency == 1
 
     @pytest.mark.parametrize("bad", [0, -1, 101, 200])
     def test_rejects_out_of_range(self, bad):
@@ -83,8 +83,7 @@ class TestSharedLimiter:
     def test_semaphore_size_matches_config(self):
         reset_vision_semaphore()
         sem = get_vision_semaphore()
-        # BoundedSemaphore exposes the initial bound via _initial_value.
-        assert sem._initial_value == 5
+        assert sem._initial_value == 1
 
     def test_two_providers_share_one_semaphore(self):
         reset_vision_semaphore()

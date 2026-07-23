@@ -90,7 +90,7 @@ def _load_settings_defaults() -> dict:
         return {
             "image_provider": "pollinations",
             "tts_provider": "edge",
-            "render_profile": "balanced",
+            "render_profile": "cinematic",
         }
 
 

@@ -69,6 +69,7 @@ def _resolve_motion(
     scale_tier: str,
     cfg: ProfileConfig,
     scene_index: int,
+    scene_duration: float = 5.0,
 ) -> tuple[float, float, float, float, float, float]:
     """
     Resolve (start_scale, end_scale, anchor_x, anchor_y, drift_x, drift_y)
@@ -76,6 +77,10 @@ def _resolve_motion(
 
     scene_index is used only to alternate drift direction so consecutive
     drift scenes don't all pan in the same direction.
+
+    scene_duration is used to scale drift_amount with scene length so
+    shorter scenes feel brisk and longer scenes maintain deliberate
+    continuous movement without fading to a static hold.
     """
     lo, hi = {
         "small": cfg.scale_range_small,
@@ -83,7 +88,10 @@ def _resolve_motion(
         "large": cfg.scale_range_large,
     }.get(scale_tier, cfg.scale_range_medium)
 
-    d = cfg.drift_amount
+    duration_factor = max(
+        1.0, min(scene_duration / cfg.reference_duration_seconds, cfg.max_drift_scale_factor)
+    )
+    d = cfg.drift_amount * duration_factor
     # Alternate drift direction by index (even = left→right, odd = right→left)
     drift_sign = 1.0 if scene_index % 2 == 0 else -1.0
 
@@ -127,13 +135,13 @@ def _resolve_motion(
         case _:
             logger.warning(
                 "_resolve_motion: unrecognized motion_type %r for scene_index=%s — "
-                "falling back to static (no zoom/pan/drift). "
+                "falling back to drift. "
                 "Tier 2 types (fog/dust/particles/light_rays) are deferred; "
                 "add explicit case branches when assets are available.",
                 motion_type,
                 scene_index,
             )
-            return (1.0, 1.0, 0.5, 0.5, 0.0, 0.0)
+            return (1.0, 1.04, 0.5, 0.5, d * drift_sign, 0.0)
 
 
 # ── Asset scene → MotionSpec ──────────────────────────────────────────────────
@@ -145,6 +153,8 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
     MotionSpec so the renderer uses a single unified code path.
 
     If no animation is set, defaults to slow_zoom (brand card standard).
+    Unrecognized animation strings fall back to slow_zoom instead of static
+    to prevent an asset scene from rendering as a frozen frame.
     """
     animation = scene.get("animation", "slow_zoom")
     _, hi = cfg.scale_range_medium
@@ -164,11 +174,11 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
         case _:
             logger.warning(
                 "_asset_motion: unrecognized animation %r — "
-                "falling back to static. Expected: slow_zoom, slow_zoom_out, drift.",
+                "falling back to slow_zoom. Expected: slow_zoom, slow_zoom_out, drift.",
                 animation,
             )
-            ss, es, ax, ay, dx, dy = (1.0, 1.0, 0.5, 0.5, 0.0, 0.0)
-            mtype = "static"
+            ss, es, ax, ay, dx, dy = (1.0, hi, 0.5, 0.5, 0.0, 0.0)
+            mtype = "push_in"
 
     return MotionSpec(
         motion_type=mtype,
@@ -262,7 +272,7 @@ class MotionPlanner:
         emotion_profile = classify_scene(narration, scene_position)
         emotion_name = emotion_profile.emotion.value  # e.g. "curiosity"
 
-        motion_type, scale_tier = profile_map.get(emotion_name, ("static", "small"))
+        motion_type, scale_tier = profile_map.get(emotion_name, ("drift", "small"))
 
         # Override motion type and scale tier based on emotional intensity
         if emotional_intensity == "peak":
@@ -274,8 +284,9 @@ class MotionPlanner:
             motion_type = "drift"
             scale_tier = "small"
 
+        scene_duration = float(scene.get("duration_seconds", 5.0))
         start_s, end_s, ax, ay, dx, dy = _resolve_motion(
-            motion_type, scale_tier, cfg, scene["index"]
+            motion_type, scale_tier, cfg, scene["index"], scene_duration
         )
 
         return MotionSpec(

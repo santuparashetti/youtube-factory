@@ -32,10 +32,10 @@ class Settings(SharedSettings):
 
     # Cinematic quality level applied by MotionPlanner and TransitionPlanner.
     # draft    — static frame, hard cuts (fastest render, no motion)
-    # balanced — simple zoom/pan, cross-dissolves (default)
+    # balanced — simple zoom/pan, cross-dissolves
     # cinematic — full emotion-aware motion + transitions, ease_in_out
     # premium   — wider scale ranges, longer fades
-    render_profile: str = "balanced"
+    render_profile: str = "cinematic"
 
     # ------------------------------------------------------------------
     # Subtitle Intelligence Engine

@@ -794,10 +794,10 @@ def build_pass2_prompt(
         else ""
     )
 
-    welcome_text = welcome or get_welcome()
-    if welcome is None and not get_brand_config().opening.enabled:
+    if not get_brand_config().opening.enabled:
         welcome_block = ""
     else:
+        welcome_text = welcome or get_welcome()
         welcome_block = (
             f"  WELCOME (insert once, after the author's opening sentence):\n"
             f'    "{welcome_text}"'

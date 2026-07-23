@@ -11,8 +11,20 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2545 passing (as of 2026-07-21)  
-**Always run from repo root** — `.env` and `workspace/` are resolved relative to CWD.
+**Test count:** 2641 passing (as of 2026-07-24)
+
+## 2026-07-24 — Bugfix: opening-line leak, missing brand card, static/jerky motion
+- `build_pass2_prompt()`: opening-line welcome_block is now correctly omitted when `opening.enabled=false` (was checking `welcome is None` but caller always passes a string).
+- `pipeline.py`: added `_strip_disabled_opening_line()` to remove matching paragraphs from final `script.md` before downstream stages.
+- `scene_planner.py`: added `_is_opening_scene()` and `_OPENING_TRIGGERS`; `_mark_asset_scenes()` now removes *all* closing/opening-matching scenes and unconditionally appends a new `scene_type="brand_card"` final scene with correct `asset_id`/`asset_path` from `brand_config.yaml`.
+- `_write_script_segments()`: when `opening.enabled=false`, paragraphs matching the disabled opening are tagged `is_opening_line=true` in `script-segments.json`.
+- `motion.py`: removed static fallback — default motion for unmapped emotions is now `("drift","small")`; unrecognized motion types fall back to drift rather than static; asset motion unrecognized animations fall back to `slow_zoom` instead of static.
+- `motion.py`/`profiles.py`: added `reference_duration_seconds` and `max_drift_scale_factor` to `ProfileConfig`; drift magnitude now scales with scene duration so longer scenes maintain continuous motion.
+- `profiles.py`: default `Settings.render_profile` changed from `"balanced"` to `"cinematic"`; `_BALANCED_MAP`/`_CINEMATIC_MAP` updated so `peace`/`revelation` map to `drift` instead of `static`.
+- `image.py` (ImageValidator): `IMG_007` upgraded from WARNING to FAIL (blocking); added exemption for `hold_required=true` scenes.
+- `rendering.py` (RenderingValidator): added critical `REND_007` — final scene must be `scene_type="brand_card"` with correct asset path.
+- Tests: +14 new tests (13 bugfix + 1 early-return regression), 4 updated. Full suite: 2644 passed, 1 skipped, 0 unrelated failures.
+- E2E verification: all 5 checks pass (no opening line in script, final scene brand_card, no static scenes, brand card narration clean, REND_007 pass).
 
 ## 2026-07-13 — Chapters capped at 10 (logical scene-merge); CTA overlay enabled
 `ChaptersGenerator` now caps output at `publish_max_chapters` (default 10), merging adjacent scenes into even contiguous groups when there are more natural chapter boundaries than the cap. Never pads short videos up to the cap. Minimum chapter duration `publish_min_chapter_seconds` (default 10s, YouTube's own rule) is enforced even if it means fewer than the cap. New settings: `publish_max_chapters`, `publish_min_chapter_seconds`. CTA overlay enabled in `config/brand_config.yaml` (`cta_overlay: enabled: true`).

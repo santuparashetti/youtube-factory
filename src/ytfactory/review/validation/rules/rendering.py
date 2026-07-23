@@ -7,6 +7,7 @@ Rules:
   REND_004 [high]     — Final video meets minimum size
   REND_005 [high]     — All expected scene clips are present
   REND_006 [high]     — No unexpected black frames > 100 ms mid-scene
+  REND_007 [critical] — Final scene is the dedicated brand card asset
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from ytfactory.branding.config import get_brand_config
 from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
 
@@ -319,5 +321,42 @@ class RenderingValidator(BaseValidator):
                             scene_index=idx,
                         )
                     )
+
+        # REND_007: Final scene must be the dedicated brand card asset
+        if self._config.is_enabled("REND_007") and scenes:
+            last_scene = scenes[-1]
+            brand_cfg = get_brand_config()
+            expected_asset = brand_cfg.branding.asset_path
+            actual_type = last_scene.get("scene_type", "")
+            actual_asset = last_scene.get("asset_path", "")
+            if actual_type != "brand_card":
+                results.append(
+                    self._fail(
+                        "REND_007",
+                        "Final scene is not the brand card asset",
+                        f"scene_type={actual_type!r}",
+                        "critical",
+                        scene_index=last_scene.get("index"),
+                    )
+                )
+            elif actual_asset != expected_asset:
+                results.append(
+                    self._fail(
+                        "REND_007",
+                        "Final brand card scene uses wrong asset path",
+                        f"asset_path={actual_asset!r}, expected={expected_asset!r}",
+                        "critical",
+                        scene_index=last_scene.get("index"),
+                    )
+                )
+            else:
+                results.append(
+                    self._pass(
+                        "REND_007",
+                        "Final scene is the dedicated brand card asset",
+                        f"scene_type=brand_card, asset_path={actual_asset}",
+                        scene_index=last_scene.get("index"),
+                    )
+                )
 
         return results

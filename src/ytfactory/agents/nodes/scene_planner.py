@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA
+from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA, WELCOME_VARIATIONS
 from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 from ytfactory.agents.state import VideoState
 from ytfactory.branding.config import get_brand_config
@@ -28,6 +28,12 @@ from ytfactory.storage.project_repository import ProjectRepository
 # Derived from branding module so detection tracks new variants from brand config.
 _CLOSING_TRIGGERS: frozenset[str] = frozenset(
     phrase.lower().strip().rstrip(".") for phrase in CLOSING_VARIATIONS + [SOFT_CTA]
+)
+
+# Opening line category — prevents the disabled opening text from being accidentally
+# collected into the closing_block category by _mark_asset_scenes().
+_OPENING_TRIGGERS: frozenset[str] = frozenset(
+    phrase.lower().strip().rstrip(".") for phrase in WELCOME_VARIATIONS if phrase
 )
 
 console = Console()
@@ -188,23 +194,36 @@ def _is_closing_scene(narration: str) -> bool:
     return False
 
 
+def _is_opening_scene(narration: str) -> bool:
+    """Return True if the narration contains the channel's disabled opening line.
+
+    Used defensively to ensure the opening line can never be folded into the
+    closing_block collection by _mark_asset_scenes().
+    """
+    low = _normalise_closing(narration)
+    for trigger in _OPENING_TRIGGERS:
+        t = _normalise_closing(trigger)
+        if t and (t in low or low in t):
+            return True
+    return False
+
+
 def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
     """
-    Post-process the scene list to detect channel closing scenes and mark them
-    as asset scenes so the brand card is used instead of AI image generation.
+    Post-process the scene list to guarantee the FINAL scene of every render is
+    the dedicated brand card asset, with closing/CTA/signature narration attached
+    to it — regardless of whether an existing scene's text happens to match
+    closing/CTA/signature phrasing.
 
     Asset path and animation are read from config/brand_config.yaml so no code
     change is needed when switching channels.
 
     When ``closing_position`` is ``before_final_quote``:
-      - Finds all scenes whose narration matches closing / CTA / signature
-        triggers from the active brand config.
-      - Combines the enabled brand texts (closing + CTA + signature) into a
-        single narration so every piece of branded copy lands on one card.
-      - Keeps only the last matching scene, marks it as the asset card, and
-        removes the other brand scenes so they don't double up.
-      - If no brand scenes are found, appends a brand asset card as the new
-        final scene so the closing is never silently dropped.
+      - Removes every scene whose narration matches closing / CTA / signature
+        triggers OR the opening-line trigger, preventing double-ups.
+      - Appends a new brand asset card as the final scene with the combined
+        narration so the closing is never silently dropped and the last scene
+        is always the dedicated brand card.
 
     Returns the same list, mutated in-place.
     """
@@ -239,48 +258,31 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
         parts.append(brand_cfg.signature.text())
     combined_narration = " ".join(parts)
 
-    closing_list_indices: list[int] = []
-    for list_idx, scene in enumerate(scenes):
-        if _is_closing_scene(scene.get("narration", "")):
-            closing_list_indices.append(list_idx)
+    def _should_remove(scene: dict) -> bool:
+        narration = scene.get("narration", "")
+        return _is_closing_scene(narration) or _is_opening_scene(narration)
 
-    if closing_list_indices:
-        for list_idx in reversed(closing_list_indices[:-1]):
-            scenes.pop(list_idx)
+    scenes[:] = [s for s in scenes if not _should_remove(s)]
 
-        for scene in reversed(scenes):
-            if _is_closing_scene(scene.get("narration", "")):
-                scene["scene_type"] = "asset"
-                scene["asset_path"] = asset_path
-                scene["animation"] = animation
-                scene["visual_prompt"] = ""
-                scene["narration"] = combined_narration
-                logger.info(
-                    "branding: inserted closing asset card at scene {} "
-                    "with combined narration ({} words)",
-                    scene.get("index"),
-                    len(combined_narration.split()),
-                )
-                break
-    else:
-        new_scene = {
-            "index": len(scenes) + 1,
-            "title": "Brand Card",
-            "narration": combined_narration,
-            "duration_seconds": max(5, int(len(combined_narration.split()) * 0.5)),
-            "visual_prompt": "",
-            "visual_metadata": {},
-            "scene_type": "asset",
-            "asset_path": asset_path,
-            "animation": animation,
-        }
-        scenes.append(new_scene)
-        logger.info(
-            "branding: appended closing asset card as scene {} "
-            "with combined narration ({} words)",
-            new_scene["index"],
-            len(combined_narration.split()),
-        )
+    new_scene = {
+        "index": len(scenes) + 1,
+        "title": "Brand Card",
+        "narration": combined_narration,
+        "duration_seconds": max(5, int(len(combined_narration.split()) * 0.5)),
+        "visual_prompt": "",
+        "visual_metadata": {},
+        "scene_type": "brand_card",
+        "asset_id": asset_path,
+        "asset_path": asset_path,
+        "animation": animation,
+    }
+    scenes.append(new_scene)
+    logger.info(
+        "branding: appended closing asset card as scene {} "
+        "with combined narration ({} words)",
+        new_scene["index"],
+        len(combined_narration.split()),
+    )
 
     return scenes
 
@@ -570,6 +572,15 @@ def scene_planner_node(state: VideoState) -> dict:
             f"  [green]✓[/green] Loaded existing scene plan — "
             f"{len(scenes)} scenes, ~{total / 60:.1f} min (skipping LLM calls)"
         )
+
+        # Re-apply brand-card guarantee so cached plans (including plans from
+        # before this fix) always end with the dedicated brand card asset.
+        scenes = _mark_asset_scenes(scenes)
+        existing_plan_path.write_text(
+            json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
         prompts_path = _write_prompts_file(project_id, scenes, style, settings)
         console.print(f"  [green]✓[/green] Image prompts: [dim]{prompts_path}[/dim]")
         project_repo.update_stage(project_id, "scenes", "completed")

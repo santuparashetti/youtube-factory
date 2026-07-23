@@ -7,7 +7,7 @@ Each profile controls:
 - Which motion types are available (simplified vs full emotion mapping)
 
 The profile system is the single place to tune the quality/speed trade-off.
-Profiles are selected via ``Settings.render_profile`` (default: "balanced").
+Profiles are selected via ``Settings.render_profile`` (default: "cinematic").
 """
 
 from __future__ import annotations
@@ -46,6 +46,11 @@ class ProfileConfig:
                 a custom zoompan expression in Phase 3.
         motion_map: Profile-specific Emotion name → (motion_type, scale_tier).
                     "draft" maps everything to static; others use emotion tables.
+        reference_duration_seconds: Reference scene duration (seconds) for
+            scaling drift magnitude. Longer scenes get proportionally larger
+            drift so the motion feels continuous rather than fading to a hold.
+        max_drift_scale_factor: Upper bound on duration-based drift scaling to
+            prevent extreme zoompan values for very short or very long scenes.
     """
 
     scale_range_small: tuple[float, float]
@@ -54,6 +59,8 @@ class ProfileConfig:
     drift_amount: float
     easing: str
     motion_map: dict[str, tuple[str, str]]
+    reference_duration_seconds: float = 5.0
+    max_drift_scale_factor: float = 2.0
 
 
 # ── Emotion → (motion_type, scale_tier) maps ─────────────────────────────────
@@ -82,14 +89,14 @@ _BALANCED_MAP: dict[str, tuple[str, str]] = {
     "wonder": ("pull_out", "medium"),
     "reflection": ("drift", "small"),
     "mystery": ("push_in", "small"),
-    "peace": ("static", "small"),
+    "peace": ("drift", "small"),
     "hope": ("pull_out", "small"),
     "compassion": ("push_in", "small"),
     "urgency": ("push_in", "large"),
     "sadness": ("pull_out", "small"),
     "awe": ("pull_out", "large"),
     "determination": ("push_in", "medium"),
-    "revelation": ("static", "small"),
+    "revelation": ("drift", "small"),
 }
 
 # Cinematic & Premium: full eight motion types, emotion-tuned
@@ -98,15 +105,15 @@ _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
     "wonder": ("pull_out_wide", "large"),
     "reflection": ("drift", "small"),
     "mystery": ("push_in_slow", "small"),
-    "peace": ("static", "small"),
+    "peace": ("drift", "small"),
     "hope": ("tilt_up", "small"),
     "compassion": ("push_in", "small"),
     "urgency": ("push_in_fast", "large"),
     "sadness": ("pull_out", "medium"),
     "awe": ("pull_out_wide", "large"),
     "determination": ("push_in", "medium"),
-    "revelation": ("static", "small"),
-}
+    "revelation": ("drift", "small"),
+  }
 
 # Acceptable-motion sets for the motion-variety rebalancer.
 # Each emotion maps to a small ranked set of alternatives appropriate to its

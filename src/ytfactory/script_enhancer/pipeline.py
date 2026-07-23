@@ -44,6 +44,7 @@ from ytfactory.agents.prompts.script_writer import (
     NARRATION_WPM,
     TARGET_IDEAL_MINUTES,
 )
+from ytfactory.branding.config import get_brand_config
 from ytfactory.config.settings import Settings
 from ytfactory.shared import religion_agnostic
 from ytfactory.shared.scripture import (
@@ -401,6 +402,47 @@ def _classify_intensity(text: str) -> str:
     return "normal"
 
 
+def _strip_disabled_opening_line(script_text: str) -> str:
+    """
+    When opening.enabled is False, remove any paragraph that matches the
+    disabled opening line so it can never leak into narration, subtitles,
+    or scene text.
+    """
+    brand_cfg = get_brand_config()
+    if brand_cfg.opening.enabled:
+        return script_text
+
+    opening_text = brand_cfg.opening.text().strip()
+    if not opening_text:
+        return script_text
+
+    opening_lower = opening_text.lower()
+    opening_fragments = [
+        frag for frag in opening_lower.replace("...", " ").replace(",", " ").split()
+        if frag and len(frag) > 3
+    ]
+    channel_name = brand_cfg.channel_name.lower()
+
+    def _looks_like_opening(para: str) -> bool:
+        p = para.lower().strip()
+        if opening_lower in p or p in opening_lower:
+            return True
+        if channel_name and channel_name in p:
+            word_overlap = sum(1 for f in opening_fragments if f in p)
+            if word_overlap >= max(2, len(opening_fragments) // 2):
+                return True
+        return False
+
+    paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+    kept = []
+    for para in paragraphs:
+        if _looks_like_opening(para):
+            continue
+        kept.append(para.strip())
+
+    return "\n\n".join(kept)
+
+
 def _write_script_segments(script_text: str, script_dir: Path) -> None:
     """
     Parse the final Pass 2 script into ScriptSegment dicts with emotional
@@ -408,16 +450,43 @@ def _write_script_segments(script_text: str, script_dir: Path) -> None:
     source of truth for downstream stages (scene planning, motion, pauses,
     music, retention scoring).
 
-    This is core metadata, not optional enrichment.
+    Paragraphs matching the disabled opening line are tagged with
+    is_opening_line=True so downstream stages can exclude them.
     """
     paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
 
+    brand_cfg = get_brand_config()
+    opening_lower = brand_cfg.opening.text().lower().strip()
+    opening_fragments = [frag.strip() for frag in opening_lower.replace("...", "").replace(",", "").split() if frag.strip()]
+
     segments = []
+    kept_paragraphs = []
     for i, para in enumerate(paragraphs):
         text = para.strip()
         if not text:
             continue
 
+        if not brand_cfg.opening.enabled and opening_lower:
+            para_lower = text.lower().strip()
+            if opening_lower in para_lower or para_lower in opening_lower:
+                segments.append(
+                    {
+                        "index": i,
+                        "text": text,
+                        "start_time": None,
+                        "end_time": None,
+                        "is_hook": False,
+                        "is_rehook": False,
+                        "is_frame_label": False,
+                        "is_bridge": False,
+                        "resolves_story": False,
+                        "is_opening_line": True,
+                        "emotional_intensity": _classify_intensity(text),
+                    }
+                )
+                continue
+
+        kept_paragraphs.append(text)
         intensity = _classify_intensity(text)
         segments.append(
             {
@@ -834,6 +903,7 @@ class DocumentaryScriptEnhancerPipeline:
         )
 
         (script_dir / "script_original.md").write_text(script_text, encoding="utf-8")
+        final_restored = _strip_disabled_opening_line(final_restored)
         (script_dir / "script.md").write_text(final_restored, encoding="utf-8")
 
         # ── Emotional metadata tagging (core metadata for downstream stages) ────

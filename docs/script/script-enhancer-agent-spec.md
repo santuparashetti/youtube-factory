@@ -94,6 +94,7 @@ This gate maps onto the existing Retention & Quality Standards scoring (Hook, St
 - Do not inflate emotional tone into motivational-speaker register.
 - Do not restructure so heavily that `scene_planner` downstream would need materially different visual assets than the original draft implied — flag major visual-symbol changes in Editor's Notes rather than silently introducing them.
 - Do not rewrite, paraphrase, reorder, or merge the closing, CTA, or signature blocks defined in `brand_config.yaml` (e.g. "This is Atma Theory.", the CTA line, "Clear mind. Meaningful life."). These lines are matched verbatim downstream by `scene_planner._mark_asset_scenes()` to place the brand asset card — paraphrasing them causes the trigger match to fail. Pass these blocks through unchanged, even when the rest of the section around them is rewritten. (`scene_planner` now has a fallback that appends the brand card if no match is found, but that fallback should be treated as a safety net, not a substitute for preserving these lines here.)
+- Do not include the disabled channel opening line when `opening.enabled=false` in `brand_config.yaml`. The pipeline strips it at the Final stage; any paraphrase would also be stripped by `_strip_disabled_opening_line()`.
 
 ## 8. Open Questions for Integration (for Sangram/Hemkumar review)
 

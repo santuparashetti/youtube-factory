@@ -251,6 +251,10 @@ def compose_continuous_video(
         intro_seconds=settings.video_intro_seconds,
     )
 
+    # Persist the enriched motion / transitions / effects so the on-disk
+    # scene-plan.json always reflects exactly what was rendered.
+    SceneRepository().save_scenes(project_dir, scenes)
+
     _apply_bgm(tmp, output_path, settings, project_dir)
 
 

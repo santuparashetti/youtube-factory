@@ -56,6 +56,7 @@ Evidence - Suggested root cause - Suggested engine owner
 -   No repeated generic imagery
 -   No visible text or watermarks
 -   Correct aspect ratio and quality
+-   **IMG_007** [critical]: Static-hold duration > `image_static_hold_max_seconds` (default 8s) blocks render unless `hold_required=true`. Skipped for non-static motion.
 
 ## E. Motion Validation
 
@@ -80,6 +81,7 @@ Evidence - Suggested root cause - Suggested engine owner
 -   No corrupted frames
 -   All assets rendered
 -   No missing scenes
+-   **REND_007** [critical]: Final scene of rendered video must be the dedicated brand card asset (`scene_type="brand_card"`, `asset_path` matches `brand_config.yaml`).
 
 ## H. Story Validation
 

@@ -600,7 +600,17 @@ class TestVideoQualityReviewEngine:
 
     def test_pass_on_complete_project(self, tmp_path, monkeypatch):
         self._patch(monkeypatch, tmp_path)
-        scenes = [_make_scene(i, duration_seconds=25.0) for i in range(1, 5)]
+        scenes = [
+            _make_scene(
+                i,
+                duration_seconds=25.0,
+                motion={"motion_type": "drift"},
+            )
+            for i in range(1, 5)
+        ]
+        scenes[-1]["scene_type"] = "brand_card"
+        scenes[-1]["asset_id"] = "assets/branding/atma-theory-brand.png"
+        scenes[-1]["asset_path"] = "assets/branding/atma-theory-brand.png"
         proj = _build_project(tmp_path, scenes, with_assets=True)
         project_id = proj.name
 

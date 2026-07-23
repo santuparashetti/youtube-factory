@@ -218,25 +218,27 @@ class ImageValidator(BaseValidator):
             if self._config.is_enabled("IMG_007") and img_path.exists():
                 threshold = self._config.image_static_hold_max_seconds
                 motion_type = scene.get("motion", {}).get("motion_type", "static")
-                if motion_type != "static":
+                is_static_beat = scene.get("hold_required", False)
+                if motion_type != "static" or is_static_beat:
                     results.append(
                         self._skip(
                             "IMG_007",
-                            f"scene_index={idx}, motion_type={motion_type} "
-                            f"(non-static motion — not a static hold)",
+                            f"scene_index={idx}, motion_type={motion_type}, "
+                            f"hold_required={is_static_beat} "
+                            f"(non-static or intentional static beat — not a static hold)",
                             scene_index=idx,
                         )
                     )
                 elif dur > threshold:
                     results.append(
-                        self._warn(
+                        self._fail(
                             "IMG_007",
                             f"Scene {idx}: static-hold duration {dur:.1f}s exceeds "
                             f"threshold {threshold:.1f}s",
                             f"scene_index={idx}, duration_seconds={dur:.1f}, "
                             f"threshold={threshold:.1f}, asset_type=still_image, "
                             f"motion_type=static",
-                            "medium",
+                            "critical",
                             scene_index=idx,
                             duration_seconds=dur,
                             threshold_seconds=threshold,

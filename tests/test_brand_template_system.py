@@ -697,10 +697,13 @@ class TestScenePlannerUsesAssetPathFromConfig:
         ]
         _mark_asset_scenes(scenes)
 
-        closing_scene = scenes[1]
-        assert closing_scene.get("scene_type") == "asset"
-        assert closing_scene.get("asset_path") == "assets/branding/zen-wave.png"
-        assert closing_scene.get("animation") == "fade_in"
+        assert len(scenes) == 2
+        brand_scene = scenes[-1]
+        assert brand_scene.get("scene_type") == "brand_card"
+        assert brand_scene.get("asset_id") == "assets/branding/zen-wave.png"
+        assert brand_scene.get("asset_path") == "assets/branding/zen-wave.png"
+        assert brand_scene.get("animation") == "fade_in"
+        assert brand_scene.get("narration") == "This is Zen Wave. Join our journey. Breathe and begin."
 
         reset_brand_config_cache()
 
@@ -795,5 +798,48 @@ class TestBrandConfigFutureChannelCompatibility:
         )
         assert "Cosmos Lab" in prompt
         assert "Atma Theory" not in prompt
+
+        reset_brand_config_cache()
+
+    def test_early_return_path_appends_brand_card(self, tmp_path):
+        """When scene-plan.json already exists, _mark_asset_scenes still runs."""
+        from ytfactory.agents.nodes.scene_planner import _mark_asset_scenes
+        import json
+
+        reset_brand_config_cache()
+        p = _write_yaml(
+            tmp_path,
+            {
+                "channel_name": "Zen Wave",
+                "closing": {"template": "This is Zen Wave."},
+                "cta": {"template": "Join us."},
+                "signature": {"template": "Breathe."},
+                "branding": {
+                    "asset_path": "assets/branding/zen-wave.png",
+                    "asset_animation": "fade_in",
+                },
+            },
+        )
+        get_brand_config(config_path=p, reload=True)
+
+        cached = tmp_path / "cached-plan.json"
+        cached.write_text(
+            json.dumps(
+                {
+                    "scenes": [
+                        {"index": 1, "narration": "Intro content.", "title": "Intro"},
+                        {"index": 2, "narration": "Body content.", "title": "Body"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        plan = json.loads(cached.read_text(encoding="utf-8"))
+        scenes = plan.get("scenes", [])
+        _mark_asset_scenes(scenes)
+
+        assert scenes[-1].get("scene_type") == "brand_card"
+        assert scenes[-1].get("asset_path") == "assets/branding/zen-wave.png"
 
         reset_brand_config_cache()

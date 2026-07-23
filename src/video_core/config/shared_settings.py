@@ -57,7 +57,7 @@ class SharedSettings(BaseSettings):
     # vision QA gate so cloud providers don't hit per-user concurrency limits
     # (HTTP 429). Does NOT affect image generation, TTS, WhisperX, or rendering.
     # Validated to 1..100 at load time.
-    vision_max_concurrency: int = 5
+    vision_max_concurrency: int = 1
 
     # ------------------------------------------------------------------
     # Models

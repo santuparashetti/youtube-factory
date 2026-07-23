@@ -518,12 +518,21 @@ class TestPromptBuilders:
         assert "8.5" in prompt
 
     def test_pass2_contains_channel_frame(self):
-        prompt = build_pass2_prompt(
-            topic="Test",
-            script="Script.",
-            welcome="Welcome to this channel.",
-            closing="Thank you for watching.",
+        from unittest.mock import patch
+        from ytfactory.branding.config import BrandConfig, ContentSection
+
+        fake_cfg = BrandConfig(
+            channel_name="Test",
+            opening=ContentSection(enabled=True, template="Welcome to this channel."),
+            closing=ContentSection(enabled=True, template="Thank you for watching."),
         )
+        with patch("ytfactory.branding.config.get_brand_config", return_value=fake_cfg):
+            prompt = build_pass2_prompt(
+                topic="Test",
+                script="Script.",
+                welcome="Welcome to this channel.",
+                closing="Thank you for watching.",
+            )
         assert "Welcome to this channel." in prompt
         assert "Thank you for watching." in prompt
 
@@ -777,3 +786,115 @@ class TestV2ScriptEnhancer:
         assert report["v2_analysis"]["original_source_provided"] is False
         assert report["v2_analysis"]["architecture_analysis"] == {}
         assert report["v2_analysis"]["comparison_report"] == {}
+
+
+# ── Bug 1: Opening-line exclusion ──────────────────────────────────────────────
+
+
+class TestOpeningLineExclusion:
+    """The disabled opening line must never appear in the script, segments, or prompt."""
+
+    def test_pass2_excludes_welcome_when_opening_disabled(self):
+        from unittest.mock import patch
+        from ytfactory.branding.config import BrandConfig, ContentSection
+
+        fake_cfg = BrandConfig(
+            channel_name="Test",
+            opening=ContentSection(enabled=False, template="Welcome to Atma Theory..."),
+            closing=ContentSection(enabled=True, template="This is Atma Theory."),
+        )
+        with patch("ytfactory.branding.config.get_brand_config", return_value=fake_cfg):
+            prompt = build_pass2_prompt(
+                topic="Test",
+                script="Script.",
+                welcome="Welcome to Atma Theory...",
+                closing="This is Atma Theory.",
+            )
+        assert "Welcome to Atma Theory" not in prompt
+        assert "This is Atma Theory." in prompt
+
+    def test_pass2_includes_welcome_when_opening_enabled(self):
+        from unittest.mock import patch
+        from ytfactory.branding.config import BrandConfig, ContentSection
+
+        fake_cfg = BrandConfig(
+            channel_name="Test",
+            opening=ContentSection(enabled=True, template="Welcome to Atma Theory..."),
+            closing=ContentSection(enabled=True, template="This is Atma Theory."),
+        )
+        with patch("ytfactory.branding.config.get_brand_config", return_value=fake_cfg):
+            prompt = build_pass2_prompt(
+                topic="Test",
+                script="Script.",
+                welcome="Welcome to Atma Theory...",
+                closing="This is Atma Theory.",
+            )
+        assert "Welcome to Atma Theory" in prompt
+
+    def test_strip_disabled_opening_line_from_script(self, tmp_path):
+        from ytfactory.script_enhancer.pipeline import _strip_disabled_opening_line
+        from ytfactory.branding.config import BrandConfig, ContentSection, reset_brand_config_cache
+
+        reset_brand_config_cache()
+        p = tmp_path / "brand.yaml"
+        p.write_text(
+            "channel_name: Test\n"
+            "opening:\n  enabled: false\n  template: \"Welcome to Atma Theory... where ancient wisdom meets modern life.\"\n",
+            encoding="utf-8",
+        )
+        brand_cfg = BrandConfig(
+            channel_name="Test",
+            opening=ContentSection(enabled=False, template="Welcome to Atma Theory... where ancient wisdom meets modern life."),
+        )
+        with patch("ytfactory.script_enhancer.pipeline.get_brand_config", return_value=brand_cfg):
+            script = (
+                "Welcome to Atma Theory... where ancient wisdom meets modern life.\n\n"
+                "The nature of suffering is universal.\n\n"
+                "This is Atma Theory."
+            )
+            cleaned = _strip_disabled_opening_line(script)
+            assert "Welcome to Atma Theory" not in cleaned
+            assert "The nature of suffering" in cleaned
+            assert "This is Atma Theory." in cleaned
+
+        reset_brand_config_cache()
+
+    def test_regression_disabled_opening_plus_closing_block(self, tmp_path):
+        """Closing block must contain ONLY closing/CTA/signature when opening is disabled."""
+        from ytfactory.agents.nodes.scene_planner import _mark_asset_scenes
+        from ytfactory.branding.config import BrandConfig, ContentSection, reset_brand_config_cache
+
+        reset_brand_config_cache()
+        p = tmp_path / "brand.yaml"
+        p.write_text(
+            "channel_name: Test\n"
+            "opening:\n  enabled: false\n  template: \"Welcome to Test... where truth meets life.\"\n"
+            "closing:\n  template: \"This is Test.\"\n"
+            "cta:\n  template: \"Join us.\"\n"
+            "signature:\n  template: \"Think deeper.\"\n",
+            encoding="utf-8",
+        )
+        brand_cfg = BrandConfig(
+            channel_name="Test",
+            opening=ContentSection(enabled=False, template="Welcome to Test... where truth meets life."),
+            closing=ContentSection(enabled=True, template="This is Test."),
+            cta=ContentSection(enabled=True, template="Join us."),
+            signature=ContentSection(enabled=True, template="Think deeper."),
+        )
+        with patch("ytfactory.agents.nodes.scene_planner.get_brand_config", return_value=brand_cfg):
+            scenes = [
+                {"index": 1, "narration": "Intro content about the universe.", "title": "Intro"},
+                {"index": 2, "narration": "The nature of suffering is universal.", "title": "Body"},
+                {"index": 3, "narration": "This is Test. Join us. Think deeper.", "title": "Closing"},
+            ]
+            _mark_asset_scenes(scenes)
+
+        assert len(scenes) == 3
+        brand_scene = scenes[-1]
+        assert brand_scene.get("scene_type") == "brand_card"
+        assert "This is Test." in brand_scene.get("narration", "")
+        assert "Join us." in brand_scene.get("narration", "")
+        assert "Think deeper." in brand_scene.get("narration", "")
+        assert "Welcome to Test" not in brand_scene.get("narration", "")
+
+        reset_brand_config_cache()

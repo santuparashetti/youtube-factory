@@ -671,7 +671,7 @@ class TestSceneAssetChecks:
         results = v.validate(tmp_path, scenes, {})
 
         rule = next(r for r in results if r.rule_id == "IMG_007" and r.scene_index == 1)
-        assert rule.status == "WARNING"
+        assert rule.status == "FAIL"
         assert "12.0s" in rule.description
         assert "8.0s" in rule.description
 
@@ -1336,3 +1336,162 @@ class TestEngineIntegration:
         engine = VideoQualityReviewEngine(validation_config=ValidationRulesConfig(enabled=False))
         report = engine.review(proj.name)
         assert report.validation_report["total_rules_run"] == 0
+
+
+# ── Bug 3: Motion and Rendering fixes ─────────────────────────────────────────
+
+
+class TestMotionPlannerFixes:
+    """No static fallback, duration-aware scaling, ease-in-out, and asset fallback."""
+
+    def test_no_static_fallback_for_generated_scenes(self):
+        from video_core.cinematic.motion import MotionPlanner
+        from video_core.cinematic.profiles import ProfileConfig
+
+        cfg = ProfileConfig(
+            scale_range_small=(1.0, 1.05),
+            scale_range_medium=(1.0, 1.10),
+            scale_range_large=(1.0, 1.15),
+            drift_amount=0.05,
+            easing="ease_in_out",
+            motion_map={},
+        )
+        scene = {"index": 1, "narration": "What is truth?", "duration_seconds": 8.0}
+        mplanner = MotionPlanner()
+        spec = mplanner._plan_generated(scene, 0.5, cfg)
+        assert spec.motion_type != "static"
+        assert spec.motion_type in ("drift", "push_in", "push_in_slow", "pull_out", "pull_out_wide", "tilt_up")
+
+    def test_easing_is_nonlinear(self):
+        from video_core.cinematic.ffmpeg_filters import _t_factor
+
+        linear_t = _t_factor(30, "linear")
+        ease_t = _t_factor(30, "ease_in_out")
+        assert linear_t != ease_t, "ease_in_out must differ from linear"
+        assert "3-2" in ease_t, f'expected smoothstep expression, got {ease_t}'
+
+    def test_drift_scales_with_scene_duration(self):
+        from video_core.cinematic.motion import _resolve_motion
+        from video_core.cinematic.profiles import ProfileConfig
+
+        cfg = ProfileConfig(
+            scale_range_small=(1.0, 1.05),
+            scale_range_medium=(1.0, 1.10),
+            scale_range_large=(1.0, 1.15),
+            drift_amount=0.05,
+            easing="ease_in_out",
+            reference_duration_seconds=5.0,
+            max_drift_scale_factor=2.0,
+            motion_map={"curiosity": ("drift", "small")},
+        )
+        short = _resolve_motion("drift", "small", cfg, 0, 2.0)
+        long = _resolve_motion("drift", "small", cfg, 0, 10.0)
+        assert abs(long[4]) > abs(short[4]), "Longer scene must have proportionally larger drift"
+
+    def test_asset_motion_falls_back_to_slow_zoom(self):
+        from video_core.cinematic.motion import _asset_motion
+        from video_core.cinematic.profiles import ProfileConfig
+
+        cfg = ProfileConfig(
+            scale_range_small=(1.0, 1.05),
+            scale_range_medium=(1.0, 1.10),
+            scale_range_large=(1.0, 1.15),
+            drift_amount=0.05,
+            easing="ease_in_out",
+            motion_map={},
+        )
+        spec = _asset_motion({"animation": "nonexistent_animation"}, cfg)
+        assert spec.motion_type != "static"
+        assert spec.motion_type == "push_in"
+
+
+class TestImg007AndRend007:
+    """IMG_007 blocks static holds and REND_007 enforces brand-card final scene."""
+
+    def test_img_007_blocks_static_hold(self, tmp_path, cfg):
+        from ytfactory.review.validation.rules.image import ImageValidator
+
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=128)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting",
+                "duration_seconds": 12.0,
+                "motion": {"motion_type": "static"},
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rule = next(r for r in results if r.rule_id == "IMG_007")
+        assert rule.status == "FAIL"
+
+    def test_img_007_skips_for_hold_required(self, tmp_path, cfg):
+        from ytfactory.review.validation.rules.image import ImageValidator
+
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=128)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting",
+                "duration_seconds": 12.0,
+                "motion": {"motion_type": "static"},
+                "hold_required": True,
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rule = next(r for r in results if r.rule_id == "IMG_007")
+        assert rule.status == "SKIP"
+
+    def test_rend_007_passes_when_brand_card_is_final(self, tmp_path, cfg):
+        from ytfactory.review.validation.rules.rendering import RenderingValidator
+
+        vid_dir = tmp_path / "video"
+        vid_dir.mkdir()
+        (vid_dir / "final.mp4").write_bytes(b"\x00" * 100_000)
+        (vid_dir / "scene-001.mp4").write_bytes(b"\x00" * 15_000)
+        (vid_dir / "scene-002.mp4").write_bytes(b"\x00" * 15_000)
+
+        scenes = [
+            {"index": 1, "title": "Intro", "scene_type": "generated_image"},
+            {
+                "index": 2,
+                "title": "Brand Card",
+                "scene_type": "brand_card",
+                "asset_path": "assets/branding/atma-theory-brand.png",
+            },
+        ]
+        v = RenderingValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rule = next(r for r in results if r.rule_id == "REND_007")
+        assert rule.status == "PASS"
+
+    def test_rend_007_fails_when_final_is_not_brand_card(self, tmp_path, cfg):
+        from ytfactory.review.validation.rules.rendering import RenderingValidator
+
+        vid_dir = tmp_path / "video"
+        vid_dir.mkdir()
+        (vid_dir / "final.mp4").write_bytes(b"\x00" * 100_000)
+        (vid_dir / "scene-001.mp4").write_bytes(b"\x00" * 15_000)
+
+        scenes = [
+            {
+                "index": 1,
+                "title": "Intro",
+                "scene_type": "generated_image",
+            },
+        ]
+        v = RenderingValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rule = next(r for r in results if r.rule_id == "REND_007")
+        assert rule.status == "FAIL"
