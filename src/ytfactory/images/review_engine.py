@@ -582,6 +582,17 @@ class ImageReviewEngine:
         hand_passes: bool,
         hqa_passes: bool,
     ) -> dict:
+        if result.status in ("ERROR", "SKIP"):
+            return {
+                "overall_status": result.status,
+                "overall_score": result.score if result.score > 0 else 0.0,
+                "recommend_regeneration": False,
+                "hard_constraints": {},
+                "quality_scores": {},
+                "failure_categories": [],
+                "summary": result.error or f"review {result.status.lower()}",
+            }
+
         issues = list(result.issues)
         if specialist_result:
             issues.extend(specialist_result.issues)

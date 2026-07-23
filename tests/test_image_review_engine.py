@@ -255,6 +255,8 @@ class TestImageReviewEngineEdgeCases:
         artifact = engine.review_scene(_make_scene(1), image_path, tmp_path)
 
         assert artifact.status == "ERROR"
+        assert artifact.overall_status == "ERROR"
+        assert artifact.overall_score == 0.0
         assert artifact.attempts == 1
 
 
