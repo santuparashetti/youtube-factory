@@ -13,6 +13,13 @@ metadata:
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
 **Test count:** 2644 passing (as of 2026-07-24)
 
+## 2026-07-24 — Renderer CFR enforcement and remediation data-reconstruction fixes
+- `video/ffmpeg.py` `render_continuous()`: added `-r` and `-s` encoding options so the final MP4 is forced CFR at the target frame rate and resolution, eliminating potential VFR judder from concat-joined scene segments.
+- `video/pipeline.py`: brand-card asset scenes now render correctly — added `"brand_card"` to the `scene_type in ("asset", "brand_card")` check so the configured brand asset path is consumed instead of looking for a generated PNG.
+- `review/remediation/engine.py`: fixed `_rca_proxy` / `_efl_proxy` to reconstruct `RCAIssue` and `FeedbackItem` objects from serialised dicts instead of returning empty proxies, so remediation actions are built from actual review failures rather than empty lists.
+- `review/rca/analyzers/rendering.py`: added REND_007 mapping (`missing_brand_card`) so the RCA engine produces actionable remediation instead of falling back to `_unknown_issue` with confidence=0.
+- `review/scoring/scorers/rendering.py`: added REND_007 (10 pts) to `_POINTS` so a missing brand card lowers the quality score and blocks the quality-threshold early-exit path.
+
 ## 2026-07-24 — Motion fixes: zoom visibility, smooth interpolation, duration coverage
 - `ffmpeg_filters.py` / `ffmpeg.py`: changed zoompan `d=total_frames` to `d=1` so the zoom/pan expression is evaluated every output frame — eliminates discrete-step motion and ensures smooth continuous movement.
 - `ffmpeg_filters.py` `_t_factor()`: normalized to `on / (total_frames - 1)` so t reaches exactly 1.0 on the final frame, ensuring `end_scale` is fully reached.

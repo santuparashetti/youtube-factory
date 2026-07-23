@@ -339,7 +339,7 @@ class VideoPipeline:
 
             # Asset scenes reference their asset_path directly instead of
             # an AI-generated image in the images/ directory.
-            if scene.get("scene_type") == "asset":
+            if scene.get("scene_type") in ("asset", "brand_card"):
                 asset_path = Path(scene.get("asset_path", ""))
                 if not asset_path.is_absolute():
                     asset_path = Path.cwd() / asset_path

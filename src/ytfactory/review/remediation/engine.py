@@ -354,10 +354,30 @@ def _rca_proxy(d: object | None) -> object | None:
     if hasattr(d, "issues"):
         return d  # duck-typed
     if isinstance(d, dict):
+        raw_issues = d.get("issues", [])
+
+        class _RCAIssueProxy:
+            def __init__(self, data: dict) -> None:
+                self.issue_id = data.get("issue_id", "")
+                self.rule_id = data.get("rule_id", "")
+                self.category = data.get("category", "")
+                self.root_cause_code = data.get("root_cause_code", "")
+                self.root_cause_description = data.get("root_cause_description", "")
+                self.confidence = int(data.get("confidence", 0))
+                self.severity = data.get("severity", "")
+                self.evidence = data.get("evidence", "")
+                self.primary_engine = data.get("primary_engine", "")
+                self.secondary_engines = data.get("secondary_engines", [])
+                self.suggested_fix = data.get("suggested_fix", "")
+                self.suggested_tests = data.get("suggested_tests", [])
+                self.timestamp = data.get("timestamp", "")
+                self.scene_index = data.get("scene_index")
+                self.timestamp_seconds = data.get("timestamp_seconds")
+                self.debug_metadata = data.get("debug_metadata", {})
 
         class _Proxy:
-            issues: list = []
-            recurring_issues: list = []
+            issues: list = [_RCAIssueProxy(i) for i in raw_issues]
+            recurring_issues: list = d.get("recurring_issues", [])
 
         return _Proxy()
     return None
@@ -369,10 +389,29 @@ def _efl_proxy(d: object | None) -> object | None:
     if hasattr(d, "feedback_items"):
         return d  # duck-typed (MagicMock works fine here)
     if isinstance(d, dict):
+        raw_items = d.get("feedback_items", [])
+
+        class _FeedbackItemProxy:
+            def __init__(self, data: dict) -> None:
+                self.feedback_id = data.get("feedback_id", "")
+                self.engine_owner = data.get("engine_owner", "")
+                self.source_issue = data.get("source_issue", "")
+                self.root_cause = data.get("root_cause", "")
+                self.severity = data.get("severity", "")
+                self.confidence = int(data.get("confidence", 0))
+                self.frequency = data.get("frequency", 1)
+                self.evidence = data.get("evidence", "")
+                self.recommended_fix = data.get("recommended_fix", "")
+                self.suggested_tests = data.get("suggested_tests", [])
+                self.expected_outcome = data.get("expected_outcome", "")
+                self.priority = data.get("priority", "")
+                self.is_recurring = data.get("is_recurring", False)
+                self.category = data.get("category", "")
+                self.rule_id = data.get("rule_id", "")
 
         class _Proxy:
-            feedback_items: list = []
-            recurring_patterns: list = []
+            feedback_items: list = [_FeedbackItemProxy(i) for i in raw_items]
+            recurring_patterns: list = d.get("recurring_patterns", [])
 
         return _Proxy()
     return None

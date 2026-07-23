@@ -349,6 +349,10 @@ class FFmpegRenderer:
             "[_vout]",
             "-map",
             "[_aout]",
+            "-r",
+            str(fps),
+            "-s",
+            f"{W}x{H}",
             *enc,
             str(output_path),
         ]

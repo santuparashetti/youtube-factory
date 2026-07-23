@@ -104,6 +104,29 @@ _MAPPINGS: dict[str, RuleMapping] = {
             "Test VideoRenderer aborts concatenation when any clip is missing",
         ],
     ),
+    "REND_007": RuleMapping(
+        root_cause_code="missing_brand_card",
+        root_cause_description=(
+            "Final scene is not the dedicated brand card asset — "
+            "closing/CTA/signature block was not matched and the fallback "
+            "brand card append did not fire, or the scene list was reverted "
+            "to a stale cached plan without the brand card"
+        ),
+        rca_category="branding",
+        primary_engine="Scene Planner",
+        secondary_engines=["Branding Config", "Video Renderer"],
+        base_confidence=95,
+        suggested_fix=(
+            "Ensure _mark_asset_scenes() always appends a brand_card scene "
+            "as the final scene; re-apply it on cached plan reload so stale "
+            "plans are repaired on re-render"
+        ),
+        suggested_tests=[
+            "Assert scene_plan.json ends with scene_type=brand_card",
+            "Test _mark_asset_scenes appends brand card when no closing match is found",
+            "Test cached plan path re-appends brand card on reload",
+        ],
+    ),
 }
 
 
