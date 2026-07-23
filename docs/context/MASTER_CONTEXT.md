@@ -11,7 +11,14 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2641 passing (as of 2026-07-24)
+**Test count:** 2644 passing (as of 2026-07-24)
+
+## 2026-07-24 — Motion fixes: zoom visibility, smooth interpolation, duration coverage
+- `ffmpeg_filters.py` / `ffmpeg.py`: changed zoompan `d=total_frames` to `d=1` so the zoom/pan expression is evaluated every output frame — eliminates discrete-step motion and ensures smooth continuous movement.
+- `ffmpeg_filters.py` `_t_factor()`: normalized to `on / (total_frames - 1)` so t reaches exactly 1.0 on the final frame, ensuring `end_scale` is fully reached.
+- `profiles.py`: increased scale ranges — small now 1.0→1.10, medium 1.0→1.15, large 1.0→1.22 (cinematic). Premium reaches 1.25. Drift amounts increased 15-20%.
+- `profiles.py`: removed `"static"` from all `_ACCEPTABLE_MOTIONS` entries; `get_acceptable_motions()` default changed from `["static"]` to `["drift"]` so the rebalancer never reintroduces static motion.
+- Per-scene motion diagnostics verified: all scenes have continuous non-static motion; zoom deltas visible (≥5%); easing smooth; no premature static fallback.
 
 ## 2026-07-24 — Bugfix: opening-line leak, missing brand card, static/jerky motion
 - `build_pass2_prompt()`: opening-line welcome_block is now correctly omitted when `opening.enabled=false` (was checking `welcome is None` but caller always passes a string).

@@ -122,22 +122,22 @@ _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
 _ACCEPTABLE_MOTIONS: dict[str, list[str]] = {
     "curiosity": ["push_in", "drift"],
     "wonder": ["pull_out", "drift"],
-    "reflection": ["drift", "static"],
+    "reflection": ["drift", "push_in"],
     "mystery": ["push_in", "drift"],
-    "peace": ["static", "drift"],
+    "peace": ["drift", "push_in"],
     "hope": ["pull_out", "push_in"],
     "compassion": ["push_in", "drift"],
     "urgency": ["push_in", "drift"],
     "sadness": ["pull_out", "drift"],
     "awe": ["pull_out", "drift"],
     "determination": ["push_in", "drift"],
-    "revelation": ["static", "drift"],
+    "revelation": ["drift", "push_in"],
 }
 
 
 def get_acceptable_motions(emotion: str) -> list[str]:
     """Return ranked acceptable motion types for an emotion."""
-    return list(_ACCEPTABLE_MOTIONS.get(emotion, ["static"]))
+    return list(_ACCEPTABLE_MOTIONS.get(emotion, ["drift"]))
 
 
 # ── Profile registry ─────────────────────────────────────────────────────────
@@ -152,26 +152,26 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         motion_map=_STATIC_MAP,
     ),
     RenderProfile.BALANCED: ProfileConfig(
-        scale_range_small=(1.0, 1.07),
-        scale_range_medium=(1.0, 1.12),
-        scale_range_large=(1.0, 1.15),
-        drift_amount=0.04,
+        scale_range_small=(1.0, 1.10),
+        scale_range_medium=(1.0, 1.15),
+        scale_range_large=(1.0, 1.20),
+        drift_amount=0.05,
         easing="linear",
         motion_map=_BALANCED_MAP,
     ),
     RenderProfile.CINEMATIC: ProfileConfig(
-        scale_range_small=(1.0, 1.07),
-        scale_range_medium=(1.0, 1.12),
-        scale_range_large=(1.0, 1.18),
-        drift_amount=0.05,
+        scale_range_small=(1.0, 1.10),
+        scale_range_medium=(1.0, 1.15),
+        scale_range_large=(1.0, 1.22),
+        drift_amount=0.06,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
     ),
     RenderProfile.PREMIUM: ProfileConfig(
         scale_range_small=(1.0, 1.10),
-        scale_range_medium=(1.0, 1.15),
-        scale_range_large=(1.0, 1.22),
-        drift_amount=0.06,
+        scale_range_medium=(1.0, 1.18),
+        scale_range_large=(1.0, 1.25),
+        drift_amount=0.07,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,  # same categories, wider range
     ),

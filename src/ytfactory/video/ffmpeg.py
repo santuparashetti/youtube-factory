@@ -70,7 +70,7 @@ class FFmpegRenderer:
 
         return (
             f"zoompan=z={zoom_expr}:x={x_expr}:y={y_expr}"
-            f":d={total_frames}:s={width}x{height}:fps={fps}"
+            f":d=1:s={width}x{height}:fps={fps}"
         )
 
     # ── Visual effects ────────────────────────────────────────────────────────
@@ -285,10 +285,9 @@ class FFmpegRenderer:
             vf_parts += self._fade_filters(t_in, t_out, fps, dur)
 
             # Cap to exact scene duration before subtitle rendering.
-            # zoompan outputs d frames PER input frame when fed a video stream
-            # (as -loop 1 creates), so without this trim the timeline grows as
-            # dur² × fps seconds. Filter-graph backpressure means only
-            # total_frames frames are actually computed — no extra work.
+            # zoompan with d=1 produces exactly total_frames output frames,
+            # matching the input duration, so the trim is a safety net for
+            # any clock skew between the looped image and the audio track.
             vf_parts.append(f"trim=duration={dur:.4f},setpts=PTS-STARTPTS")
 
             if subtitle is not None:

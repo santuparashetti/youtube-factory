@@ -15,11 +15,14 @@ from __future__ import annotations
 def _t_factor(total_frames: int, easing: str) -> str:
     """Return an FFmpeg expression for the time interpolation factor t ∈ [0, 1].
 
-    linear:       t = on / total_frames
+    Uses exact normalization so the final frame reaches t=1.0 exactly,
+    ensuring end_scale is fully reached rather than undershooting.
+
+    linear:       t = on / (total_frames - 1)
     ease_in_out:  smoothstep(t) = t²·(3 − 2t)  — no pow() needed
     """
-    inv_n = 1.0 / max(total_frames, 1)
-    t = f"{inv_n:.8f}*on"
+    inv_n = 1.0 / max(total_frames - 1, 1)
+    t = f"(on)*{inv_n:.8f}"
     if easing == "ease_in_out":
         return f"({t})*({t})*(3-2*({t}))"
     return t
@@ -94,5 +97,5 @@ def build_zoompan_filter(
 
     return (
         f"zoompan=z={z_expr}:x={x_expr}:y={y_expr}"
-        f":d={total_frames}:s={width}x{height}:fps={fps}"
+        f":d=1:s={width}x{height}:fps={fps}"
     )
