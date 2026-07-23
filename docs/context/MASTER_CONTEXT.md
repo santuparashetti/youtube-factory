@@ -227,7 +227,7 @@ src/
 | LLM | `LLM_PROVIDER` | `gemini` → `OpenAICompatibleProvider` |
 | LLM model | `ANTHROPIC_MODEL` | `claude-haiku-4-5` via LiteLLM proxy |
 | Search | `SEARCH_PROVIDER` | `tavily` |
-| Image | `IMAGE_PROVIDER` | `huggingface` (FLUX.1-schnell) |
+| Image | `IMAGE_PROVIDER` | `huggingface` (multi-tier: FLUX.1-schnell / Qwen-Image / FLUX.1-dev via `IMAGE_MODEL_TIER{1,2,3}_ID`) |
 | TTS | `TTS_PROVIDER` | `kokoro` (KokoroProvider — local neural TTS) |
 | TTS (premium) | `CARTESIA_MODEL` | `sonic-3.5` via CartesiaTTSProvider |
 | Vision | `VISION_REVIEW_PROVIDER` | `local` (Qwen2.5-VL-3B via llama.cpp) |

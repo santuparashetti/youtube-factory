@@ -140,11 +140,11 @@ def _ask_profile(default: str = "Cinematic") -> str:
 
 
 def _ask_target_minutes() -> int:
-    answer = questionary.text("Target duration in minutes (5–10):", default="7").ask()
+    answer = questionary.text("Target duration in minutes (1–10):", default="8").ask()
     try:
-        return max(5, min(10, int(answer or "7")))
+        return max(1, min(10, int(answer or "8")))
     except ValueError:
-        return 7
+        return 8
 
 
 def _confirm_launch(params: dict) -> bool:

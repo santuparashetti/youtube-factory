@@ -882,3 +882,121 @@ class TestBackwardCompatibility:
         from ytfactory.agents.state import VideoState
 
         assert "review_result" in VideoState.__annotations__
+
+
+# ── TestEditorNotesIntegration ─────────────────────────────────────────────────
+
+
+class TestEditorNotesIntegration:
+    def _patch(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("ytfactory.review.engine.WORKSPACE_DIR", str(tmp_path))
+
+    def _build_project_with_report(
+        self, tmp_path, report_data: dict, with_assets: bool = True
+    ) -> Path:
+        scenes = [_make_scene(i, duration_seconds=25.0) for i in range(1, 4)]
+        proj = _build_project(tmp_path, scenes, with_assets=with_assets)
+        script_dir = proj / "script"
+        (script_dir / "enhancement-report.json").write_text(
+            json.dumps(report_data), encoding="utf-8"
+        )
+        return proj
+
+    def test_missing_report_does_not_crash(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, tmp_path)
+        scenes = [_make_scene(i, duration_seconds=25.0) for i in range(1, 4)]
+        proj = _build_project(tmp_path, scenes, with_assets=True)
+        project_id = proj.name
+
+        engine = VideoQualityReviewEngine()
+        report = engine.review(project_id)
+
+        assert isinstance(report, ReviewReport)
+        assert report.verdict in ("PASS", "FAIL")
+
+    def test_empty_editors_notes_does_not_crash(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, tmp_path)
+        report_data = {
+            "pass1": {},
+            "pass2": {},
+            "final": {},
+            "v2_analysis": {},
+            "editors_notes": {},
+        }
+        proj = self._build_project_with_report(tmp_path, report_data)
+        project_id = proj.name
+
+        engine = VideoQualityReviewEngine()
+        report = engine.review(project_id)
+
+        assert isinstance(report, ReviewReport)
+        assert report.verdict in ("PASS", "FAIL")
+
+    def test_rule_skips_deducts_story_flow_score(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, tmp_path)
+        report_data = {
+            "pass1": {},
+            "pass2": {},
+            "final": {},
+            "v2_analysis": {},
+            "editors_notes": {
+                "dominant_visual_symbol": "river",
+                "rule_skips": "Rule 3: One continuous journey",
+                "factual_gaps": "none",
+            },
+        }
+        proj = self._build_project_with_report(tmp_path, report_data)
+        project_id = proj.name
+
+        engine = VideoQualityReviewEngine()
+        report = engine.review(project_id)
+
+        assert any("ENH_SF_RULE" in v for v in report.pipeline_qa_score["violations"])
+        assert report.pipeline_qa_score["breakdown"]["story_flow"] < 100.0
+
+    def test_factual_gaps_deducts_hook_score(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, tmp_path)
+        report_data = {
+            "pass1": {},
+            "pass2": {},
+            "final": {},
+            "v2_analysis": {},
+            "editors_notes": {
+                "dominant_visual_symbol": "tree",
+                "rule_skips": "none",
+                "factual_gaps": "Year 1845 mentioned without source",
+            },
+        }
+        proj = self._build_project_with_report(tmp_path, report_data)
+        project_id = proj.name
+
+        engine = VideoQualityReviewEngine()
+        report = engine.review(project_id)
+
+        assert any("ENH_CONTENT" in v for v in report.pipeline_qa_score["violations"])
+        assert report.pipeline_qa_score["breakdown"]["hook"] < 100.0
+
+    def test_dominant_visual_symbol_missing_in_script_warns(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, tmp_path)
+        report_data = {
+            "pass1": {},
+            "pass2": {},
+            "final": {},
+            "v2_analysis": {},
+            "editors_notes": {
+                "dominant_visual_symbol": "golden_bridge",
+                "rule_skips": "none",
+                "factual_gaps": "none",
+            },
+        }
+        proj = self._build_project_with_report(tmp_path, report_data)
+        project_id = proj.name
+
+        # Update script so it does NOT mention the symbol
+        (proj / "script" / "script.md").write_text("No bridge here.", encoding="utf-8")
+
+        engine = VideoQualityReviewEngine()
+        report = engine.review(project_id)
+
+        assert any("golden_bridge" in w for w in report.all_warnings)
+

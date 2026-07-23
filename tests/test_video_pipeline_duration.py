@@ -147,4 +147,4 @@ class TestVideoIntroSettings:
     def test_intro_seconds_default(self):
         from ytfactory.config.settings import Settings
         s = Settings()
-        assert s.video_intro_seconds == pytest.approx(1.5)
+        assert s.video_intro_seconds == pytest.approx(0.3)

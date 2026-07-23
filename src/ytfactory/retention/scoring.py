@@ -16,6 +16,7 @@ CATEGORY_WEIGHTS = {
 RETENTION_RULE_IDS = {
     "STOR_006", "STOR_007", "STOR_008", "STOR_009", "STOR_010",
     "MOT_005", "MOT_006",
+    "ENH_SF_RULE", "ENH_CONTENT", "ENH_VISUAL",
 }
 
 RETENTION_RULE_WEIGHTS: dict[str, float] = {
@@ -26,6 +27,9 @@ RETENTION_RULE_WEIGHTS: dict[str, float] = {
     "STOR_010": 10.0,
     "MOT_005": 25.0,
     "MOT_006": 10.0,
+    "ENH_SF_RULE": 15.0,
+    "ENH_CONTENT": 10.0,
+    "ENH_VISUAL": 10.0,
 }
 
 
@@ -90,7 +94,7 @@ def build_post_render_score(val_report: ValidationReport) -> RetentionScoreResul
 
 
 def _rule_category(rule_id: str) -> str:
-    if rule_id in {"STOR_006", "STOR_007", "STOR_008"}:
+    if rule_id in {"STOR_006", "STOR_007", "STOR_008", "ENH_SF_RULE"}:
         return "story_flow"
     if rule_id in {"MOT_005", "MOT_006"}:
         return "visuals_editing"

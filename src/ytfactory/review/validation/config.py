@@ -78,6 +78,15 @@ class ValidationRulesConfig:
         ]
     )
 
+    # IMG_007: Static asset duration cap
+    # For generated_image scenes whose narration exceeds this duration, a still
+    # image is flagged as a static hold.  Asset scenes (brand cards) are exempt.
+    image_static_hold_max_seconds: float = 8.0
+
+    # IMG_008: Brightness floor for warmth/intimacy scenes
+    # Average luminance (0–255) below this value triggers a flag.
+    image_brightness_min_luminance: float = 40.0
+
     # ── Motion ────────────────────────────────────────────────────────────
     motion_min_scene_duration_seconds: float = 2.0
     motion_max_scene_duration_seconds: float = 120.0

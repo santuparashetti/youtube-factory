@@ -196,23 +196,92 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
     Asset path and animation are read from config/brand_config.yaml so no code
     change is needed when switching channels.
 
-    Scans backwards from the end (up to 3 scenes) so that the brand card
-    appears for the CTA and closing phrase without touching main content.
+    When ``closing_position`` is ``before_final_quote``:
+      - Finds all scenes whose narration matches closing / CTA / signature
+        triggers from the active brand config.
+      - Combines the enabled brand texts (closing + CTA + signature) into a
+        single narration so every piece of branded copy lands on one card.
+      - Keeps only the last matching scene, marks it as the asset card, and
+        removes the other brand scenes so they don't double up.
+      - If no brand scenes are found, appends a brand asset card as the new
+        final scene so the closing is never silently dropped.
+
     Returns the same list, mutated in-place.
     """
     brand_cfg = get_brand_config()
+
+    if not brand_cfg.closing.enabled or not brand_cfg.branding.asset_path:
+        logger.debug(
+            "branding: skipped closing asset card — "
+            "closing.enabled={} asset_path={!r}",
+            brand_cfg.closing.enabled,
+            brand_cfg.branding.asset_path,
+        )
+        return scenes
+
+    position = brand_cfg.branding.closing_position
+    if position != "before_final_quote":
+        logger.debug(
+            "branding: skipped closing asset card — unsupported position: {}",
+            position,
+        )
+        return scenes
+
     asset_path = brand_cfg.branding.asset_path
     animation = brand_cfg.branding.asset_animation
 
-    for i in range(len(scenes) - 1, -1, -1):
-        if scenes[i].get("scene_type") == "asset":
-            break
-        if _is_closing_scene(scenes[i].get("narration", "")):
-            scenes[i]["scene_type"] = "asset"
-            scenes[i]["asset_path"] = asset_path
-            scenes[i]["animation"] = animation
-            scenes[i]["visual_prompt"] = ""
-            break
+    parts: list[str] = []
+    if brand_cfg.closing.enabled and brand_cfg.closing.text():
+        parts.append(brand_cfg.closing.text())
+    if brand_cfg.cta.enabled and brand_cfg.cta.text():
+        parts.append(brand_cfg.cta.text())
+    if brand_cfg.signature.enabled and brand_cfg.signature.text():
+        parts.append(brand_cfg.signature.text())
+    combined_narration = " ".join(parts)
+
+    closing_list_indices: list[int] = []
+    for list_idx, scene in enumerate(scenes):
+        if _is_closing_scene(scene.get("narration", "")):
+            closing_list_indices.append(list_idx)
+
+    if closing_list_indices:
+        for list_idx in reversed(closing_list_indices[:-1]):
+            scenes.pop(list_idx)
+
+        for scene in reversed(scenes):
+            if _is_closing_scene(scene.get("narration", "")):
+                scene["scene_type"] = "asset"
+                scene["asset_path"] = asset_path
+                scene["animation"] = animation
+                scene["visual_prompt"] = ""
+                scene["narration"] = combined_narration
+                logger.info(
+                    "branding: inserted closing asset card at scene {} "
+                    "with combined narration ({} words)",
+                    scene.get("index"),
+                    len(combined_narration.split()),
+                )
+                break
+    else:
+        new_scene = {
+            "index": len(scenes) + 1,
+            "title": "Brand Card",
+            "narration": combined_narration,
+            "duration_seconds": max(5, int(len(combined_narration.split()) * 0.5)),
+            "visual_prompt": "",
+            "visual_metadata": {},
+            "scene_type": "asset",
+            "asset_path": asset_path,
+            "animation": animation,
+        }
+        scenes.append(new_scene)
+        logger.info(
+            "branding: appended closing asset card as scene {} "
+            "with combined narration ({} words)",
+            new_scene["index"],
+            len(combined_narration.split()),
+        )
+
     return scenes
 
 
@@ -581,6 +650,7 @@ def scene_planner_node(state: VideoState) -> dict:
         f"{len(generated_scenes)}/{len(scenes)} scenes)[/dim]..."
     )
     vp_map: dict[int, str] = {}
+    _vm_map: dict[int, dict] = {}
     visual_diary: list[
         str
     ] = []  # cross-batch continuity: short summaries of prompts already written
@@ -625,9 +695,13 @@ def scene_planner_node(state: VideoState) -> dict:
                 )
                 for item, scene in zip(vp_list, batch):
                     vp_map[scene["index"]] = item["visual_prompt"]
+                    if "visual_metadata" in item:
+                        _vm_map[scene["index"]] = item["visual_metadata"]
             else:
                 for item in vp_list:
                     vp_map[item["index"]] = item["visual_prompt"]
+                    if "visual_metadata" in item:
+                        _vm_map[item["index"]] = item["visual_metadata"]
 
             # Update visual diary for the next batch — first ~72 chars capture subject + environment
             for scene in batch:
@@ -646,11 +720,6 @@ def scene_planner_node(state: VideoState) -> dict:
             )
 
     # Apply prompts and visual_metadata; fall back to title-based placeholder for any missed scene
-    _vm_map: dict[int, dict] = {}
-    for item in vp_list:
-        if "visual_metadata" in item:
-            _vm_map[item["index"]] = item["visual_metadata"]
-
     for s in scenes:
         if s["index"] in vp_map:
             s["visual_prompt"] = vp_map[s["index"]]

@@ -386,10 +386,10 @@ def run(
         help="Skip image generation. Review IMAGE_PROMPTS.md, generate images manually, then re-run.",
     ),
     target_minutes: int = typer.Option(
-        7,
+        8,
         "--target-minutes",
         "-t",
-        help="Target narration duration in minutes (5-10). Drives script enhancer word count.",
+        help="Target narration duration in minutes (1-10). Drives script enhancer word count.",
     ),
     # ── Incremental / resume flags ────────────────────────────────────────────
     resume: bool = typer.Option(

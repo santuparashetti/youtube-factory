@@ -711,9 +711,11 @@ class TestScenePlannerUsesAssetPathFromConfig:
             {"index": 1, "narration": "A philosophical exploration of time.", "title": "Main"},
             {"index": 2, "narration": "Another teaching about awareness.", "title": "Second"},
         ]
+        original = [s["index"] for s in scenes]
         _mark_asset_scenes(scenes)
         for scene in scenes:
-            assert scene.get("scene_type") != "asset"
+            if scene["index"] in original:
+                assert scene.get("scene_type") != "asset"
 
     def test_is_closing_scene_detects_configured_phrases(self, tmp_path):
         reset_brand_config_cache()

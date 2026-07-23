@@ -137,26 +137,50 @@ def pipeline(settings, mock_llm):
 class TestParseNarrativeScore:
     def test_parses_valid_block(self):
         text = "My script here.\n\n---NARRATIVE SCORE---\nHook: 8/10\nOverall: 9/10\n---END SCORE---"
-        script, score = _parse_narrative_score(text)
+        script, score, _ = _parse_narrative_score(text)
         assert score == 9.0
         assert "My script here." in script
         assert "NARRATIVE SCORE" not in script
 
     def test_returns_none_when_no_block(self):
         text = "Just a script with no score."
-        script, score = _parse_narrative_score(text)
+        script, score, _ = _parse_narrative_score(text)
         assert score is None
         assert script == text
 
     def test_parses_decimal_score(self):
         text = "Script.\n\n---NARRATIVE SCORE---\nOverall: 8.5/10\n---END SCORE---"
-        _, score = _parse_narrative_score(text)
+        _, score, _ = _parse_narrative_score(text)
         assert score == 8.5
 
     def test_strips_whitespace_from_script_part(self):
         text = "Script here.\n\n---NARRATIVE SCORE---\nOverall: 9/10\n---END SCORE---"
-        script, _ = _parse_narrative_score(text)
+        script, _, _ = _parse_narrative_score(text)
         assert script == "Script here."
+
+    def test_parses_editors_notes(self):
+        text = (
+            "Script text here.\n\n"
+            "---NARRATIVE SCORE---\n"
+            "Hook: 8/10\n"
+            "Overall: 9/10\n"
+            "---END SCORE---\n"
+            "EDITOR'S NOTES:\n"
+            "dominant_visual_symbol: river\n"
+            "rule_skips: none\n"
+            "factual_gaps: none\n"
+        )
+        script, score, notes = _parse_narrative_score(text)
+        assert script == "Script text here."
+        assert score == 9.0
+        assert notes["dominant_visual_symbol"] == "river"
+        assert notes["rule_skips"] == "none"
+        assert notes["factual_gaps"] == "none"
+
+    def test_returns_empty_notes_when_missing(self):
+        text = "Script.\n\n---NARRATIVE SCORE---\nOverall: 9/10\n---END SCORE---"
+        script, _, notes = _parse_narrative_score(text)
+        assert notes == {}
 
 
 # ── DocumentaryEnhancerValidator ───────────────────────────────────────────────

@@ -327,6 +327,90 @@ VOICEOVER TECHNICAL RULES
 - Avoid parentheses, brackets, semicolons — use periods and commas instead\
 """
 
+_BRAND_BLOCK_PRESERVATION = """\
+──────────────────────────────────────────────────────────────
+BRAND BLOCK PRESERVATION (hard constraint — do not alter)
+──────────────────────────────────────────────────────────────
+If the input script already contains any brand blocks defined in brand_config.yaml,
+preserve them EXACTLY as written — do not paraphrase, reorder, merge, split, or
+rewrite them:
+
+  - "This is Atma Theory." (channel signature)
+  - The CTA line from brand_config.yaml
+  - "Clear mind.\nMeaningful life." (signature)
+
+These blocks are matched verbatim downstream by scene_planner._mark_asset_scenes()
+to place brand asset cards — paraphrasing them breaks the match. Pass them through
+unchanged even under expand/shorten modes. Channel frame insertions (welcome,
+topic_transition, closing_brand, cta, closing) are the ONLY new brand material
+this pass may add.
+"""
+
+_STRUCTURAL_TRANSFORMATION_RULES = """\
+──────────────────────────────────────────────────────────────
+STRUCTURAL TRANSFORMATION RULES (apply to delivery only — never to content)
+──────────────────────────────────────────────────────────────
+These rules change HOW the material is delivered. Apply them to the existing
+content without introducing new arguments, facts, or conclusions.
+
+  1. Story before philosophy — open each section with observation/scene,
+     not an abstract claim. Structure: Observation → Story → Conflict → Reflection → Insight
+  2. Earn every insight — delay the conclusion until Question → Curiosity →
+     Story → Emotion → Reflection → Realization has played out
+  3. One continuous journey — end every section with a bridge line into the next topic
+  4. Emotional escalation — sections should generally intensify:
+     Personal → Nature → History → Civilization → Universal Truth →
+     Personal Transformation → Challenge to Viewer. Flag (do not silently fix)
+     any place that would require changing content order to break continuity
+  5. One dominant visual symbol — identify the strongest visual metaphor
+     introduced early (grass, river, fire, mountain, seed, light, tree, etc.)
+     and re-touch it at intervals; the ending should return to it explicitly
+  6. Visual-first phrasing — replace abstract statements with an image the viewer
+     can picture, wherever this does not require inventing new facts
+  7. Rhythm variation — avoid repeated "Not X, not Y, but Z" constructions or
+     other repeated syntactic patterns; alternate long cinematic sentences with
+     short ones, statements with questions
+  8. Continuous curiosity — at minimum every ~30–60 seconds of runtime, raise
+     or resolve a question ("what happened," "why," "what changed," "what's next,"
+     "how is this connected")
+  9. Reward curiosity — every open question introduced must be resolved later
+     in the script — no dangling hooks
+  10. Memorable lines — preserve or lightly sharpen naturally-occurring quotable
+      lines; do not manufacture new inspirational quotes not implied by the source
+  11. Show scale — where examples are given, make visible any implied progression:
+      individual → family → community → history → civilization → humanity → self
+  12. Humanize historical figures — for any historical figure already in the script,
+      emphasize struggle/sacrifice/uncertainty/courage/transformation using only
+      facts present in the draft — never invented specifics
+  13. Invisible transitions — replace hard section breaks with bridging phrases
+      ("This same truth appeared again...", "But centuries later...")
+  14. Spoken-performance check — every rewritten sentence readable aloud in one
+      breath at a natural pace; flag anything that reads well but sounds stilted spoken
+  15. Restraint — no motivational-speaker tone, no exaggeration, no overdramatization;
+      calm documentary confidence throughout
+"""
+
+_SELF_REVIEW_CHECKLIST = """\
+──────────────────────────────────────────────────────────────
+SELF-REVIEW CHECKLIST (evaluate before returning — this is a leading indicator
+for downstream Retention & Quality Standards scoring)
+──────────────────────────────────────────────────────────────
+Confirm ALL of the following before returning:
+- Opening creates immediate curiosity
+- Every section flows into the next with no visible seam
+- Emotional intensity generally increases section over section
+- One dominant visual metaphor unifies the piece and recurs
+- Sentence rhythm is varied, not repetitive
+- Something genuinely new lands roughly every 30–60 seconds
+- Abstract ideas are shown as scenes wherever possible
+- The ending reconnects to the opening image/idea
+- Philosophy, historical accuracy, stories, and author's voice are all unchanged
+- Overall feel is premium documentary, not lecture
+
+Refine until each criterion is satisfied. A script that fails this internal
+check will score poorly at quality_review downstream.
+"""
+
 _PASS1_TEMPLATE = """\
 You are a faithful documentary editor. Your only role in this pass is to faithfully render \
 the original discourse as a clean, documentary-quality narration that loses nothing.
@@ -371,11 +455,24 @@ WHAT PASS 1 MUST NOT DO:
 - Do not cut content to improve pacing — preserve coverage
 - Do not add channel branding, welcome message, CTA, or closing
 - Do not rewrite sentences that are already clear
-- If retention and fidelity ever conflict, fidelity always wins — no exceptions
+ - If retention and fidelity ever conflict, fidelity always wins — no exceptions
+
+{brand_block_preservation}
+
+{structural_transformation_rules}
+
+REGISTER-SHIFT BRIDGES (expands Rule 13: Invisible transitions):
+When a section shifts from abstract metaphor/personification to direct audience
+address ("you"), or from any register to a clearly different one, do NOT insert a
+hard cut. Insert exactly one bridge line that carries the listener across:
+  "This same feeling — the one you've tried to name — ..."
+  "You know this moment, even if you've never put words to it ..."
+  "And here is where it leads, if we follow it honestly ..."
+The bridge must acknowledge the register shift, not ignore it.
 
 {religion_agnostic_rules}
 
-───────────────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────────
 AMBIGUITY FLAGS FROM LIGHT NORMALIZATION ([FLAG:...] markers)
 ───────────────────────────────────────────────────────────────
 The input may contain [FLAG: <reason>]...[/FLAG] spans. These were inserted by the
@@ -453,11 +550,12 @@ PRIORITY ORDER (fidelity overrides retention — always)
 If retention and philosophical fidelity ever conflict, fidelity wins — no exceptions.
 A pacing choice that alters, softens, or reframes the underlying philosophy must be rejected.
 
-───────────────────────────────────────────────────────────────
+{brand_block_preservation}
+
+──────────────────────────────────────────────────────────────
 CHANNEL FRAME (additive only — do not rewrite the author's content around these)
-───────────────────────────────────────────────────────────────
-  WELCOME (insert once, after the author's opening sentence):
-    "{welcome}"
+──────────────────────────────────────────────────────────────
+{welcome_block}
   TOPIC TRANSITION (insert only if no natural transition exists — otherwise skip):
     "{topic_transition}..."
   BRAND SIGNATURE (insert once, after the practical reflection, before the CTA):
@@ -530,18 +628,21 @@ Introduce ideas through universal human experience before abstract concepts when
 Ancient wisdom should feel accessible to any viewer, not academic or tradition-exclusive.
 
 ───────────────────────────────────────────────────────────────
-NARRATIVE DENSITY SELF-REVIEW (evaluate before returning)
+SELF-REVIEW CHECKLIST (evaluate before returning — this is a leading indicator
+for downstream Retention & Quality Standards scoring)
 ───────────────────────────────────────────────────────────────
-• Story Density: Is there a meaningful story, analogy, or situation within the first minute? Every major section?
-• Narrative Variety: Do story, reflection, philosophy, question, history, and practical application alternate?
-• Curiosity Check: Would a viewer naturally want to hear the next section?
-• Quote Density: Approximately every 45–90 seconds, a memorable reflection or resonant statement?
-• Emotional Rhythm: Does intensity naturally vary — curiosity, tension, reflection, calm, inspiration?
-• Cinematic Breathing Room: Are important ideas given room, not compressed into dense paragraphs?
-• Audience Accessibility: Can someone with no prior spiritual background follow the message?
-• Documentary Test: Narrated over cinematic visuals with music — does it feel like a professional documentary?
+- Opening creates immediate curiosity
+- Every section flows into the next with no visible seam
+- Emotional intensity generally increases section over section
+- One dominant visual metaphor unifies the piece and recurs
+- Sentence rhythm is varied, not repetitive
+- Something genuinely new lands roughly every 30–60 seconds
+- Abstract ideas are shown as scenes wherever possible
+- The ending reconnects to the opening image/idea
+- Philosophy, historical accuracy, stories, and author's voice are all unchanged
+- Overall feel is premium documentary, not lecture
 
-Continue refining until satisfied with all dimensions.
+A script that fails this internal check will score poorly at quality_review downstream.
 
 {voiceover_rules}
 
@@ -559,8 +660,12 @@ Emotional Rhythm: X/10
 Accessibility: X/10
 Overall: X/10
 ---END SCORE---
+EDITOR'S NOTES:
+dominant_visual_symbol: [name of visual metaphor]
+rule_skips: [none, or comma-separated Section 3 rules skipped with reason]
+factual_gaps: [none, or brief description of any factual gap noticed but not filled]
 
-Return only narration + score block. No other explanations.
+Return only narration + score block + editor's notes. No other explanations.
 Only return when your honest assessment is Overall >= 8.5.
 
 ───────────────────────────────────────────────────────────────
@@ -639,6 +744,8 @@ def build_pass1_prompt(
         voice_guide=voice_guide,
         scripture_list=_format_scripture_list(placeholders or {}),
         religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
+        brand_block_preservation=_BRAND_BLOCK_PRESERVATION,
+        structural_transformation_rules=_STRUCTURAL_TRANSFORMATION_RULES,
         strategy_section=strategy_section,
         voiceover_rules=_VOICEOVER_RULES,
         script=script,
@@ -669,6 +776,7 @@ def build_pass2_prompt(
         get_transition,
         get_welcome,
     )
+    from ytfactory.branding.config import get_brand_config
 
     target_words = target_minutes * NARRATION_WPM
 
@@ -686,6 +794,15 @@ def build_pass2_prompt(
         else ""
     )
 
+    welcome_text = welcome or get_welcome()
+    if welcome is None and not get_brand_config().opening.enabled:
+        welcome_block = ""
+    else:
+        welcome_block = (
+            f"  WELCOME (insert once, after the author's opening sentence):\n"
+            f'    "{welcome_text}"'
+        )
+
     return _PASS2_TEMPLATE.format(
         topic=topic,
         target_minutes=target_minutes,
@@ -694,7 +811,9 @@ def build_pass2_prompt(
         voice_guide=voice_guide,
         scripture_list=_format_scripture_list(placeholders or {}),
         religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
-        welcome=welcome or get_welcome(),
+        brand_block_preservation=_BRAND_BLOCK_PRESERVATION,
+        self_review_checklist=_SELF_REVIEW_CHECKLIST,
+        welcome_block=welcome_block,
         closing=closing or get_closing(),
         topic_transition=topic_transition or get_transition(),
         cta=cta or get_cta(),

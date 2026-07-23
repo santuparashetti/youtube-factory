@@ -52,6 +52,7 @@ def scene() -> dict:
         "shot_type": "wide_shot",
         "transition": "fade",
         "duration_seconds": 10.0,
+        "motion": {"motion_type": "push_in", "drift_x": 0.0, "drift_y": 0.0},
     }
 
 
@@ -68,6 +69,7 @@ def scenes(scene) -> list[dict]:
             "shot_type": "close_up",
             "transition": "cut",
             "duration_seconds": 15.0,
+            "motion": {"motion_type": "drift", "drift_x": 0.02, "drift_y": 0.0},
         },
         {
             "index": 3,
@@ -78,6 +80,7 @@ def scenes(scene) -> list[dict]:
             "shot_type": "aerial_shot",
             "transition": "dissolve",
             "duration_seconds": 12.0,
+            "motion": {"motion_type": "pull_out", "drift_x": 0.0, "drift_y": 0.0},
         },
     ]
 
@@ -623,6 +626,170 @@ class TestImageValidator:
         results = v.validate(proj, bad_scenes, {})
         rule = next(r for r in results if r.rule_id == "IMG_006")
         assert rule.status == "WARNING"
+
+
+# ── Helpers for per-image brightness tests ─────────────────────────────────────
+
+
+def _write_test_image(path: Path, brightness: int, size: tuple[int, int] = (64, 64)) -> None:
+    """Write a solid-gray PNG with the given 0-255 brightness."""
+    from PIL import Image
+    img = Image.new("L", size, brightness)
+    img.save(path)
+
+
+# ── TestSceneAssetChecks ───────────────────────────────────────────────────────
+
+
+class TestSceneAssetChecks:
+    """IMG_007 (static-hold cap) and IMG_008 (brightness floor)."""
+
+    def test_static_long_hold_scene_flagged(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=128)
+        _write_test_image(tmp_path / "images" / "scene-002.png", brightness=128)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting, high quality, 4k resolution",
+                "duration_seconds": 12.0,
+                "motion": {"motion_type": "static"},
+            },
+            {
+                "index": 2,
+                "scene_type": "generated_image",
+                "visual_prompt": "Close-up portrait, natural lighting, sharp focus, photorealistic",
+                "duration_seconds": 5.0,
+                "motion": {"motion_type": "static"},
+            },
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        rule = next(r for r in results if r.rule_id == "IMG_007" and r.scene_index == 1)
+        assert rule.status == "WARNING"
+        assert "12.0s" in rule.description
+        assert "8.0s" in rule.description
+
+        rule2 = next(r for r in results if r.rule_id == "IMG_007" and r.scene_index == 2)
+        assert rule2.status == "PASS"
+
+    def test_dark_warmth_scene_flagged(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=10)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Golden hour, warm light, soft shadows",
+                "duration_seconds": 5.0,
+                "visual_metadata": {"mood": "HOPEFUL"},
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        rule = next(r for r in results if r.rule_id == "IMG_008" and r.scene_index == 1)
+        assert rule.status == "WARNING"
+        assert "HOPEFUL" in rule.description
+        assert "10." in rule.description
+        assert "40." in rule.description
+
+    def test_somber_dark_scene_not_flagged(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=5)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Dark shadows, stormy contrast",
+                "duration_seconds": 5.0,
+                "visual_metadata": {"mood": "FEARFUL"},
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        img008_rules = [r for r in results if r.rule_id == "IMG_008"]
+        assert len(img008_rules) == 1
+        assert img008_rules[0].status == "SKIP"
+
+    def test_non_static_motion_scene_skips_static_hold_check(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=128)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting, high quality, 4k resolution",
+                "duration_seconds": 20.0,
+                "motion": {"motion_type": "push_in", "drift_x": 0.0, "drift_y": 0.0},
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        img007_rules = [r for r in results if r.rule_id == "IMG_007"]
+        assert len(img007_rules) == 1
+        assert img007_rules[0].status == "SKIP"
+        assert "push_in" in img007_rules[0].description
+
+    def test_normal_scene_passes_both_checks(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=150)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting, high quality, 4k resolution",
+                "duration_seconds": 6.0,
+                "visual_metadata": {"mood": "HOPEFUL"},
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        static_rules = [r for r in results if r.rule_id == "IMG_007"]
+        brightness_rules = [r for r in results if r.rule_id == "IMG_008"]
+        assert all(r.status == "PASS" for r in static_rules)
+        assert all(r.status == "PASS" for r in brightness_rules)
+
+    def test_missing_mood_skips_brightness_check(self, tmp_path, cfg):
+        for d in ("script", "images"):
+            (tmp_path / d).mkdir()
+        (tmp_path / "script" / "script.md").write_text("word " * 200, encoding="utf-8")
+        _write_test_image(tmp_path / "images" / "scene-001.png", brightness=5)
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "generated_image",
+                "visual_prompt": "Cinematic wide shot, dramatic lighting",
+                "duration_seconds": 5.0,
+            }
+        ]
+        v = ImageValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+
+        img008_rules = [r for r in results if r.rule_id == "IMG_008"]
+        assert len(img008_rules) == 1
+        assert img008_rules[0].status == "SKIP"
 
 
 # ── TestMotionValidator ───────────────────────────────────────────────────────

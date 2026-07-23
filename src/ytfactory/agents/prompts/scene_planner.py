@@ -434,6 +434,28 @@ For EACH scene, include a visual_metadata object with these exact fields:
 Choose values that match the narration content. Do not invent metadata that contradicts the scene.
 
 ═════════════════════════════════════════════════
+VISUAL ENGAGEMENT & TONE MATCHING
+═════════════════════════════════════════════════
+
+A scene's visual must serve the emotional beat, not just the keyword:
+
+  MOTION — if narration extends past ~8 seconds on one idea without a new visual
+  anchor, the visual must progress: camera movement, changing subject, passing time,
+  environmental shift. Holding a single static frame for many seconds is forbidden.
+
+  TONE MATCH — the image's emotional register must match the narration's:
+    resilience / strength → forward motion, open space, human presence, warm light
+    warmth / intimacy → golden light, soft shadows, domestic detail, safety
+    grief / loss → muted tones, still water, open landscape, solitary figure
+    NEVER pair a resilience monologue with desolate / abandoned / dark imagery.
+    NEVER pair warmth/intimacy with shadow-absorbed or cold visual environments.
+
+  BRIGHTNESS — for beats coded as warmth, safety, hope, or human connection:
+    floors are bright natural daylight, golden hour, warm interior light, soft fill.
+    If the narration is somber (grief, fear, loss) then darker lighting is fine.
+    Default is NOT dark mood — only darken when the emotional beat requires it.
+
+═════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])
 ═════════════════════════════════════════════════
 {scene_list}\

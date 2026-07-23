@@ -37,6 +37,7 @@ from ytfactory.review.stages.content import ContentReviewStage
 from ytfactory.review.stages.production import ProductionQualityStage
 from ytfactory.review.stages.timeline import TimelineReviewStage
 from ytfactory.review.validation.config import ValidationRulesConfig
+from ytfactory.review.validation.models import ValidationReport, ValidationResult
 from ytfactory.review.validation.reporter import ValidationReporter
 from ytfactory.review.validation.runner import ValidationRunner
 from ytfactory.shared.constants import WORKSPACE_DIR
@@ -156,6 +157,14 @@ class VideoQualityReviewEngine:
         # Critical validation failures bubble up into all_errors → affect verdict
         for failure in val_report.critical_failures:
             all_errors.append(f"[validation:{failure.rule_id}] {failure.description}")
+
+        # ── Script Enhancer Feedback (editors_notes → synthetic validation results) ─
+        enhancer_synthetic, enhancer_warnings = _load_enhancement_feedback(project_dir)
+        val_report.results.extend(enhancer_synthetic)
+        for w in enhancer_warnings:
+            all_warnings.append(w)
+        for sv in scene_reviews:
+            sv.issues.extend(enhancer_warnings)
 
         # ── Pipeline QA Scoring ────────────────────────────────────────────
         post_render_score = build_post_render_score(val_report)
@@ -287,3 +296,119 @@ def _load_scenes(project_dir: Path) -> list[dict]:
         return data.get("scenes", [])
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def _load_enhancement_feedback(
+    project_dir: Path,
+) -> tuple[list[ValidationResult], list[str]]:
+    """Load enhancement-report.json editors_notes and convert into synthetic
+    ValidationResult objects for retention scoring, plus per-scene warnings.
+
+    Returns (synthetic_results, warnings).
+    Degrades gracefully when the report or editors_notes is missing/empty.
+    """
+    report_path = project_dir / "script" / "enhancement-report.json"
+    if not report_path.exists():
+        return [], []
+
+    try:
+        report_data = json.loads(report_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return [], []
+
+    editors_notes = report_data.get("editors_notes") or {}
+    if not editors_notes:
+        return [], []
+
+    synthetic: list[ValidationResult] = []
+    warnings: list[str] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    rule_skips = editors_notes.get("rule_skips", "")
+    if rule_skips and rule_skips.lower() not in ("none", "", "n/a"):
+        desc = f"Script enhancer skipped/partially applied structural rules: {rule_skips}"
+        synthetic.append(
+            ValidationResult(
+                rule_id="ENH_SF_RULE",
+                category="script",
+                status="WARNING",
+                severity="medium",
+                description=desc,
+                evidence="editors_notes.rule_skips",
+                confidence=0.8,
+                responsible_engine="script_enhancer",
+                timestamp=now,
+        debug_metadata={"source": "editors_notes"},
+            )
+        )
+        warnings.append(f"[script_enhancer] {desc}")
+
+    factual_gaps = editors_notes.get("factual_gaps", "")
+    if factual_gaps and factual_gaps.lower() not in ("none", "", "n/a"):
+        desc = f"Factual gaps noted by script enhancer: {factual_gaps}"
+        synthetic.append(
+            ValidationResult(
+                rule_id="ENH_CONTENT",
+                category="script",
+                status="WARNING",
+                severity="medium",
+                description=desc,
+                evidence="editors_notes.factual_gaps",
+                confidence=0.8,
+                responsible_engine="script_enhancer",
+                timestamp=now,
+        debug_metadata={"source": "editors_notes"},
+            )
+        )
+        warnings.append(f"[script_enhancer] {desc}")
+
+    dominant_symbol = editors_notes.get("dominant_visual_symbol", "")
+    if dominant_symbol and dominant_symbol.lower() not in ("none", "", "n/a"):
+        script_path = project_dir / "script" / "script.md"
+        symbol_present = False
+        if script_path.exists():
+            try:
+                script_text = script_path.read_text(encoding="utf-8").lower()
+                symbol_present = dominant_symbol.lower() in script_text
+            except OSError:
+                pass
+
+        if symbol_present:
+            desc = f"Dominant visual symbol '{dominant_symbol}' is present in script."
+            synthetic.append(
+                ValidationResult(
+                    rule_id="ENH_VISUAL",
+                    category="script",
+                    status="PASS",
+                    severity="low",
+                    description=desc,
+                    evidence="editors_notes.dominant_visual_symbol",
+                    confidence=1.0,
+                    responsible_engine="script_enhancer",
+                    timestamp=now,
+            debug_metadata={"source": "editors_notes", "present_in_script": True},
+                )
+            )
+        else:
+            desc = (
+                f"Dominant visual symbol '{dominant_symbol}' was identified by the "
+                f"script enhancer but does not appear in the final script. "
+                f"Verify this is represented in visual assets."
+            )
+            synthetic.append(
+                ValidationResult(
+                    rule_id="ENH_VISUAL",
+                    category="script",
+                    status="WARNING",
+                    severity="medium",
+                    description=desc,
+                    evidence="editors_notes.dominant_visual_symbol",
+                    confidence=0.6,
+                    responsible_engine="script_enhancer",
+                    timestamp=now,
+            debug_metadata={"source": "editors_notes", "present_in_script": False},
+                )
+            )
+            warnings.append(f"[script_enhancer] {desc}")
+
+    return synthetic, warnings

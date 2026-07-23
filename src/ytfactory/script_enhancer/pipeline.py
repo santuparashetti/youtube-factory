@@ -60,7 +60,7 @@ console = Console()
 
 # Pass 2 Narrative Score parsing
 _SCORE_BLOCK_RE = re.compile(
-    r"\s*---NARRATIVE SCORE---\n(.*?)\n---END SCORE---\s*$",
+    r"\s*---NARRATIVE SCORE---\n(.*?)\n---END SCORE---",
     re.DOTALL,
 )
 _OVERALL_RE = re.compile(r"Overall:\s*(\d+(?:\.\d+)?)/10", re.IGNORECASE)
@@ -87,23 +87,44 @@ def _parse_json_response(text: str) -> dict:
         return {}
 
 
-def _parse_narrative_score(text: str) -> tuple[str, float | None]:
-    """Split the LLM output into (script_text, overall_score).
+def _parse_narrative_score(text: str) -> tuple[str, float | None, dict]:
+    """Split the LLM output into (script_text, overall_score, editors_notes).
 
-    The LLM appends a score block at the end of Pass 2 output:
+    The LLM appends a score block at the end of Pass 2 output,
+    optionally followed by an Editor's Notes block:
       ---NARRATIVE SCORE---
       Overall: X/10
       ---END SCORE---
-    Returns (text_without_block, score) or (text, None) if no block found.
+      EDITOR'S NOTES:
+      dominant_visual_symbol: [name]
+      rule_skips: [none / description]
+      factual_gaps: [none / description]
+
+    Returns (text_without_score_block, score, editors_notes).
     """
     m = _SCORE_BLOCK_RE.search(text)
     if not m:
-        return text, None
+        return text, None, {}
     block = m.group(1)
     script = text[: m.start()].rstrip()
     overall_m = _OVERALL_RE.search(block)
     score = float(overall_m.group(1)) if overall_m else None
-    return script, score
+
+    editors_notes: dict[str, str] = {}
+    after_score = text[m.end():].lstrip("\n")
+    if after_score:
+        notes_match = re.search(
+            r"EDITOR'S NOTES:\s*(.*)", after_score, re.DOTALL | re.IGNORECASE
+        )
+        if notes_match:
+            notes_text = notes_match.group(1).strip()
+            for line in notes_text.split("\n"):
+                line = line.strip()
+                if ":" in line:
+                    key, _, value = line.partition(":")
+                    editors_notes[key.strip()] = value.strip()
+
+    return script, score, editors_notes
 
 
 class DocumentaryEnhancerValidator:
@@ -606,6 +627,7 @@ class DocumentaryScriptEnhancerPipeline:
         )
         pass2_ph_text = pass1_ph_text
         narrative_score: float | None = None
+        editors_notes: dict[str, str] = {}
         pass2_iterations = 0
 
         for iteration in range(_MAX_PASS2_ITERATIONS):
@@ -627,7 +649,7 @@ class DocumentaryScriptEnhancerPipeline:
             pass2_response = self._llm.generate(pass2_prompt, temperature=0.7)
             raw_output = pass2_response.text.strip()
 
-            pass2_ph_text, narrative_score = _parse_narrative_score(raw_output)
+            pass2_ph_text, narrative_score, editors_notes = _parse_narrative_score(raw_output)
             pass2_ph_text = pass2_ph_text.strip()
 
             score_label = f"{narrative_score:.1f}/10" if narrative_score is not None else "no score"
@@ -856,6 +878,7 @@ class DocumentaryScriptEnhancerPipeline:
                     },
                     "adr_0012_flags": ra_warnings,
                     "correction_pass": correction_pass_data,
+                    "editors_notes": editors_notes,
                     "v2_analysis": {
                         "attempted": v2_analysis_attempted,
                         "original_source_provided": bool(original_source_transcript),

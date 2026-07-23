@@ -7,6 +7,8 @@ Rules:
   IMG_004 [medium]   — No repeated visual prompts (Jaccard similarity)
   IMG_005 [low]      — Shot type assigned (V4 shot-type coverage)
   IMG_006 [medium]   — Visual prompt contains at least one style marker
+  IMG_007 [medium]   — Static-hold cap: asset is still image and narration > 8 s
+  IMG_008 [medium]   — Brightness floor for warmth/intimacy scenes
 """
 
 from __future__ import annotations
@@ -16,6 +18,17 @@ from pathlib import Path
 from ytfactory.review.validation.framework import BaseValidator
 from ytfactory.review.validation.models import ValidationResult
 
+# Moods whose scenes are expected to carry warmth, light, or human presence.
+# Somber-tagged scenes (FEARFUL, LONELY, MYSTERIOUS) are intentionally exempt
+# from the brightness floor so grief/darkness can be expressed visually.
+_WARMTH_INTIMACY_MOODS = frozenset({
+    "PEACEFUL",
+    "HOPEFUL",
+    "REVERENT",
+    "REFLECTIVE",
+    "DETERMINED",
+})
+
 
 def _jaccard(a: str, b: str) -> float:
     sa = set(a.lower().split())
@@ -23,6 +36,21 @@ def _jaccard(a: str, b: str) -> float:
     if not sa or not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
+
+
+def _avg_luminance(img_path: Path) -> float | None:
+    """Return average 0-255 luminance for an image, or None on failure."""
+    try:
+        from PIL import Image, ImageStat
+    except ImportError:
+        return None
+    try:
+        with Image.open(img_path) as img:
+            gray = img.convert("L")
+            stat = ImageStat.Stat(gray)
+            return float(stat.mean[0])
+    except Exception:
+        return None
 
 
 class ImageValidator(BaseValidator):
@@ -51,6 +79,8 @@ class ImageValidator(BaseValidator):
                 "IMG_004",
                 "IMG_005",
                 "IMG_006",
+                "IMG_007",
+                "IMG_008",
             ):
                 if self._config.is_enabled(rule_id):
                     results.append(self._skip(rule_id, "no scenes available"))
@@ -61,6 +91,8 @@ class ImageValidator(BaseValidator):
         for scene in generated:
             idx = scene.get("index", 0)
             img_path = project_dir / "images" / f"scene-{idx:03d}.png"
+            dur = float(scene.get("duration_seconds", 0.0))
+            visual_prompt = scene.get("visual_prompt", "")
 
             # IMG_001: Image exists
             if self._config.is_enabled("IMG_001"):
@@ -108,8 +140,6 @@ class ImageValidator(BaseValidator):
                             scene_index=idx,
                         )
                     )
-
-            visual_prompt = scene.get("visual_prompt", "")
 
             # IMG_003: Visual prompt present
             if self._config.is_enabled("IMG_003"):
@@ -180,6 +210,93 @@ class ImageValidator(BaseValidator):
                             "IMG_006",
                             f"Scene {idx} has style markers",
                             f"found: {found[:3]}",
+                            scene_index=idx,
+                        )
+                    )
+
+            # IMG_007: Static-hold duration cap
+            if self._config.is_enabled("IMG_007") and img_path.exists():
+                threshold = self._config.image_static_hold_max_seconds
+                motion_type = scene.get("motion", {}).get("motion_type", "static")
+                if motion_type != "static":
+                    results.append(
+                        self._skip(
+                            "IMG_007",
+                            f"scene_index={idx}, motion_type={motion_type} "
+                            f"(non-static motion — not a static hold)",
+                            scene_index=idx,
+                        )
+                    )
+                elif dur > threshold:
+                    results.append(
+                        self._warn(
+                            "IMG_007",
+                            f"Scene {idx}: static-hold duration {dur:.1f}s exceeds "
+                            f"threshold {threshold:.1f}s",
+                            f"scene_index={idx}, duration_seconds={dur:.1f}, "
+                            f"threshold={threshold:.1f}, asset_type=still_image, "
+                            f"motion_type=static",
+                            "medium",
+                            scene_index=idx,
+                            duration_seconds=dur,
+                            threshold_seconds=threshold,
+                            asset_type="still_image",
+                            motion_type="static",
+                        )
+                    )
+                else:
+                    results.append(
+                        self._pass(
+                            "IMG_007",
+                            f"Scene {idx} static-hold duration within cap",
+                            f"{dur:.1f}s",
+                            scene_index=idx,
+                        )
+                    )
+
+            # IMG_008: Brightness floor for warmth/intimacy scenes
+            if self._config.is_enabled("IMG_008") and img_path.exists():
+                raw_meta = scene.get("visual_metadata", {})
+                mood = ""
+                if isinstance(raw_meta, dict):
+                    mood = str(raw_meta.get("mood", "")).upper()
+
+                if mood in _WARMTH_INTIMACY_MOODS:
+                    luminance = _avg_luminance(img_path)
+                    threshold = self._config.image_brightness_min_luminance
+                    if luminance is not None and luminance < threshold:
+                        results.append(
+                            self._warn(
+                                "IMG_008",
+                                f"Scene {idx}: warmth/intimacy scene ({mood}) "
+                                f"luminance {luminance:.1f} below floor {threshold:.1f}",
+                                f"scene_index={idx}, mood={mood}, "
+                                f"avg_luminance={luminance:.1f}, threshold={threshold:.1f}",
+                                "medium",
+                                scene_index=idx,
+                                mood=mood,
+                                avg_luminance=luminance,
+                                threshold=threshold,
+                            )
+                        )
+                    else:
+                        measured = (
+                            f"{luminance:.1f}" if luminance is not None else "n/a"
+                        )
+                        results.append(
+                            self._pass(
+                                "IMG_008",
+                                f"Scene {idx} brightness floor satisfied",
+                                f"luminance={measured}, mood={mood}",
+                                scene_index=idx,
+                            )
+                        )
+                else:
+                    results.append(
+                        self._skip(
+                            "IMG_008",
+                            f"scene_index={idx}, mood={mood or 'none'} "
+                            f"(not warmth/intimacy)",
                             scene_index=idx,
                         )
                     )

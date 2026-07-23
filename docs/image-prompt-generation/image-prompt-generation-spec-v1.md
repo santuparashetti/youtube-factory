@@ -1,4 +1,4 @@
-# Image Prompt Generation & Escalation Spec (v3.0)
+# Image Prompt Generation & Escalation Spec (v3.2)
 
 ## 0. Purpose
 
@@ -19,9 +19,9 @@ Implementation Decisions raised on this spec — each is addressed inline and cr
 
 **Scope guard:** this pipeline generates **video scene images only**. It MUST NOT generate thumbnail
 images, marketing assets, title cards, posters, or promotional artwork. `scene_importance` values in
-this spec (hero, climax, opening_hook, closing_frame) refer to narratively significant *video* scenes —
-not thumbnail generation, which is out of scope entirely and must be handled by a separate pipeline
-(verification item — see §9.6).
+this spec (hero, climax) refer to narratively significant *video* scenes — not thumbnail generation,
+which is out of scope entirely and must be handled by a separate pipeline (verification item — see
+§9.6).
 
 ---
 
@@ -46,7 +46,7 @@ section for it isn't in the agreed structure):
     "negative_constraints": "No text. No watermark. No logo. No illustration. No cartoon. No CGI. No duplicate subjects. No extra limbs. No cropped head."
   },
   "meta": {
-    "scene_importance": "standard | hero | climax | opening_hook | closing_frame",
+    "scene_importance": "standard | hero | climax",
     "target_model": "flux-schnell | qwen-image | flux-dev"
   }
 }
@@ -63,6 +63,9 @@ Rules:
 - **Implementation prerequisite (§9.2):** verify how `scene_planner.py` currently represents prompts.
   If they're flat strings today, migrate to this schema *before* wiring adaptive refinement — targeted
   remediation cannot work against an undifferentiated string.
+- **Current implementation status:** `scene_planner.py` still emits flat `visual_prompt` strings.
+  The structured schema above is the target format; migration is tracked as §9 item 2 (future
+  roadmap, not a blocking production defect).
 
 ---
 
@@ -140,6 +143,11 @@ image_generation:            # implemented as EscalationConfig, loaded via IMAGE
 All threshold/limit references below use these names, not literal numbers — `_run_generation_strategy`
 in `ImagePipeline` now reads them from `EscalationConfig` rather than hardcoding `9.2`/`8.5` inline.
 
+**Note:** `_refine_prompt_from_score` contains a local `8.5` literal at `pipeline.py:283`, but this is
+a **prompt-authoring heuristic** (selecting generic fallback adaptations when no specific failure
+category matched), not a pipeline control-flow threshold. It does not gate accept/reject, retry,
+escalation, or model selection. Policy thresholds remain centralized in `EscalationConfig`.
+
 ### Step 0 — Scene classification
 If `scene_importance` in {hero, climax} → skip directly to **Step 3**
 (Qwen-Image), since remediation cost there is worth paying upfront for highest-visibility *video*
@@ -147,13 +155,6 @@ scenes. Standard/environmental/background scenes start at Step 1. Thumbnails nev
 algorithm (§0 scope guard) — **confirmed implemented**: `_is_hero_scene` no longer checks for
 `"THUMBNAIL"` (removed after an upstream grep confirmed no scene field ever set that value — it was
 dead code, not live behavior).
-
-**Note:** upstream scene metadata currently emits `narrative_role` values
-(`STORY | ANALOGY | METAPHOR | EXPLANATION | ESTABLISHING | CTA`) and `importance` values observed
-in production are limited to `standard | hero | climax`. The values `opening_hook` and `closing_frame`
-appear only in this spec's schema example, never in live scene-plan data. If those narrative roles
-are intended for future use, update `_is_hero_scene` and this step together; otherwise the spec
-here matches the implementation.
 
 ### Step 1 — Candidate generation (FLUX.1-schnell)
 - Generate **2 candidates**, different seeds, identical prompt (no intentional composition variance —
@@ -240,6 +241,11 @@ into `hand`/`face`/`eye` sub-categories). Table below updated to match what's ac
 | `realism` | `style` |
 | `style` | `style` |
 
+**Note:** the review engine's underlying hard-constraint field is the combined `text_watermark` (§6) —
+`_refine_prompt_from_score` splits it back into separate `text`/`watermark` remediation categories
+downstream, which is fine since both route to the same `negative_constraints` section anyway. No
+conflict, just two different layers using different granularity for their own purposes.
+
 For `prompt_compliance`-type broad failures not covered by a specific category above, use the `reason`
 string returned alongside the failure to identify the right section (e.g. a missing required object →
 `scene`; wrong subject position → `composition`) — this constraint is broad by design, so remediation
@@ -254,7 +260,7 @@ under `target_quality_score`):
 | Object placement, non-hard-constraint | `scene` |
 
 Never touch sections outside this map for a given failure; unrelated sections are preserved verbatim
-to keep the scene consistent across regenerations. Each remediation pass must record:
+to keep the scene consistent across regenerations. Each remediation pass **should** record:
 `failed_constraint`, `reason` (verbatim from Vision QA), `sections_changed` — so repeated failures on
 the same section across scenes can be audited later and fed back into prompt templates. **Note:** this
 per-section targeting is still logically mapped onto a flat prompt string in production today (§9 item
@@ -285,7 +291,7 @@ a **two-stage gate**:
 | `required_visibility` | Explicit hidden/visible requirements from the prompt (e.g. "hands must remain outside the frame") checked exactly |
 | `composition` | Camera angle, crop, foreground/middle/background, focal point — fails if materially different from spec |
 | `required_objects` | Every required object present; an unexpected dominant object also fails this |
-| `text` | Fails if text appears in the image when the prompt requested none |
+| `text_watermark` | Fails if text or a watermark appears in the image when the prompt requested neither — text and watermark detection are merged into one combined constraint in the real implementation, not two separate fields |
 
 **Rule:** if **any** hard constraint fails → `overall_status = FAIL`, `recommend_regeneration = true`,
 immediately. Do not average a hard-constraint failure into a numeric score, and do not let strong
@@ -306,20 +312,15 @@ Every Vision QA check in Steps 2–5 must branch on `overall_status` first, not 
   what `overall_score` says) — proceeds through the same escalation/remediation/fallback paths in §4.
 - `overall_status == "PASS"` → accept, per the normal threshold logic already in §4.
 
-### ⚠️ Two schema gaps to fix before this is wired in
+### ✅ Schema confirmed (both former gaps closed, one with a naming correction)
 
-1. **`text` is a defined hard constraint (rule 6) but is missing from the REQUIRED JSON output** — the
-   schema only returns `prompt_compliance`, `required_visibility`, `composition`, `required_objects`,
-   `anatomy`. Either add a `text` key to the JSON contract, or confirm text-detection is folded into
-   one of the existing five keys (e.g. `prompt_compliance`) and document which.
-2. **`overall_score` is referenced in the FINAL DECISION logic but absent from the REQUIRED JSON** —
-   there is currently no field carrying the numeric quality score the spec's thresholds (§4.0
-   `target_quality_score`, `retry_threshold`, `premium_model_threshold`) actually gate on. Add an
-   `overall_score` (and ideally per-hard-constraint `reason` strings, which the schema already has, are
-   good — keep those for §5's remediation root-cause logging).
-
-Until both are fixed, `ImageReviewEngine`'s literal JSON output cannot drive §4's numeric thresholds —
-only the binary FAIL path is currently well-defined.
+Both schema gaps flagged in earlier drafts have been checked against the real implementation:
+1. **`text` → confirmed as `text_watermark`** — text-detection is present, just merged with
+   watermark-detection under one combined key rather than kept as a standalone `text` field. Not a
+   missing feature — a naming difference from what this spec originally assumed.
+2. **`overall_score` → confirmed present** — it's a real top-level field on `SceneReviewArtifact`,
+   computed by `_compute_overall` in `review_engine.py`, and read directly by `_score_image`. §4's
+   numeric thresholds are fully wired to this real field, not a derived/parsed value.
 
 ---
 
@@ -344,7 +345,7 @@ Priority order for improving a failing image, cheapest first:
 5. Terminal fallback, flag/log/continue (Step 5) — never a fourth model, never a second attempt on any
    premium tier, never a blocked render.
 
-Never regenerate an already-accepted image. Hero/climax/opening_hook/closing_frame scenes bypass
+Never regenerate an already-accepted image. Hero/climax scenes bypass
 Step 1 entirely and go straight to Qwen-Image (Step 0) since remediation cost there is worth paying
 upfront for highest-visibility *video* scenes — this does not apply to thumbnails, which are out of
 scope for this pipeline entirely (§0). Once §3's measured columns are populated, replace the
@@ -366,9 +367,13 @@ in this revision but flag if you disagree, **Recommended** = enhancement for lat
    production (`scene["visual_prompt"]`). §5's remediation targeting currently means "adjust the
    corresponding phrase within the flat prompt string," not a true isolated-section rewrite, until
    this migration happens.
-3. **[Decision — resolved]** Vision QA Failure Policy — Step 5 now flags, logs (score + failure
-   reason in metadata), and continues rendering, matching the `IMG_007`/`IMG_008` convention. Render
-   is never blocked over a single image.
+3. **[Decision — partially resolved]** Vision QA Failure Policy — Step 5 flags and logs (score +
+   failure reason) in the manifest, matching the flag-and-log half of the `IMG_007`/`IMG_008`
+   convention, and render is never blocked. **Confirmed gap:** the doc previously claimed flagged
+   scenes surface in the `human_review_scenes` node — this is **not implemented**. That node is an
+   interactive CLI prompt; flagged scenes are never automatically routed into it. This needs a real
+   decision: build automatic routing, or accept that manifest-level flagging (visible to anyone who
+   checks it) is sufficient without CLI surfacing.
 4. **[Decision — resolved]** Target Quality Threshold — unified to a single global
    `target_quality_score: 9.2` across all three tiers, including FLUX.1-dev (no relaxed 9.0 floor).
    Revisit only if operational data later shows a model-specific threshold improves throughput
@@ -382,24 +387,42 @@ in this revision but flag if you disagree, **Recommended** = enhancement for lat
    from `_is_hero_scene`; hero detection now uses only `("HERO", "CLIMAX")`.
 7. **[Resolved]** Adaptive Threshold Calibration — implemented as `EscalationConfig`, loaded from real
    `IMAGE_ESCALATION_*` env vars (§4.0). No hardcoded `9.2`/`8.5` remain in `_run_generation_strategy`.
+   **Note:** `_refine_prompt_from_score` contains a local `8.5` literal, but this is a
+   **prompt-authoring heuristic** (selecting generic fallback adaptations), not a policy threshold.
+   It does not control accept/reject/retry/escalation. Policy thresholds remain centralized in
+   `EscalationConfig`.
 8. **[Resolved]** Prompt Refinement Mapping — implemented in `_refine_prompt_from_score`, which now
    takes `failed_constraint` and maps it to targeted additions. Implemented category set is broader
    than originally specified — §5 has been expanded to match (`hand`/`face`/`eye` split out from
    `anatomy`; `crop`/`framing` split out from `composition`; `watermark` added alongside `text`).
-9. **[Likely resolved — needs final confirmation]** Vision QA JSON Schema Gap: `text` — `_score_image`
-   now returns `failure_reason` and `_refine_prompt_from_score` handles a `text` category, which
-   implies the underlying review schema was fixed to include it. **Not yet explicitly confirmed**:
-   whether the actual `ImageReviewEngine`/review-prompt JSON output now has a real `text` key, or
-   whether `_score_image` derives/parses this from elsewhere (e.g. a free-text `reason` field) without
-   the upstream contract itself changing. Confirm which before treating this as fully closed.
-10. **[Likely resolved — needs final confirmation]** Vision QA JSON Schema Gap: `overall_score` —
-    `_score_image` returning a numeric `score` alongside `overall_status` implies this field now
-    exists upstream, but this hasn't been explicitly confirmed the same way Gaps 1–7 were verified
-    line-by-line. Confirm the real review-prompt JSON contract has been updated, not just that
-    `pipeline.py` consumes a score value from wherever it currently comes from.
+9. **[Minor drift — confirmed]** Vision QA JSON Schema Gap: `text` — confirmed via doc-accuracy check.
+   The real `_compute_hard_constraints` output uses a combined key **`text_watermark`**, not a
+   standalone `text` key. Text-detection is present and functionally equivalent to what the spec
+   wanted, just merged with watermark-detection under one field rather than kept separate. §6's Stage A
+   table and §5's remediation table below reference `text_watermark` as the actual field name.
+10. **[Resolved — confirmed]** Vision QA JSON Schema Gap: `overall_score` — confirmed. `overall_score`
+    is a real top-level field on `SceneReviewArtifact`, computed by `_compute_overall` in
+    `review_engine.py`, and read directly by `_score_image` — not derived or parsed from a lower-level
+    response elsewhere. §4's numeric thresholds are fully wired to this real field.
 11. **[New — open]** Dual Remediation Systems — `_run_generation_strategy` (tier-escalation, now
     hard-constraint-aware per Gap 4) and `ImageRemediationOrchestrator` (human-scene-only, its own
     `max_attempts`/`auto_remediate` config) remain intentionally separate; docstrings now document
     why, but whether `ImageRemediationOrchestrator`'s human-scene remediation is now partially
     redundant with the more capable tier-escalation loop hasn't been evaluated. This affects total
     inference cost per video — worth a follow-up investigation, not a silent merge.
+12. **[Resolved — verified]** Hero-scene classification — upstream grep confirmed `opening_hook` and
+    `closing_frame` never appear as scene metadata values in production code. §4 Step 0 and the
+    `_is_hero_scene` implementation both use the two-value set `{hero, climax}`. Spec and code agree;
+    no contradiction remains.
+13. **[Resolved]** `max_prompt_refinements` enforcement — `_run_generation_strategy` now loops up to
+    `self._escalation_config.max_prompt_refinements` in the Stage 2a remediation block instead of a
+    single hardcoded attempt. Default remains `1`, so legacy behavior is preserved unless the operator
+    explicitly configures a higher count.
+14. **[Resolved]** Remediation audit trail — `ImageReviewEngine._refine_prompt` now returns
+    `(prompt, sections_changed)`; the remediation loop records `failure_category`, `confidence`,
+    `root_cause`, and `sections_changed` on each `attempt_history` entry before appending.
+15. **[Resolved]** Anatomy hard floor — `_compute_quality_scores` now includes an explicit `anatomy`
+    sub-score (deducted independently alongside `realism` on anatomy-related issues), and
+    `_compute_overall` caps the composite at `anatomy_quality_cap` when the anatomy sub-score falls
+    below `anatomy_floor_threshold`. Both values are configurable via `ImageReviewConfig` (defaults
+    `6.0`/`6.0`), not hardcoded.

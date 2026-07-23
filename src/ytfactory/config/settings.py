@@ -320,10 +320,11 @@ class Settings(SharedSettings):
     # Cinematic Intro
     # ------------------------------------------------------------------
 
-    # Prepend a silent black screen before Scene 1 in the final video.
+    # Prepend a short black screen before Scene 1 in the final video.
     # Intentional cinematic pause — does NOT trigger black-frame validation.
+    # Keep ≤300 ms; longer intros risk being perceived as a loading delay.
     video_intro_enabled: bool = True
-    video_intro_seconds: float = 1.5
+    video_intro_seconds: float = 0.3
 
     # ------------------------------------------------------------------
     # Kokoro TTS Provider
@@ -393,6 +394,20 @@ class Settings(SharedSettings):
 
     # Write per-attempt review prompt files for debugging
     image_review_debug: bool = False
+
+    # Target quality score for stage-2 evaluation (0–100)
+    image_review_target_quality_score: float = 85.0
+
+    # Anatomy hard-floor defense-in-depth (0–100 scale for sub-score inputs)
+    image_review_anatomy_floor_threshold: float = 6.0
+    image_review_anatomy_quality_cap: float = 6.0
+
+    # Adaptive quality optimization thresholds (0–10 scale)
+    image_escalation_target_quality_score: float = 9.2
+    image_escalation_retry_threshold: float = 8.5
+    image_escalation_premium_model_threshold: float = 8.5
+    image_escalation_max_prompt_refinements: int = 1
+    image_escalation_max_model_escalations: int = 2
 
     # ------------------------------------------------------------------
     # CTA Overlay
