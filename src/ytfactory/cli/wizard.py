@@ -22,6 +22,7 @@ _PRESETS = [
     "🔍  Research Only",
     "🖼   Images Only",
     "🎙   Voice Only",
+    "📝   Captions Only",
     "🎞   Render Existing Project",
     "📦  Publish Existing Project",
 ]
@@ -395,6 +396,21 @@ def _flow_voice_only() -> None:
     VoicePipeline(Settings()).run(project_id, style=style)
 
 
+def _flow_captions_only() -> None:
+    project_id = _ask_project_id("Project ID for caption generation")
+    if not project_id:
+        return
+
+    if not _confirm_launch(
+        {"Project": project_id, "Stage": "Caption generation"}
+    ):
+        return
+
+    from ytfactory.captions.pipeline import CaptionPipeline
+
+    CaptionPipeline().run(project_id)
+
+
 def _flow_render() -> None:
     project_id = _ask_project_id("Project ID to render")
     if not project_id:
@@ -530,6 +546,8 @@ def run_wizard() -> None:
             _flow_images_only()
         elif "Voice Only" in preset:
             _flow_voice_only()
+        elif "Captions Only" in preset:
+            _flow_captions_only()
         elif "Render Existing" in preset:
             _flow_render()
         elif "Publish" in preset:
