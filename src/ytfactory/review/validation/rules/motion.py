@@ -127,7 +127,10 @@ class MotionValidator(BaseValidator):
 
             # MOT_004: Transition type specified
             if self._config.is_enabled("MOT_004"):
-                transition = scene.get("transition", "")
+                transition = (
+                    scene.get("transition_in", {}).get("transition_type")
+                    or scene.get("transition", "")
+                )
                 if not transition:
                     results.append(
                         self._warn(

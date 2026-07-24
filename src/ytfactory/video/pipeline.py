@@ -210,22 +210,31 @@ def compose_continuous_video(
     # Validate all narration audio files before touching FFmpeg — a missing
     # audio would pass .exists() if the path resolved to "." (a directory).
     missing_audio: list[str] = []
-    for scene in scenes:
-        index = scene["index"]
-        audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
-        if not audio.is_file():
-            missing_audio.append(
-                f"Scene {index}: narration audio missing — TTS failed earlier. "
-                f"Expected: {audio}"
+    if not getattr(settings, "voice_enabled", True):
+        from ytfactory.providers.tts.pacing.injector import _generate_silence
+
+        for scene in scenes:
+            index = scene["index"]
+            audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+            if not audio.is_file():
+                _generate_silence(audio, float(scene.get("duration_seconds", 10)))
+    else:
+        for scene in scenes:
+            index = scene["index"]
+            audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+            if not audio.is_file():
+                missing_audio.append(
+                    f"Scene {index}: narration audio missing — TTS failed earlier. "
+                    f"Expected: {audio}"
+                )
+        if missing_audio:
+            summary = "\n".join(f"  • {m}" for m in missing_audio)
+            raise RuntimeError(
+                f"compose_continuous_video: cannot build final.mp4 — "
+                f"{len(missing_audio)} scene(s) have missing narration audio:\n"
+                f"{summary}\n"
+                "Fix the TTS failures and re-run the render stage."
             )
-    if missing_audio:
-        summary = "\n".join(f"  • {m}" for m in missing_audio)
-        raise RuntimeError(
-            f"compose_continuous_video: cannot build final.mp4 — "
-            f"{len(missing_audio)} scene(s) have missing narration audio:\n"
-            f"{summary}\n"
-            "Fix the TTS failures and re-run the render stage."
-        )
 
     durations: list[float] = []
     for scene in scenes:

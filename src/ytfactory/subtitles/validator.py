@@ -25,6 +25,26 @@ _DEFAULT_MAX_DURATION = 7.0
 _ORPHAN_WORD_THRESHOLD = 1  # a line with ≤ this many words is an orphan
 
 
+def _wrap_line(text: str, limit: int) -> list[str]:
+    """Wrap a long subtitle line into parts no longer than *limit*."""
+    words = text.split()
+    if not words:
+        return [text]
+    parts: list[str] = []
+    current = ""
+    for word in words:
+        trial = f"{current} {word}" if current else word
+        if len(trial) <= limit:
+            current = trial
+        else:
+            if current:
+                parts.append(current)
+            current = word
+    if current:
+        parts.append(current)
+    return parts
+
+
 class SubtitleValidator:
     """
     Validate and repair a list of SubtitleCues.
@@ -127,16 +147,20 @@ class SubtitleValidator:
         # Long lines
         repaired_lines = []
         for line in lines:
-            if len(line) > self._max_chars:
+            stripped = line.strip()
+            if len(stripped) > self._max_chars:
                 issues.append(
                     ValidationIssue(
                         cue_index=cue.index,
                         code="LONG_LINE",
                         severity="warning",
-                        message=f"Line '{line[:20]}…' is {len(line)} chars (max {self._max_chars})",
+                        message=f"Line '{stripped[:20]}…' is {len(stripped)} chars (max {self._max_chars})",
                     )
                 )
-            repaired_lines.append(line)
+                parts = _wrap_line(stripped, self._max_chars)
+                repaired_lines.extend(parts)
+            else:
+                repaired_lines.append(line)
 
         # Orphan detection
         for line in repaired_lines:

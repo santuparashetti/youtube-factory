@@ -1388,6 +1388,25 @@ class TestMotionPlannerFixes:
         long = _resolve_motion("drift", "small", cfg, 0, 10.0)
         assert abs(long[4]) > abs(short[4]), "Longer scene must have proportionally larger drift"
 
+    def test_zoom_range_scales_with_scene_duration(self):
+        from video_core.cinematic.motion import _resolve_motion
+        from video_core.cinematic.profiles import ProfileConfig
+
+        cfg = ProfileConfig(
+            scale_range_small=(1.0, 1.05),
+            scale_range_medium=(1.0, 1.10),
+            scale_range_large=(1.0, 1.15),
+            drift_amount=0.05,
+            easing="ease_in_out",
+            reference_duration_seconds=5.0,
+            max_drift_scale_factor=2.0,
+            motion_map={},
+        )
+        short = _resolve_motion("push_in", "medium", cfg, 0, 5.0)
+        long = _resolve_motion("push_in", "medium", cfg, 0, 10.0)
+        assert long[1] > short[1], "Longer scene must have proportionally larger end_scale"
+        assert short[0] == long[0] == 1.0, "start_scale remains 1.0 for push_in"
+
     def test_asset_motion_falls_back_to_slow_zoom(self):
         from video_core.cinematic.motion import _asset_motion
         from video_core.cinematic.profiles import ProfileConfig
@@ -1403,6 +1422,28 @@ class TestMotionPlannerFixes:
         spec = _asset_motion({"animation": "nonexistent_animation"}, cfg)
         assert spec.motion_type != "static"
         assert spec.motion_type == "push_in"
+
+    def test_no_three_consecutive_same_motions(self):
+        from unittest.mock import patch
+        from video_core.cinematic.motion import MotionPlanner
+        from video_core.cinematic.profiles import get_profile_config
+
+        cfg = get_profile_config("cinematic")
+        planner = MotionPlanner()
+        scenes = [
+            {"index": i, "narration": "test", "duration_seconds": 5.0, "scene_type": "generated_image"}
+            for i in range(1, 13)
+        ]
+        with patch("video_core.cinematic.motion.classify_scene") as mock:
+            mock.return_value.emotion.value = "curiosity"
+            result = planner.plan(list(scenes), profile="cinematic")
+
+        motions = [s["motion"]["motion_type"] for s in result]
+        for i in range(2, len(motions)):
+            if motions[i] == motions[i - 1] == motions[i - 2]:
+                raise AssertionError(
+                    f"3+ consecutive '{motions[i]}' at scenes {i-1}-{i+1}"
+                )
 
 
 class TestImg007AndRend007:

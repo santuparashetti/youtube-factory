@@ -249,7 +249,11 @@ def generate_scene_assets(state: VideoState) -> dict:
         enabled=settings.tts_debug,
     )
 
-    if not audio_path.exists():
+    if not settings.voice_enabled:
+        from ytfactory.providers.tts.pacing.injector import _generate_silence
+
+        _generate_silence(audio_path, estimated_duration)
+    elif not audio_path.exists():
         try:
             tts = _get_tts_provider(settings)
 

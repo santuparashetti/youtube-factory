@@ -78,11 +78,14 @@ def _resolve_motion(
     scene_index is used only to alternate drift direction so consecutive
     drift scenes don't all pan in the same direction.
 
-    scene_duration is used to scale drift_amount with scene length so
-    shorter scenes feel brisk and longer scenes maintain deliberate
+    scene_duration is used to scale drift_amount and the zoom range with scene
+    length so shorter scenes feel brisk and longer scenes maintain deliberate
     continuous movement without fading to a static hold.
+
+    Zoom range scales as: start = 1.0, end = 1.0 + (hi - 1.0) * duration_factor.
+    This makes long scenes more dynamic (larger zoom) and short scenes subtler.
     """
-    lo, hi = {
+    base_lo, base_hi = {
         "small": cfg.scale_range_small,
         "medium": cfg.scale_range_medium,
         "large": cfg.scale_range_large,
@@ -91,6 +94,8 @@ def _resolve_motion(
     duration_factor = max(
         1.0, min(scene_duration / cfg.reference_duration_seconds, cfg.max_drift_scale_factor)
     )
+    lo = 1.0 + (base_lo - 1.0) * duration_factor
+    hi = 1.0 + (base_hi - 1.0) * duration_factor
     d = cfg.drift_amount * duration_factor
     # Alternate drift direction by index (even = left→right, odd = right→left)
     drift_sign = 1.0 if scene_index % 2 == 0 else -1.0
@@ -239,6 +244,9 @@ class MotionPlanner:
         cfg = get_profile_config(profile)
         total = len(scenes)
 
+        prev_motion_type = None
+        repeat_count = 0
+
         for scene in scenes:
             scene_position = (
                 (scene["index"] - 1) / max(total - 1, 1) if total > 1 else 0.5
@@ -253,7 +261,47 @@ class MotionPlanner:
             else:
                 spec = self._plan_generated(scene, scene_position, cfg, intensity)
 
+            motion_type = spec.motion_type
+            if prev_motion_type == motion_type:
+                repeat_count += 1
+            else:
+                repeat_count = 1
+
+            if repeat_count >= 3:
+                scene_duration = float(scene.get("duration_seconds", 5.0))
+                alts = []
+                seen: set[str] = set()
+                for mt, _ in cfg.motion_map.values():
+                    if mt != motion_type and mt not in seen:
+                        alts.append(mt)
+                        seen.add(mt)
+                if alts:
+                    alt = alts[(scene["index"] - 1) % len(alts)]
+                    scale_tier = next(
+                        (st for mt, st in cfg.motion_map.values() if mt == alt),
+                        next(
+                            (st for mt, st in cfg.motion_map.values() if mt == motion_type),
+                            "medium",
+                        ),
+                    )
+                    start_s, end_s, ax, ay, dx, dy = _resolve_motion(
+                        alt, scale_tier, cfg, scene["index"], scene_duration
+                    )
+                    spec = MotionSpec(
+                        motion_type=alt,
+                        start_scale=round(start_s, 4),
+                        end_scale=round(end_s, 4),
+                        anchor_x=ax,
+                        anchor_y=ay,
+                        drift_x=round(dx, 4),
+                        drift_y=round(dy, 4),
+                        easing=cfg.easing,
+                        emotion=spec.emotion,
+                    )
+                    repeat_count = 1
+
             scene["motion"] = spec.to_dict()
+            prev_motion_type = spec.motion_type
 
         return scenes
 

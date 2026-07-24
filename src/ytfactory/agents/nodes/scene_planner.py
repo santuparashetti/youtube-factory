@@ -134,6 +134,8 @@ def _split_script_to_scenes(
                 "duration_seconds": max(8, int(wc * 0.5)),
                 "visual_prompt": "",
                 "visual_metadata": {},
+                "scene_type": "generated_image",
+                "shot_type": "medium_shot",
             }
         )
         bucket.clear()
@@ -238,14 +240,6 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
         )
         return scenes
 
-    position = brand_cfg.branding.closing_position
-    if position != "before_final_quote":
-        logger.debug(
-            "branding: skipped closing asset card — unsupported position: {}",
-            position,
-        )
-        return scenes
-
     asset_path = brand_cfg.branding.asset_path
     animation = brand_cfg.branding.asset_animation
 
@@ -272,6 +266,7 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
         "visual_prompt": "",
         "visual_metadata": {},
         "scene_type": "brand_card",
+        "shot_type": "medium_shot",
         "asset_id": asset_path,
         "asset_path": asset_path,
         "animation": animation,

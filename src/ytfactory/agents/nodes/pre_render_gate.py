@@ -46,6 +46,8 @@ def pre_render_gate_node(state: VideoState) -> dict:
             narration=s.get("narration", ""),
             visual_prompt=s.get("visual_prompt", ""),
             duration_seconds=float(s.get("duration_seconds", 0.0)),
+            scene_type=s.get("scene_type", "generated_image"),
+            shot_type=s.get("shot_type", "medium_shot"),
             pose=s.get("pose"),
             composition=s.get("composition"),
             motion_type=s.get("motion_type"),
@@ -53,6 +55,8 @@ def pre_render_gate_node(state: VideoState) -> dict:
             text_reveal_segments=s.get("text_reveal_segments", []),
             hold_required=s.get("hold_required", False),
             linked_segment=s.get("linked_segment"),
+            asset_path=s.get("asset_path"),
+            asset_id=s.get("asset_id"),
         )
         for i, s in enumerate(scene_plan)
     ]

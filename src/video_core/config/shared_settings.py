@@ -165,6 +165,10 @@ class SharedSettings(BaseSettings):
     tts_auto_retry: bool = True
     tts_max_retries: int = 3
 
+    # Voice enable/disable — when False, no TTS provider is called and silent
+    # audio is generated instead so the renderer still has narration tracks.
+    voice_enabled: bool = True
+
     # ------------------------------------------------------------------
     # TTS Analytics & Cost Tracking
     # ------------------------------------------------------------------

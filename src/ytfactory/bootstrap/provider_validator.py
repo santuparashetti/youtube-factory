@@ -52,7 +52,16 @@ def validate_providers() -> list[CheckResult]:
     results.extend(_check_image_provider(settings))
 
     # TTS provider
-    results.extend(_check_tts_provider(settings))
+    if getattr(settings, "voice_enabled", True):
+        results.extend(_check_tts_provider(settings))
+    else:
+        results.append(
+            CheckResult(
+                name="providers:tts",
+                status=CheckStatus.SKIPPED,
+                message="TTS validation skipped (voice_enabled=False)",
+            )
+        )
 
     return results
 
