@@ -133,9 +133,9 @@ def _resolve_motion(
             return (zoom, zoom, 0.5, 0.5, d * drift_sign, 0.0)
 
         case "tilt_up":
-            # Camera rises: anchor below centre, zoom stays mild
-            # y anchor > 0.5 means the focus point starts lower in the frame
-            return (lo, hi, 0.5, 0.65, 0.0, d * 0.5)
+            # Camera rises: anchor near centre so zoom gives headroom for upward pan.
+            # drift_y scales the full drift amount for a visible vertical travel.
+            return (lo, hi, 0.5, 0.45, 0.0, d)
 
         case _:
             logger.warning(

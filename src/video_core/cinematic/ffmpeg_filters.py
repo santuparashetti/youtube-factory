@@ -88,12 +88,35 @@ def build_zoompan_filter(
     # drift adds slow horizontal / vertical travel.
     # drift_x > 0 → camera pans left→right (x increases in input coords)
     # drift_y > 0 → camera tilts up (y decreases in FFmpeg coords → minus sign)
+    raw_dx = float(motion.get("drift_x", 0.0))
+    raw_dy = float(motion.get("drift_y", 0.0))
+
+    def _clamp_drift(
+        drift: float,
+        anchor: float,
+        start_zoom: float,
+        end_zoom: float,
+    ) -> float:
+        if abs(drift) < 1e-9:
+            return drift
+        worst_zoom = min(start_zoom, end_zoom)
+        x0 = anchor - 1.0 / (2.0 * worst_zoom)
+        upper = 1.0 - 1.0 / worst_zoom
+        room = min(upper - x0, x0)
+        if abs(drift) > room and room > 1e-9:
+            return room * (1.0 if drift > 0 else -1.0)
+        return drift
+
+    drift_x = _clamp_drift(raw_dx, anchor_x, start_scale, end_scale)
+    drift_y = _clamp_drift(raw_dy, anchor_y, start_scale, end_scale)
+
     dx = f"+iw*{drift_x:.6f}*({t})" if abs(drift_x) > 1e-6 else ""
     dy = f"-ih*{drift_y:.6f}*({t})" if abs(drift_y) > 1e-6 else ""
 
-    # Clamp to [0, iw*(1−1/zoom)] / [0, ih*(1−1/zoom)] — prevents black bars
-    x_expr = f"'max(0,min(iw*{anchor_x:.4f}-iw/(2*zoom){dx},iw*(1-1/zoom)))'"
-    y_expr = f"'max(0,min(ih*{anchor_y:.4f}-ih/(2*zoom){dy},ih*(1-1/zoom)))'"
+    # Clamp to [0, zoom*iw - width] / [0, zoom*ih - height] — allows the full pan
+    # range the zoompan filter actually supports while still preventing black-bars.
+    x_expr = f"'max(0,min(iw*{anchor_x:.4f}-iw/(2*zoom){dx},iw*zoom-{width}))'"
+    y_expr = f"'max(0,min(ih*{anchor_y:.4f}-ih/(2*zoom){dy},ih*zoom-{height}))'"
 
     return (
         f"zoompan=z={z_expr}:x={x_expr}:y={y_expr}"

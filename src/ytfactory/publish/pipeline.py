@@ -111,7 +111,8 @@ class PublishPipeline:
         )
 
         # ── 6. Thumbnail ───────────────────────────────────────────────────
-        print("  [6/7] Generating thumbnail…")
+        if not self._config.skip_thumbnail:
+            print("  [6/7] Generating thumbnail…")
         thumbnail = ThumbnailGenerator(self._image, self._config).generate(
             project_id=project_id,
             project_title=project.title,

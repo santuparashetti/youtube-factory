@@ -83,8 +83,13 @@ class VoicePipeline:
             enabled=settings.tts_analytics_enabled,
             pricing_config=self._pricing_config,
         )
-        self._provider = get_tts_provider(settings, analytics=self._analytics)
+        self._provider = None
         self._repository = VoiceRepository()
+
+    def _ensure_provider(self):
+        if self._provider is None:
+            self._provider = get_tts_provider(self._settings, analytics=self._analytics)
+        return self._provider
 
     def run(
         self,
@@ -92,6 +97,7 @@ class VoicePipeline:
         style: str = "spiritual",
         language: str = "en",
     ) -> None:
+        provider = self._ensure_provider()
         if not self._settings.voice_enabled:
             logger.info("VOICE_ENABLED=false — skipping narration generation")
             return

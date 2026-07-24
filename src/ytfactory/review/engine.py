@@ -364,14 +364,36 @@ def _load_enhancement_feedback(
 
     dominant_symbol = editors_notes.get("dominant_visual_symbol", "")
     if dominant_symbol and dominant_symbol.lower() not in ("none", "", "n/a"):
-        script_path = project_dir / "script" / "script.md"
         symbol_present = False
+
+        script_path = project_dir / "script" / "script.md"
         if script_path.exists():
             try:
                 script_text = script_path.read_text(encoding="utf-8").lower()
                 symbol_present = dominant_symbol.lower() in script_text
             except OSError:
                 pass
+
+        if not symbol_present:
+            scene_plan_path = project_dir / "scenes" / "scene-plan.json"
+            if scene_plan_path.exists():
+                try:
+                    plan_text = scene_plan_path.read_text(encoding="utf-8").lower()
+                    symbol_present = dominant_symbol.lower() in plan_text
+                except OSError:
+                    pass
+
+        if not symbol_present:
+            images_dir = project_dir / "images"
+            if images_dir.is_dir():
+                try:
+                    symbol_present = any(
+                        dominant_symbol.lower() in p.name.lower()
+                        for p in images_dir.iterdir()
+                        if p.is_file()
+                    )
+                except OSError:
+                    pass
 
         if symbol_present:
             desc = f"Dominant visual symbol '{dominant_symbol}' is present in script."

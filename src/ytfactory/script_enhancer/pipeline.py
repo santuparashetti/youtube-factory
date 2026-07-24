@@ -822,6 +822,11 @@ class DocumentaryScriptEnhancerPipeline:
         # ── Pass 3 (correction): one targeted length-adjustment if out of tolerance ──
         correction_pass_data: dict = {"attempted": False}
         if not ok:
+            logger.info(
+                "Pass 3 DEBUG - word count IN: enhanced_words={} final_restored_words={}",
+                enhanced_words,
+                len(final_restored.split()),
+            )
             correction_mode = "expand" if gap < 0 else "shorten"
             correction_label = "expanding" if gap < 0 else "trimming"
             console.print(
@@ -840,12 +845,23 @@ class DocumentaryScriptEnhancerPipeline:
             )
             corr_response = self._llm.generate(corr_prompt, temperature=0.4)
             corr_ph_out = corr_response.text.strip()
+            corr_raw_words = len(corr_ph_out.split())
+            logger.info(
+                "Pass 3 DEBUG - word count RAW LLM RESPONSE: {} chars, {} words",
+                len(corr_ph_out),
+                corr_raw_words,
+            )
             corr_restored = restore_scripture_spans(corr_ph_out, corr_placeholders)
 
             corr_words = len(corr_restored.split())
             corr_est = corr_words / NARRATION_WPM
             correction_ok = _duration_ok(corr_est, target_minutes)
             corr_gap = corr_est - target_minutes
+            logger.info(
+                "Pass 3 DEBUG - word count AFTER restore: {} words, est={:.1f} min",
+                corr_words,
+                corr_est,
+            )
 
             correction_pass_data = {
                 "attempted": True,

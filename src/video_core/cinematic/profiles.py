@@ -161,19 +161,19 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
     ),
     RenderProfile.CINEMATIC: ProfileConfig(
         scale_range_small=(1.0, 1.10),
-        scale_range_medium=(1.0, 1.15),
-        scale_range_large=(1.0, 1.22),
-        drift_amount=0.06,
+        scale_range_medium=(1.0, 1.18),
+        scale_range_large=(1.0, 1.25),
+        drift_amount=0.12,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
     ),
     RenderProfile.PREMIUM: ProfileConfig(
-        scale_range_small=(1.0, 1.10),
-        scale_range_medium=(1.0, 1.18),
-        scale_range_large=(1.0, 1.25),
-        drift_amount=0.07,
+        scale_range_small=(1.0, 1.12),
+        scale_range_medium=(1.0, 1.22),
+        scale_range_large=(1.0, 1.28),
+        drift_amount=0.14,
         easing="ease_in_out",
-        motion_map=_CINEMATIC_MAP,  # same categories, wider range
+        motion_map=_CINEMATIC_MAP,
     ),
 }
 
