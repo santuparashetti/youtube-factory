@@ -65,7 +65,7 @@ class ContentReviewStage(BaseReviewStage):
 
             # Asset scenes (brand images, outro cards) carry intentionally short
             # taglines — exempt them from the minimum word-count check.
-            if scene_type != "asset":
+            if scene_type not in ("asset", "brand_card"):
                 self._check(
                     wc >= self._config.min_narration_words,
                     f"Scene {idx}: narration missing or too short ({wc} words)",

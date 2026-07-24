@@ -617,7 +617,7 @@ def scene_planner_node(state: VideoState) -> dict:
     # Detect channel closing scenes and mark them as asset scenes so that
     # image generation is skipped and the brand card is used instead.
     _mark_asset_scenes(scenes)
-    asset_count = sum(1 for s in scenes if s.get("scene_type") == "asset")
+    asset_count = sum(1 for s in scenes if s.get("scene_type") in ("asset", "brand_card"))
     if asset_count:
         brand_asset = get_brand_config().branding.asset_path
         console.print(
@@ -824,7 +824,7 @@ def scene_planner_node(state: VideoState) -> dict:
             s["narration"][:60] + "…" if len(s["narration"]) > 60 else s["narration"]
         )
         scene_label = s["title"] + (
-            " [asset]" if s.get("scene_type") == "asset" else ""
+            " [asset]" if s.get("scene_type") in ("asset", "brand_card") else ""
         )
         table.add_row(
             str(s["index"]), scene_label, f"{s['duration_seconds']}s", narration_preview

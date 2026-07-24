@@ -131,7 +131,7 @@ class VoicePipeline:
             debug.write_original(original_text)
 
             # Contemplative pacing is skipped for asset/brand scenes (short by design).
-            use_pacing = self._settings.tts_pacing_enabled and scene_type != "asset"
+            use_pacing = self._settings.tts_pacing_enabled and scene_type not in ("asset", "brand_card")
 
             if not use_pacing:
                 # Standard path: optimizer runs on the full narration.

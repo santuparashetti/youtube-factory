@@ -401,7 +401,7 @@ class ImagePipeline:
             output_path = output_dir / filename
 
             # Asset scenes skip AI image generation and vision review entirely.
-            if scene.get("scene_type") == "asset":
+            if scene.get("scene_type") in ("asset", "brand_card"):
                 asset_path = Path(scene.get("asset_path", ""))
                 if not _w:
                     print(f"[{index}/{total}] {filename} (asset — skipping generation)")

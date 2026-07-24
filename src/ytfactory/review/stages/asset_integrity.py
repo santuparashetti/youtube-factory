@@ -30,7 +30,7 @@ class AssetIntegrityStage(BaseReviewStage):
     ) -> None:
         for sr in scene_reviews:
             idx = sr.index
-            if sr.scene_type == "asset":
+            if sr.scene_type in ("asset", "brand_card"):
                 # Asset scenes use a caller-supplied file — skip image check
                 self._ok()
             else:

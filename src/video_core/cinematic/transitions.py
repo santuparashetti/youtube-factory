@@ -128,7 +128,7 @@ _HARD_CUT_EMOTIONS: frozenset[str] = frozenset(
 
 def _get_emotion(scene: dict, position: float) -> str:
     """Classify the dominant emotion for one scene."""
-    if scene.get("scene_type") == "asset":
+    if scene.get("scene_type") in ("asset", "brand_card"):
         return "asset"
     ep = classify_scene(scene.get("narration", ""), position)
     return ep.emotion.value
@@ -161,7 +161,7 @@ def _select_transition(
         return "hard_cut", 0, "black"
 
     # 2. Asset scene: always dissolve for graceful brand card entry
-    if to_scene.get("scene_type") == "asset":
+    if to_scene.get("scene_type") in ("asset", "brand_card"):
         return "cross_dissolve", duration_frames, "black"
 
     # 3. Match-cut heuristic: rhythmic cuts during high-energy same-emotion runs

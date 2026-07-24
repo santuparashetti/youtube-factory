@@ -143,7 +143,7 @@ def generate_scene_assets(state: VideoState) -> dict:
     # ── 1. Resolve image — asset bypass or AI generation ─────────────────
     scene_type: str = scene.get("scene_type", "generated_image")
 
-    if scene_type == "asset":
+    if scene_type in ("asset", "brand_card"):
         asset_path = Path(scene.get("asset_path", ""))
         if not asset_path.is_absolute():
             asset_path = Path.cwd() / asset_path

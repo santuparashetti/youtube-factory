@@ -234,7 +234,7 @@ class FFmpegRenderer:
             dur = durations[i]
             index = scene["index"]
 
-            if scene.get("scene_type") == "asset":
+            if scene.get("scene_type") in ("asset", "brand_card"):
                 asset_path = Path(scene.get("asset_path", ""))
                 if not asset_path.is_absolute():
                     asset_path = Path.cwd() / asset_path

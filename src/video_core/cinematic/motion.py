@@ -248,7 +248,7 @@ class MotionPlanner:
             if emotional_intensity is not None:
                 intensity = emotional_intensity.get(scene["index"], "normal")
 
-            if scene_type == "asset":
+            if scene_type in ("asset", "brand_card"):
                 spec = _asset_motion(scene, cfg)
             else:
                 spec = self._plan_generated(scene, scene_position, cfg, intensity)

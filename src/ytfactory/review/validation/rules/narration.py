@@ -66,7 +66,7 @@ class NarrationValidator(BaseValidator):
 
             # NARR_002: Word count within bounds (asset scenes are exempt — they
             # carry intentionally short taglines, not full narration).
-            if self._config.is_enabled("NARR_002") and scene_type != "asset":
+            if self._config.is_enabled("NARR_002") and scene_type not in ("asset", "brand_card"):
                 min_w = self._config.narration_min_words
                 max_w = self._config.narration_max_words
                 wc = len(words)
