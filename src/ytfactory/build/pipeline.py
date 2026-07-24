@@ -26,6 +26,7 @@ from ytfactory.script_enhancer.pipeline import (
     DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # noqa: F401 — backward compat for tests
 )
 from ytfactory.storage.project_repository import ProjectRepository
+from ytfactory.two_phase.pipeline import TwoPhasePipeline
 from ytfactory.video.pipeline import VideoPipeline
 from ytfactory.voice.pipeline import VoicePipeline
 from ytfactory.shared.pipeline_status import PipelineAbort, PipelineStatusWriter, activate_writer, get_writer
@@ -337,3 +338,22 @@ class BuildPipeline:
                     console.print(f"  [yellow]⚠[/yellow]  {label} rebuilt")
                 elif stage in reused:
                     console.print(f"  [green]✓[/green]  {label} reused")
+
+    # ── Two-phase workflow ─────────────────────────────────────────────────────
+
+    def run_prep_only(
+        self,
+        project_id: str,
+        style: str | None = None,
+        target_minutes: int = 7,
+    ) -> None:
+        """Run Phase 1 of the two-phase pipeline (prep only, no image generation)."""
+        TwoPhasePipeline().run_prep_only(
+            project_id=project_id,
+            style=style,
+            target_minutes=target_minutes,
+        )
+
+    def run_resume(self, project_id: str) -> None:
+        """Run Phase 2 of the two-phase pipeline (resume from manual images)."""
+        TwoPhasePipeline().run_resume(project_id=project_id)

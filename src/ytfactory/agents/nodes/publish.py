@@ -23,8 +23,8 @@ def publish_node(state: VideoState) -> dict:
     """
     project_id = state["project_id"]
 
-    # Respect skip_thumbnail if the user ran with --no-images
-    skip_thumbnail = bool(state.get("skip_images", False))
+    # Respect skip_thumbnail for Phase 2 resume and --no-images
+    skip_thumbnail = bool(state.get("skip_thumbnail", False)) or bool(state.get("skip_images", False))
     config = PublishConfig(skip_thumbnail=skip_thumbnail)
 
     package = PublishPipeline(config=config, settings=_settings).run(project_id)

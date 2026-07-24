@@ -33,6 +33,7 @@ def build(
     scene: Optional[int] = typer.Option(None, "--scene", help="Only process this scene index"),
     force_scene: Optional[int] = typer.Option(None, "--force-scene", help="Force-regenerate one specific scene"),
     debug_incremental: bool = typer.Option(False, "--debug-incremental", help="Print per-asset change debug output"),
+    phase: Optional[str] = typer.Option(None, "--phase", help="Two-phase mode: prep_only (Phase 1) or resume (Phase 2)"),
 ):
     """Build the complete video production pipeline end-to-end.
 
@@ -79,6 +80,19 @@ def build(
         force_images, force_narration, force_subtitles, force_video, force_bgm,
         force_cta, force_publish, scene is not None, force_scene is not None,
     ])
+
+    if phase == "prep_only":
+        BuildPipeline().run_prep_only(
+            project_id,
+            style=style,
+            target_minutes=target_minutes,
+        )
+        console.print("[bold green]✓ Phase 1 prep complete[/bold green]")
+        return
+    if phase == "resume":
+        BuildPipeline().run_resume(project_id)
+        console.print("[bold green]✓ Phase 2 resume complete[/bold green]")
+        return
 
     if incremental:
         from ytfactory.incremental.deps import FORCE_FLAG_TO_STAGE

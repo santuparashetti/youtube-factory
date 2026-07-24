@@ -15,14 +15,15 @@ console = Console()
 # ── Option tables ─────────────────────────────────────────────────────────────
 
 _PRESETS = [
-    "🎬  Full AI Video (research → script → video)",
-    "📄  Existing Script (skip research, use my script)",
+    "🆕  New Project (Phase 1)",
+    "▶️   Resume Project (Phase 2)",
+    "🎬  Full AI Video (legacy — runs through to publish)",
+    "📄  Existing Script (legacy)",
     "🔍  Research Only",
     "🖼   Images Only",
     "🎙   Voice Only",
     "🎞   Render Existing Project",
     "📦  Publish Existing Project",
-    "▶   Resume Existing Project",
 ]
 
 _STYLES = ["Spiritual", "Documentary", "Educational", "History", "No style"]
@@ -105,6 +106,24 @@ def _list_existing_projects() -> list[str]:
     )
 
 
+def _is_phase1_ready(project_dir: Path) -> bool:
+    report = project_dir / "phase1_report.md"
+    manifest = project_dir / "image_prompts_manifest.json"
+    final = project_dir / "video" / "final.mp4"
+    return report.exists() and manifest.exists() and not final.exists()
+
+
+def _list_phase1_ready_projects() -> list[str]:
+    jobs_dir = Path("workspace/jobs")
+    if not jobs_dir.exists():
+        return []
+    return sorted(
+        p.name
+        for p in jobs_dir.iterdir()
+        if p.is_dir() and (p / "project.json").exists() and _is_phase1_ready(p)
+    )
+
+
 def _ask_project_id(label: str = "Project ID") -> Optional[str]:
     existing = _list_existing_projects()
     if existing:
@@ -171,6 +190,63 @@ def _apply_profile_env(profile: str) -> None:
 
 
 # ── Workflow flows ────────────────────────────────────────────────────────────
+
+
+def _flow_new_project(defaults: dict) -> None:
+    title = questionary.text("Video title:").ask()
+    if not title:
+        return
+
+    use_script = questionary.confirm(
+        "Do you have a pre-written script?", default=False
+    ).ask()
+
+    script_path: str | None = None
+    if use_script:
+        script_path = questionary.text(
+            "Script file path:",
+            instruction="(.md, .txt, .pdf, .docx)",
+        ).ask()
+        if not script_path:
+            return
+        script_path = script_path.strip()
+        if not Path(script_path).exists():
+            console.print(f"[red]File not found: {script_path}[/red]")
+            return
+
+    style = _ask_style()
+    target_mins = _ask_target_minutes()
+    lang_label, language = _ask_language()
+    profile = _ask_profile()
+    auto = questionary.confirm(
+        "Run fully automatically (skip review gates)?", default=True
+    ).ask()
+
+    if not _confirm_launch(
+        {
+            "Title": title,
+            "Script": script_path or "AI-generated",
+            "Style": style or "none",
+            "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
+            "Language": lang_label,
+            "Profile": profile,
+            "Phase": "1 (prep)",
+        }
+    ):
+        return
+
+    _apply_profile_env(profile)
+    from ytfactory.agents.runner import run_pipeline
+
+    run_pipeline(
+        title,
+        language=language,
+        auto=bool(auto),
+        script_path=script_path,
+        style=style,
+        target_minutes=target_mins,
+        pipeline_mode="prep_only",
+    )
 
 
 def _flow_full_ai_video(defaults: dict) -> None:
@@ -362,6 +438,36 @@ def _flow_publish() -> None:
     PublishPipeline(config=config).run(project_id)
 
 
+def _flow_resume_project() -> None:
+    existing = _list_phase1_ready_projects()
+    if not existing:
+        console.print("[yellow]No Phase 1-ready projects found.[/yellow]")
+        console.print(
+            "[dim]Projects must have phase1_report.md and image_prompts_manifest.json "
+            "and must not yet have video/final.mp4.[/dim]"
+        )
+        return
+
+    project_id = questionary.select(
+        "Select a project to resume (Phase 2):",
+        choices=existing,
+    ).ask()
+    if not project_id:
+        return
+
+    if not _confirm_launch(
+        {
+            "Project": project_id,
+            "Phase": "2 (resume)",
+        }
+    ):
+        return
+
+    from ytfactory.build.pipeline import BuildPipeline
+
+    BuildPipeline().run_resume(project_id)
+
+
 def _flow_resume() -> None:
     project_id = _ask_project_id("Project ID to resume")
     if not project_id:
@@ -410,7 +516,11 @@ def run_wizard() -> None:
     console.print()
 
     try:
-        if "Full AI Video" in preset:
+        if "New Project" in preset:
+            _flow_new_project(defaults)
+        elif "Resume Project" in preset:
+            _flow_resume_project()
+        elif "Full AI Video" in preset:
             _flow_full_ai_video(defaults)
         elif "Existing Script" in preset:
             _flow_existing_script(defaults)

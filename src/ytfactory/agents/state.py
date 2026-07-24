@@ -21,6 +21,7 @@ class VideoState(TypedDict, total=False):
     target_minutes: int  # target narration duration (1-10); drives enhancer word count
     auto_mode: bool  # True → skip all human-review gates
     skip_images: bool  # True → skip image generation (for manual-image workflow)
+    skip_thumbnail: bool  # True → skip thumbnail generation (Phase 2 resume)
 
     # ── Stage text outputs ────────────────────────────────────────────────
     research_md: str

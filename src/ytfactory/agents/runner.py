@@ -32,6 +32,7 @@ def run_pipeline(
     force_stages: set[str] | None = None,
     scene_filter: int | None = None,
     force_scene: int | None = None,
+    pipeline_mode: str = "default",
 ) -> str:
     """
     Run the full agentic video production pipeline.
@@ -46,6 +47,14 @@ def run_pipeline(
         style:       Visual style hint — "spiritual", "documentary", etc.
         no_images:   Skip image generation entirely. Use IMAGE_PROMPTS.md to
                      generate images manually, then re-run for video.
+        target_minutes: Target narration duration in minutes (1-10).
+        incremental: Skip unchanged stages (incremental mode).
+        force_stages: Stages to forcibly rebuild.
+        scene_filter: Only process this scene index.
+        force_scene:  Force-regenerate one specific scene.
+        pipeline_mode: "default" | "prep_only" | "resume".
+                       prep_only: run Phase 1, halt after voice/captions with manifest.
+                       resume: validate images, then run remaining stages.
 
     Returns:
         The project_id of the produced video.
@@ -62,6 +71,10 @@ def run_pipeline(
             scene_filter=scene_filter,
             force_scene=force_scene,
         )
+
+    # ── Two-phase mode ─────────────────────────────────────────────────────
+    if pipeline_mode == "resume" and project_id is None:
+        raise ValueError("--phase=resume requires --project <id>")
 
     start_time = time.perf_counter()
 
@@ -104,15 +117,18 @@ def run_pipeline(
         if style:
             console.print(f"[green]✓[/green] Style: [bold]{style}[/bold]")
 
-    if no_images:
+    if no_images or pipeline_mode == "prep_only":
         console.print(
-            "[yellow]⚡ --no-images mode[/yellow]: image generation skipped. "
+            "[yellow]⚡ Image generation skipped[/yellow]: "
             "Generate images from [bold]images/IMAGE_PROMPTS.md[/bold] and re-run."
         )
 
     console.print()
 
     # ── Build initial state ───────────────────────────────────────────────
+    skip_images = no_images or pipeline_mode == "prep_only"
+    skip_thumbnail = pipeline_mode == "resume"
+
     initial_state: VideoState = {
         "project_id": project_id,
         "topic": topic,
@@ -121,7 +137,8 @@ def run_pipeline(
         "style": style,
         "target_minutes": max(1, min(10, target_minutes)),
         "auto_mode": auto,
-        "skip_images": no_images,
+        "skip_images": skip_images,
+        "skip_thumbnail": skip_thumbnail,
         "script_md": script_md,
         "scene_plan": [],
         "image_paths": {},
@@ -130,6 +147,25 @@ def run_pipeline(
         "scene_video_paths": {},
         "stage_errors": [],
     }
+
+    # ── Two-phase: Phase 2 validation ────────────────────────────────────
+    if pipeline_mode == "resume":
+        from ytfactory.two_phase.pipeline import TwoPhasePipeline
+
+        missing = TwoPhasePipeline()._validate_images(project_id)
+        if missing:
+            console.print(
+                f"[red]✗ Phase 2 validation failed — {len(missing)} missing image(s):[/red]"
+            )
+            for scene_id, filename in missing:
+                console.print(f"  [red]•[/red] Scene {scene_id}: {filename}")
+            console.print(
+                "\n[yellow]Place the missing images in the images folder and re-run.[/yellow]"
+            )
+            raise RuntimeError(
+                f"Phase 2 validation failed: {len(missing)} missing images."
+            )
+        console.print("[green]✓[/green] All expected images present\n")
 
     # ── Run the graph ─────────────────────────────────────────────────────
     config = {"configurable": {"thread_id": project_id}}
@@ -153,6 +189,30 @@ def run_pipeline(
             "Publishing",
         ]:
             console.print(f"  [yellow]✓ {name}[/yellow]")
+        console.print()
+        return project_id
+
+    # ── Two-phase: Phase 1 post-processing ───────────────────────────────
+    if pipeline_mode == "prep_only":
+        from ytfactory.two_phase.pipeline import TwoPhasePipeline
+
+        two_phase = TwoPhasePipeline()
+        manifest_path = two_phase._write_image_prompts_manifest(project_id)
+        two_phase._write_phase1_report(project_id, manifest_path)
+
+        console.print()
+        console.print(Rule("[bold green]Phase 1 Complete[/bold green]"))
+        console.print(
+            Panel(
+                f"[bold]Project:[/bold] {project_id}\n"
+                f"[bold]Image prompts manifest:[/bold] {manifest_path}\n"
+                f"[bold]Phase 1 report:[/bold] {Path(WORKSPACE_DIR) / project_id / 'phase1_report.md'}\n\n"
+                "[yellow]Generate images externally, place them in the images folder, "
+                "then run Phase 2 to continue.[/yellow]",
+                title="Phase 1 Stop",
+                border_style="green",
+            )
+        )
         console.print()
         return project_id
 

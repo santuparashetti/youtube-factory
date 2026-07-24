@@ -427,6 +427,11 @@ def run(
         "--force-scene",
         help="Force-regenerate one specific scene (overrides locked state)",
     ),
+    phase: Optional[str] = typer.Option(
+        None,
+        "--phase",
+        help="Two-phase mode: prep_only (Phase 1) or resume (Phase 2)",
+    ),
 ):
     """Run the full agentic video production pipeline.
 
@@ -512,7 +517,19 @@ def run(
         force_stages=force_stages if force_stages else None,
         scene_filter=scene,
         force_scene=force_scene,
+        pipeline_mode=phase or "default",
     )
+
+
+@app.command(name="resume")
+def resume(
+    project_id: str = typer.Argument(..., help="Project ID to resume"),
+) -> None:
+    """Resume an existing project from Phase 1 (run Phase 2)."""
+    from ytfactory.build.pipeline import BuildPipeline
+
+    BuildPipeline().run_resume(project_id)
+    _console.print(f"[bold green]✓ Phase 2 complete[/bold green] — project: {project_id}")
 
 
 if __name__ == "__main__":
