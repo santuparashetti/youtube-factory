@@ -354,6 +354,6 @@ class BuildPipeline:
             target_minutes=target_minutes,
         )
 
-    def run_resume(self, project_id: str) -> None:
+    def run_resume(self, project_id: str, overlay: bool = True) -> None:
         """Run Phase 2 of the two-phase pipeline (resume from manual images)."""
-        TwoPhasePipeline().run_resume(project_id=project_id)
+        TwoPhasePipeline().run_resume(project_id=project_id, overlay=overlay)

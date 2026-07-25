@@ -481,7 +481,12 @@ def _flow_resume_project() -> None:
 
     from ytfactory.build.pipeline import BuildPipeline
 
-    BuildPipeline().run_resume(project_id)
+    overlay = questionary.confirm(
+        "Apply motion overlay compositing?",
+        default=True,
+    ).ask()
+
+    BuildPipeline().run_resume(project_id, overlay=overlay)
 
 
 def _flow_resume() -> None:

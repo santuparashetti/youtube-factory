@@ -32,7 +32,9 @@ class FFmpegRenderer:
         Delegates to video_core.cinematic.ffmpeg_filters.build_zoompan_filter —
         same logic, same output, now also callable from shorts_factory.
         """
-        return build_zoompan_filter(width, height, fps, motion, duration_hint)
+        return build_zoompan_filter(
+            width, height, fps, motion, duration_hint, self.settings.motion_supersample
+        )
 
     def _vf_spatial_legacy(
         self,
@@ -53,7 +55,19 @@ class FFmpegRenderer:
                 f"crop={width}:{height}"
             )
 
-        total_frames = max(1, int(duration_hint * fps))
+        ss = self.settings.motion_supersample
+        if ss > 1:
+            sw = width * ss
+            sh = height * ss
+            prefix = f"scale={sw}:{sh}:flags=lanczos,"
+            suffix = f",scale={width}:{height}:flags=lanczos"
+        else:
+            sw = width
+            sh = height
+            prefix = ""
+            suffix = ""
+
+        total_frames = max(1, round(duration_hint * fps))
 
         if animation == "slow_zoom":
             zoom_expr = f"'min(zoom+{0.15 / total_frames:.6f},1.15)'"
@@ -69,8 +83,8 @@ class FFmpegRenderer:
             y_expr = "'ih/2-(ih/zoom/2)'"
 
         return (
-            f"zoompan=z={zoom_expr}:x={x_expr}:y={y_expr}"
-            f":d=1:s={width}x{height}:fps={fps}"
+            f"{prefix}zoompan=z={zoom_expr}:x={x_expr}:y={y_expr}"
+            f":d=1:s={sw}x{sh}:fps={fps}{suffix}"
         )
 
     # ── Visual effects ────────────────────────────────────────────────────────

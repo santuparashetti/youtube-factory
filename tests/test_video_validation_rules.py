@@ -1536,3 +1536,130 @@ class TestImg007AndRend007:
         results = v.validate(tmp_path, scenes, {})
         rule = next(r for r in results if r.rule_id == "REND_007")
         assert rule.status == "FAIL"
+
+
+class TestMotionSupersampleAndPrecision:
+    """Tests for supersampling, frame-precision, and easing in zoompan."""
+
+    def test_supersample_wraps_zoompan_with_scale_filters(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion = {
+            "motion_type": "push_in",
+            "start_scale": 1.0,
+            "end_scale": 1.1,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "linear",
+        }
+        filt = build_zoompan_filter(1920, 1080, 30, motion, 5.0, supersample=2)
+        assert filt.startswith("scale=3840:2160:flags=lanczos,")
+        assert ",scale=1920:1080:flags=lanczos" in filt
+        assert "zoompan=z=" in filt
+        assert "s=3840x2160" in filt
+
+    def test_no_supersample_omits_scale_wrappers(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion = {
+            "motion_type": "push_in",
+            "start_scale": 1.0,
+            "end_scale": 1.1,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "linear",
+        }
+        filt = build_zoompan_filter(1920, 1080, 30, motion, 5.0, supersample=1)
+        assert not filt.startswith("scale=")
+        assert "s=1920x1080" in filt
+
+    def test_supersample_uses_correct_output_resolution_in_clamp(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion = {
+            "motion_type": "drift",
+            "start_scale": 1.0,
+            "end_scale": 1.0,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.1,
+            "drift_y": 0.0,
+            "easing": "linear",
+        }
+        filt = build_zoompan_filter(1280, 720, 30, motion, 5.0, supersample=2)
+        # Clamp upper bound must use supersampled width (2560), not target width (1280)
+        assert "iw*zoom-2560" in filt
+
+    def test_frame_count_uses_rounding(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion = {
+            "motion_type": "push_in",
+            "start_scale": 1.0,
+            "end_scale": 1.1,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "linear",
+        }
+        # 0.033s * 30fps = 0.99 -> round to 1 frame, not truncate to 0
+        filt = build_zoompan_filter(1920, 1080, 30, motion, 0.033, supersample=1)
+        # With 1 frame, total_frames-1 = 0, clamped to 1, so inv_n = 1.0
+        assert "*1.00000000" in filt
+
+    def test_easing_is_applied_to_zoom_expression(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion_linear = {
+            "motion_type": "push_in",
+            "start_scale": 1.0,
+            "end_scale": 1.1,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "linear",
+        }
+        motion_ease = {
+            "motion_type": "push_in",
+            "start_scale": 1.0,
+            "end_scale": 1.1,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "ease_in_out",
+        }
+        linear_f = build_zoompan_filter(1920, 1080, 30, motion_linear, 5.0, supersample=1)
+        ease_f = build_zoompan_filter(1920, 1080, 30, motion_ease, 5.0, supersample=1)
+        assert linear_f != ease_f
+        assert "3-2" in ease_f
+
+    def test_all_motion_types_produce_valid_filter(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        types = [
+            "push_in", "push_in_slow", "push_in_fast",
+            "pull_out", "pull_out_wide",
+            "drift", "tilt_up",
+        ]
+        for mt in types:
+            motion = {
+                "motion_type": mt,
+                "start_scale": 1.0,
+                "end_scale": 1.1,
+                "anchor_x": 0.5,
+                "anchor_y": 0.5,
+                "drift_x": 0.05 if "drift" in mt else 0.0,
+                "drift_y": 0.05 if mt == "tilt_up" else 0.0,
+                "easing": "ease_in_out",
+            }
+            filt = build_zoompan_filter(1920, 1080, 30, motion, 5.0, supersample=2)
+            assert "zoompan=z=" in filt
+            assert "s=3840x2160" in filt
+            assert ",scale=1920:1080:flags=lanczos" in filt

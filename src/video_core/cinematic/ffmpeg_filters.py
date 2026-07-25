@@ -43,6 +43,7 @@ def build_zoompan_filter(
     fps: int,
     motion: dict,
     duration_hint: float,
+    supersample: int = 1,
 ) -> str:
     """Build the spatial/motion filter chain from a MotionSpec dict.
 
@@ -54,6 +55,10 @@ def build_zoompan_filter(
     All animated motions drive a zoompan expression via start/end scale,
     anchor point, optional drift, and easing.
 
+    Supersampling (supersample > 1) renders zoompan at a higher internal
+    resolution then downscales with lanczos to suppress sub-pixel rounding
+    jitter.
+
     Args:
         width:         Target frame width in pixels.
         height:        Target frame height in pixels.
@@ -61,6 +66,7 @@ def build_zoompan_filter(
         motion:        MotionSpec dict (keys: motion_type, start_scale,
                        end_scale, anchor_x, anchor_y, drift_x, drift_y, easing).
         duration_hint: Approximate scene duration in seconds.
+        supersample:   Internal render scale factor (1 = disabled).
 
     Returns:
         FFmpeg -vf filter string (no leading/trailing comma).
@@ -77,7 +83,18 @@ def build_zoompan_filter(
     if motion_type == "static":
         return build_scale_crop_filter(width, height)
 
-    total_frames = max(1, int(duration_hint * fps))
+    if supersample > 1:
+        sw = width * supersample
+        sh = height * supersample
+        prefix = f"scale={sw}:{sh}:flags=lanczos,"
+        suffix = f",scale={width}:{height}:flags=lanczos"
+        out_w, out_h = sw, sh
+    else:
+        prefix = ""
+        suffix = ""
+        out_w, out_h = width, height
+
+    total_frames = max(1, round(duration_hint * fps))
     t = _t_factor(total_frames, easing)
 
     # Zoom — absolute formula: no dependency on initial 'zoom' state
@@ -115,10 +132,10 @@ def build_zoompan_filter(
 
     # Clamp to [0, zoom*iw - width] / [0, zoom*ih - height] — allows the full pan
     # range the zoompan filter actually supports while still preventing black-bars.
-    x_expr = f"'max(0,min(iw*{anchor_x:.4f}-iw/(2*zoom){dx},iw*zoom-{width}))'"
-    y_expr = f"'max(0,min(ih*{anchor_y:.4f}-ih/(2*zoom){dy},ih*zoom-{height}))'"
+    x_expr = f"'max(0,min(iw*{anchor_x:.4f}-iw/(2*zoom){dx},iw*zoom-{out_w}))'"
+    y_expr = f"'max(0,min(ih*{anchor_y:.4f}-ih/(2*zoom){dy},ih*zoom-{out_h}))'"
 
     return (
-        f"zoompan=z={z_expr}:x={x_expr}:y={y_expr}"
-        f":d=1:s={width}x{height}:fps={fps}"
+        f"{prefix}zoompan=z={z_expr}:x={x_expr}:y={y_expr}"
+        f":d=1:s={out_w}x{out_h}:fps={fps}{suffix}"
     )

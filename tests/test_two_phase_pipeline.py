@@ -77,7 +77,7 @@ class TestTwoPhasePipeline:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert data["project_id"] == project_id
         assert len(data["scenes"]) == 3
-        assert data["scenes"][0]["expected_filename"] == "scene_001.png"
+        assert data["scenes"][0]["expected_filename"] == "scene-001.png"
         assert data["scenes"][0]["shot_type"] == "medium_shot"
         assert data["scenes"][0]["motion_type"] == "zoom_in"
 
@@ -137,7 +137,7 @@ class TestTwoPhasePipeline:
 
         # Place all expected images
         for i in range(1, 4):
-            (project_dir / "images" / f"scene_{i:03d}.png").write_text(
+            (project_dir / "images" / f"scene-{i:03d}.png").write_text(
                 "png", encoding="utf-8"
             )
 
@@ -157,12 +157,12 @@ class TestTwoPhasePipeline:
         tp._write_image_prompts_manifest(project_id)
 
         # Only place 2 of 3 images
-        (project_dir / "images" / "scene_001.png").write_text("png", encoding="utf-8")
-        (project_dir / "images" / "scene_002.png").write_text("png", encoding="utf-8")
+        (project_dir / "images" / "scene-001.png").write_text("png", encoding="utf-8")
+        (project_dir / "images" / "scene-002.png").write_text("png", encoding="utf-8")
 
         missing = tp._validate_images(project_id)
         assert len(missing) == 1
-        assert missing[0] == (3, "scene_003.png")
+        assert missing[0] == (3, "scene-003.png")
 
     def test_validate_images_missing_manifest(self, tmp_path, monkeypatch):
         from ytfactory.two_phase.pipeline import TwoPhasePipeline
@@ -260,7 +260,7 @@ class TestBuildPipelineTwoPhase:
 
         bp.run_resume(project_id)
 
-        two_phase_mock.run_resume.assert_called_once_with(project_id=project_id)
+        two_phase_mock.run_resume.assert_called_once_with(project_id=project_id, overlay=True)
 
 
 # ── agents/runner pipeline_mode tests ─────────────────────────────────────────
@@ -342,12 +342,12 @@ class TestRunnerPipelineMode:
             json.dumps({
                 "project_id": project_id,
                 "scenes": [
-                    {"scene_id": 1, "expected_filename": "scene_001.png"},
+                    {"scene_id": 1, "expected_filename": "scene-001.png"},
                 ],
             }),
             encoding="utf-8",
         )
-        (project_dir / "images" / "scene_001.png").write_text("png", encoding="utf-8")
+        (project_dir / "images" / "scene-001.png").write_text("png", encoding="utf-8")
         monkeypatch.setattr("ytfactory.agents.runner.WORKSPACE_DIR", str(tmp_path))
 
         mock_project = MagicMock()
@@ -394,7 +394,7 @@ class TestRunnerPipelineMode:
             json.dumps({
                 "project_id": project_id,
                 "scenes": [
-                    {"scene_id": 1, "expected_filename": "scene_001.png"},
+                    {"scene_id": 1, "expected_filename": "scene-001.png"},
                 ],
             }),
             encoding="utf-8",

@@ -88,7 +88,7 @@ class TwoPhasePipeline:
 
     # ── Phase 2 ────────────────────────────────────────────────────────────────
 
-    def run_resume(self, project_id: str) -> None:
+    def run_resume(self, project_id: str, overlay: bool = True) -> None:
         """Run Phase 2: validate images, then run remaining stages."""
         from ytfactory.build.pipeline import BuildPipeline
 
@@ -120,7 +120,7 @@ class TwoPhasePipeline:
 
         with _activate_writer(writer):
             # video render (includes BGM mixing)
-            pipeline.video.run(project_id)
+            pipeline.video.run(project_id, overlay=overlay)
 
             # CTA overlay
             pipeline.cta.run(project_id)
@@ -200,6 +200,27 @@ class TwoPhasePipeline:
             encoding="utf-8",
         )
         console.print(f"[green]✓[/green] Image prompts manifest: {manifest_path}")
+
+        rules_path = project_dir / "image_generation_rules.md"
+        rules_path.write_text(
+            "\n".join([
+                "# Image Generation Rules",
+                "",
+                "- Follow both the visual_prompt and narration. Use the narration to infer the emotion, action, timing, and storytelling intent—not just the literal visual description.",
+                "- Maintain realistic physical scale. All subjects (humans, birds, animals, objects, buildings, vegetation) must respect real-world dimensions.",
+                "- Respect perspective. Object size must change naturally with distance. Never enlarge subjects unnaturally unless justified by camera proximity.",
+                "- Use realistic proportions. Ensure anatomically and structurally accurate humans, animals, architecture, and environments.",
+                "- Apply cinematic camera optics. Use appropriate focal lengths (Wide: ~24–35 mm, Medium: ~50–85 mm, Close-up: ~85–135 mm) with natural depth of field.",
+                "- Preserve environmental scale cues. Terrain, rocks, trees, stairs, temples, doors, and other elements should reinforce believable size relationships.",
+                "- Show the story, not just the scene. Every image should capture the key moment, emotion, or action described in the narration.",
+                "- Maintain visual continuity. Keep characters, locations, lighting, costumes, and overall style consistent across scenes unless the story specifies a change.",
+                "- Photorealistic cinematic quality. Natural lighting, realistic materials, physically accurate shadows, high detail, no text, no watermark.",
+                "- Output: 1280×720 resolution (16:9).",
+                "",
+            ]),
+            encoding="utf-8",
+        )
+        console.print(f"[green]✓[/green] Image generation rules: {rules_path}")
         return manifest_path
 
     def _write_phase1_report(
@@ -411,8 +432,13 @@ class TwoPhasePipeline:
             filename = scene.get("expected_filename", "")
             if not filename:
                 continue
+            candidates = [filename]
+            if "_" in filename:
+                candidates.append(filename.replace("_", "-"))
+            elif "-" in filename:
+                candidates.append(filename.replace("-", "_"))
             image_path = images_dir / filename
-            if not image_path.is_file():
+            if not any((images_dir / c).is_file() for c in candidates):
                 missing.append((scene.get("scene_id", 0), filename))
 
         return missing

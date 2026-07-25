@@ -195,6 +195,11 @@ class Settings(SharedSettings):
     # ------------------------------------------------------------------
     # Video Encoding — FFmpeg H.264 parameters
     # ------------------------------------------------------------------
+
+    # Supersampling factor for zoompan motion to suppress sub-pixel jitter.
+    # 1 = disabled (native resolution), 2 = 2x internal render then lanczos downscale.
+    # Higher values increase render time; 2 is the recommended default.
+    motion_supersample: int = 2
     # Reviewed 2026-07-12: intentionally factory-side — values tuned for
     # near-static YT slideshow content; a different factory would differ.
 
@@ -450,6 +455,17 @@ class Settings(SharedSettings):
     motion_variety_enabled: bool = True
     static_shot_detection_enabled: bool = True
     text_overlay_duration_enabled: bool = True
+
+    # ------------------------------------------------------------------
+    # Motion Overlay Compositing
+    # ------------------------------------------------------------------
+
+    # When True, skips the overlay-compositing second ffmpeg pass per scene.
+    # Useful for fast iteration/testing. Mapped from env SKIP_OVERLAYS.
+    skip_overlays: bool = False
+
+    # Path to the overlay manifest JSON.
+    overlay_manifest_path: str = "assets/overlays/overlay_manifest.json"
 
     # ------------------------------------------------------------------
     # Runtime
