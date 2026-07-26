@@ -11,7 +11,80 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2895 passing, 1 skipped, 1 pre-existing unrelated failure (as of 2026-07-26)
+**Test count:** 2923 passing, 1 skipped, 1 pre-existing unrelated failure (as of 2026-07-26)
+
+## 2026-07-26 — Brand card: forced static motion + no subtitle burn-in
+Two related brand-card-only fixes, requested and verified separately.
+**Motion** (`video_core/cinematic/motion.py`, `rebalancer.py`): brand_card
+scenes were inheriting the generic asset-scene `_asset_motion()` default
+(`push_in`/slow_zoom) — grouped with plain `"asset"` scenes in
+`MotionPlanner.plan()`'s dispatch, so a brand card always got a Ken Burns
+zoom. Fixed by short-circuiting `_asset_motion()` to a forced
+`motion_type="static"` `MotionSpec` (start_scale=end_scale=1.0) whenever
+`scene_type == "brand_card"`, before the `animation` string is even read;
+plain `"asset"` scenes are untouched. Also had to guard two places that
+could silently override it back to motion: `MotionPlanner.plan()`'s 3+
+repeat-run variety override, and `MotionRebalancer.rebalance()`'s long-run
+substitution (`get_acceptable_motions("asset")` defaults to `["drift"]`,
+not empty, so a static brand_card caught in a same-motion run would
+otherwise get swapped). No renderer change needed —
+`build_zoompan_filter()` already had a first-class static→scale/crop
+no-op path.
+**Subtitles** (`video/ffmpeg.py`, `video/pipeline.py`,
+`agents/nodes/video_renderer.py`): brand card's `.ass` file (Phase 1 still
+generates it, unchanged) was being burned into the final frame by both
+render paths. `FFmpegRenderer.render()` gained a `scene_type` param that
+skips the `subtitles=` filter when `"brand_card"`; `render_continuous()`
+checks `scene.get("scene_type")` inline before resolving which subtitle
+file to feed the filter chain. Narration audio is unaffected in both
+cases — only the caption filter is skipped.
+**Also:** fixed a flaky test from the prior brand-card-cache-fix commit
+that asserted against the live `config/brand_config.yaml` — its
+closing/cta/signature `enabled` flags are toggled operationally outside
+git, so the test now uses an isolated fixture config instead.
++12 tests (`test_video_validation_rules.py::TestBrandCardStaticMotion`,
+`test_brand_card_no_subtitle_burn.py`). Test count → 2923.
+
+## 2026-07-26 — Brand card asset cache investigation (no code change needed)
+Investigated a suspected bug: brand card PNG getting cached into
+`workspace/jobs/<id>/images/` and reused stale. Traced every brand_card
+touch point (`agents/nodes/scene_assets.py`, `video/pipeline.py`,
+`images/verify.py`, all 12 review validators) — **the caching bug did not
+exist in current code**; it was already fixed by earlier commits
+(`f5845d2`, `cb74cc4`, `66d2ae7`). `scene_assets.py` *reassigns*
+`image_path = asset_path` for `scene_type in ("asset", "brand_card")`, it
+never copies bytes; `scene-plan.json`'s `asset_path` is always
+`assets/branding/...`, never job-local; vision QA, remediation
+auto-regeneration, and image-integrity validation all explicitly skip
+asset/brand_card scenes. Added two regression-guard tests
+(`test_brand_card_cache_fix.py`) instead of speculative code changes, so a
+future refactor can't silently reintroduce the bug. Stale
+`workspace/jobs/*/images/scene-0NN.png` files found in one older completed
+job don't even hash-match the brand PNG — they're orphaned AI-generated
+images from before that scene index was reassigned to `brand_card` on a
+re-plan, unrelated to the suspected caching path. +2 tests. Test count → 2911.
+
+## 2026-07-26 — Task 2.11: Overlay Fixes (visual keyword trigger, brightness, grain threshold)
+**Spec:** `docs/image-prompt/tasks/task-2.11-overlay-fixes.md`. Three fixes
+to `video/overlay.py` + `video/pipeline.py`:
+1. **Visual keyword trigger** — rain/particles/smoke/fog overlays now also
+   fire on a `visual_prompt` keyword match (e.g. "downpour") when
+   motion_type/mood didn't already select a category, via new
+   `_category_from_visual_prompt()`; god_rays and everything else stay
+   motion_type/mood-only. `fog` keyword matches route through the existing
+   `_MOTION_ALIASES` to the `smoke` manifest category (there's no `fog` key
+   in the manifest), same as `motion_type="fog"` already does.
+2. **No darkening** — new `OVERLAY_MAX_OPACITIES` (grain 0.03,
+   rain/god_rays 0.12, particles/smoke 0.10). Mood-overlay blend is now
+   hard-forced to `screen` and grain to `overlay` (not read from the
+   manifest, so a future manifest edit can't reintroduce darkening);
+   opacity is always clamped to the category max. `assets/overlays/overlay_manifest.json`
+   values brought down to match.
+3. **Grain threshold** — `_should_apply_grain()` now requires ≥40% of
+   non-brand-card scenes to match era/mood/style (was: any single scene),
+   replacing a rule that fired on nearly every video since one historical
+   scene sufficed.
++14 tests (`test_overlay_compositing.py`). Test count → 2909.
 
 ## 2026-07-26 — docs/ reorganized (move-only, no content changes)
 Structure: `adr/`, `architecture/` (new), `branding/`, `image-prompt/` (renamed
