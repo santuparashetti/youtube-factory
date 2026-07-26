@@ -533,6 +533,13 @@ class Settings(SharedSettings):
     overlay_grain_enabled: bool = True
 
     # ------------------------------------------------------------------
+    # Video Debugging
+    # ------------------------------------------------------------------
+
+    # Append showinfo filter to per-scene chains for FFmpeg frame-level debugging.
+    video_debug_showinfo: bool = False
+
+    # ------------------------------------------------------------------
     # Phase 1.5 — Image QA Gate (verify-images CLI, Task 2.10)
     # ------------------------------------------------------------------
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
+from loguru import logger
 from video_core.cinematic.ffmpeg_filters import _t_factor, build_zoompan_filter
 from ytfactory.config.settings import Settings
 
@@ -310,8 +312,15 @@ class FFmpegRenderer:
                 sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
                 vf_parts.append(f"subtitles='{sub_escaped}'")
 
-            # format=yuv420p ensures all segments entering concat share a pixel format
+            # Normalize SAR/DAR so every segment entering concat has identical
+            # stream parameters, preventing "Input link ... do not match the
+            # corresponding output link" errors.
+            vf_parts.append("setsar=1")
+            vf_parts.append("setdar=16/9")
             vf_parts.append("format=yuv420p")
+
+            if self.settings.video_debug_showinfo:
+                vf_parts.append("showinfo")
 
             vf_chain = ",".join(vf_parts)
             filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
@@ -329,6 +338,9 @@ class FFmpegRenderer:
         filter_chains.append(f"{pads_str}concat=n={n_segments}:v=1:a=1[_vout][_aout]")
 
         filter_complex = ";".join(filter_chains)
+
+        logger.debug("FFmpeg filter_complex:\n%s", filter_complex)
+        logger.debug("Running FFmpeg:\n%s", shlex.join(cmd))
 
         # ── Encoding ──────────────────────────────────────────────────────────
         enc: list[str] = [
@@ -372,7 +384,16 @@ class FFmpegRenderer:
         ]
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(cmd, check=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as exc:
+            logger.debug("FFmpeg failed — full command:\n%s", shlex.join(cmd))
+            logger.debug("FFmpeg filter_complex:\n%s", filter_complex)
+            logger.debug(
+                "FFmpeg stderr:\n%s",
+                exc.stderr.decode(errors="replace") if exc.stderr else "(no stderr captured)",
+            )
+            raise
 
     def render(
         self,
