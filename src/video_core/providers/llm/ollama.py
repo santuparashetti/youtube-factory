@@ -50,23 +50,39 @@ class OllamaProvider(LLMProvider):
         *,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
-        logger.info("Generating response via Ollama — model: {}", self._model)
+        logger.info("Generating response via Ollama — model: {} json_mode={}", self._model, json_mode)
 
         messages: list[dict] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        payload: dict = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+        if json_mode:
+            if json_schema:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "scene_retry_response",
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                }
+            else:
+                payload["response_format"] = {"type": "json_object"}
+
         try:
             response = self._session.post(
                 f"{self._base_url}/v1/chat/completions",
-                json={
-                    "model": self._model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "stream": False,
-                },
+                json=payload,
                 timeout=300,  # local inference can be slow on CPU
             )
             response.raise_for_status()

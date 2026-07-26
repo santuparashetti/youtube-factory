@@ -70,17 +70,34 @@ class DeepInfraProvider(LLMProvider):
         *,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         model = self._settings.deepinfra_model
         logger.info(
-            "Generating response via DeepInfra provider=deepinfra model={model}",
+            "Generating response via DeepInfra provider=deepinfra model={model} json_mode={json_mode}",
             model=model,
+            json_mode=json_mode,
         )
 
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+
+        response_format: dict | None = None
+        if json_mode:
+            if json_schema:
+                response_format = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "scene_retry_response",
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                }
+            else:
+                response_format = {"type": "json_object"}
 
         retryer = Retrying(
             retry=retry_if_exception(_is_retryable),
@@ -95,11 +112,14 @@ class DeepInfraProvider(LLMProvider):
         def _call() -> LLMResponse:
             start = time.perf_counter()
             try:
-                response = self._client.chat.completions.create(
-                    model=model,
-                    messages=messages,  # type: ignore[arg-type]
-                    temperature=temperature,
-                )
+                create_kwargs: dict = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                }
+                if response_format:
+                    create_kwargs["response_format"] = response_format
+                response = self._client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
             except Exception as exc:
                 logger.error(
                     "DeepInfra LLM request failed: provider=deepinfra model={model} error={error}",

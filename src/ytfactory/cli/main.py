@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -346,6 +347,62 @@ def export_scene_manifest(
     _console.print(
         f"[green]Wrote {len(entries)} scene(s) → publish/scene-manifest.json[/green]"
     )
+
+
+@app.command(name="verify-images")
+def verify_images_cmd(
+    project: str = typer.Option(..., "--project", help="Project ID"),
+    scenes: str = typer.Option(None, "--scenes", help="Comma-separated scene IDs to verify"),
+    auto: bool = typer.Option(False, "--auto", help="Non-interactive mode"),
+) -> None:
+    """Phase 1.5: verify placed images against their visual prompts before Phase 2."""
+    from ytfactory.config.settings import Settings
+    from ytfactory.images.verify import verify_all_scenes, write_qa_report
+    from ytfactory.shared.constants import WORKSPACE_DIR
+    from video_core.providers.vision.factory import get_vision_provider
+
+    settings = Settings()
+    workspace = Path(WORKSPACE_DIR) / project
+    manifest_path = workspace / "image_prompts_manifest.json"
+    images_dir = workspace / "images"
+    report_path = images_dir / "image_qa_report.json"
+
+    if not manifest_path.is_file():
+        typer.echo("No manifest found. Run Phase 1 first.")
+        raise typer.Exit(1)
+
+    if not settings.image_qa_enabled:
+        typer.echo("IMAGE_QA_ENABLED=false — skipping verification.")
+        return
+
+    scene_filter = None
+    if scenes:
+        scene_filter = [int(s.strip()) for s in scenes.split(",")]
+
+    vision_provider = get_vision_provider(
+        settings.vision_review_provider, local_model=settings.vision_review_local_model
+    )
+
+    typer.echo(f"\n🔍 Verifying images for: {project}\n")
+    results = verify_all_scenes(manifest_path, images_dir, vision_provider, scene_filter)
+
+    report = write_qa_report(results, report_path)
+    summary = report["summary"]
+
+    typer.echo(f"\n{'─' * 60}")
+    typer.echo(f"  KEEP:        {summary['keep']}/{summary['total']}")
+    typer.echo(f"  REGENERATE:  {summary['regenerate']}/{summary['total']}")
+    typer.echo(f"  MISSING:     {summary['missing']}/{summary['total']}")
+    typer.echo(f"  Report:      {report_path}")
+    typer.echo(f"{'─' * 60}\n")
+
+    if summary["regenerate"] > 0:
+        typer.echo("⚠  Some images need regeneration. See report for reasons.")
+    if summary["missing"] > 0:
+        typer.echo("⚠  Some images are missing. Place them before running Phase 2.")
+
+    if summary["regenerate"] > 0 or summary["missing"] > 0:
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)

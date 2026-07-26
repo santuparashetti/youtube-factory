@@ -50,21 +50,37 @@ class GroqProvider(LLMProvider):
         *,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
-        logger.info("Generating response via Groq — model: {}", self._model)
+        logger.info("Generating response via Groq — model: {} json_mode={}", self._model, json_mode)
 
         messages: list[dict] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        payload: dict = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            if json_schema:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "scene_retry_response",
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                }
+            else:
+                payload["response_format"] = {"type": "json_object"}
+
         response = self._session.post(
             _API_URL,
-            json={
-                "model": self._model,
-                "messages": messages,
-                "temperature": temperature,
-            },
+            json=payload,
             timeout=120,
         )
 
@@ -82,11 +98,7 @@ class GroqProvider(LLMProvider):
                 time.sleep(min(10, remaining))
             response = self._session.post(
                 _API_URL,
-                json={
-                    "model": self._model,
-                    "messages": messages,
-                    "temperature": temperature,
-                },
+                json=payload,
                 timeout=120,
             )
 

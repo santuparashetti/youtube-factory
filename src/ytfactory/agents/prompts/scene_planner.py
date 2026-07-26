@@ -49,6 +49,169 @@ Avoid: cluttered scenes, overlapping symbols, abstract imagery that needs explan
 """,
 }
 
+# ── Entity Grounding Prompts ───────────────────────────────────────────────────
+
+ENTITY_EXTRACTION_PROMPT = """\
+You are a script analyst. Read the following narration segment carefully.
+
+NARRATION:
+{narration}
+
+Answer ONLY in JSON. Do not add any explanation.
+
+{{
+  "characters": [list every being that is literally present — animal, human, mythological],
+  "environment": [list the setting elements mentioned or strongly implied],
+  "objects": [list any specific physical objects mentioned],
+  "human_classification": one of: "no_human_allowed" | "human_optional" | "human_required" | "named_person_required" | "human_symbolic",
+  "human_names": [list only named humans — e.g. "Bhagiratha", "Vinoba Bhave"],
+  "human_description": "brief description if a human is present but unnamed, else empty string",
+  "scene_category": one of: "animal_only" | "human_named" | "human_implied" | "human_symbolic" | "abstract" | "brand_card"
+}}
+
+RULES:
+- Only include what is LITERALLY in the narration. Do NOT infer or add.
+- If the narration is about an eagle and chick with no human present, human_classification = "no_human_allowed".
+- If the narration says "you feel it within" or "you just watch", that is a VIEWER ADDRESS
+  — no human character is present in the scene. human_classification = "no_human_allowed".
+- Poetic/rhetorical questions ("Can Indians not become scientists?") have no characters present.
+  scene_category = "abstract". human_classification = "no_human_allowed".
+- A metaphorical human ("one day I too should soar") is NOT a character. human_classification = "no_human_allowed".
+- If a specific named person is the clear subject, human_classification = "named_person_required".
+- If a human is clearly required but not named, human_classification = "human_required".
+- If a human might appear but is not required, human_classification = "human_optional".
+- human_symbolic: use this scene_category (with human_classification = "human_optional") when the
+  narration is philosophical or addresses a universal human quality (wisdom, craft, endurance) and
+  a symbolic human figure — an elderly sage, artisan hands, a distant figure in a landscape — is
+  APPROPRIATE even though no specific person is named. Use this when the narration contains phrases
+  like "ancient teachers", "the wise", "your hands", "your eyes", "your feet", or philosophical
+  second-person address. Do NOT use "no_human_allowed" for these — a symbolic human is expected.
+- animal_only: use ONLY when the animal IS the story — the unambiguous primary subject being
+  described, not an incidental mention. "The chick flew" → animal_only.
+  "Birds sing and dance in the Sharad season" → abstract (the season is the subject, birds are
+  incidental imagery) — do NOT classify incidental animal mentions as animal_only.
+"""
+
+SCENE_ANALYSIS_PROMPT = """\
+You are a documentary script analyst. Analyze the following narration scene for visual storytelling.
+
+NARRATION:
+{narration}
+
+Answer ONLY in JSON. Do not add any explanation.
+
+{{
+  "scene_id": {scene_id},
+  "characters": [list every being LITERALLY present — animal, human, mythological],
+  "allowed_characters": [same as characters — these are the ONLY entities permitted in the visual],
+  "primary_subject": "the single most important subject in this scene",
+  "secondary_subjects": ["other subjects present, if any"],
+  "environment": "specific location or setting from the narration",
+  "primary_action": "what is happening in one phrase",
+  "emotional_beat": "dominant emotion: wonder|mystery|hope|peace|grief|isolation|determination|reverence|longing|fear|regret",
+  "story_goal": "what this scene reveals about the story in one phrase",
+  "human_requirement": "required|optional|forbidden|permitted_symbolic",
+  "named_person": "named human if present, else empty string",
+  "camera_focus": "what the camera should look at",
+  "scene_characters": [only characters literally present — subject to forbidden_chars check],
+  "scene_objects": [specific physical objects literally present],
+  "forbidden_characters": [characters that must NOT appear — e.g. generic man, woman, child, monk],
+  "forbidden_objects": [objects or elements that must NOT appear in the visual],
+  "visual_focus": "the single focal point the viewer's eye should land on",
+  "continuity_reference": "reference to previous scene for character/appearance continuity, or empty string",
+  "story_time": "time of day or era implied by narration (e.g. dawn, golden hour, ancient) or empty string",
+  "camera_constraints": "specific camera constraints from narration (e.g. wide shot only, no close-up) or empty string"
+}}
+
+RULES:
+- Only include what is LITERALLY in the narration. Do NOT invent characters, actions, or settings.
+- If the narration is about an eagle and chick with no human present, characters = ["Mother Eagle", "Eagle Chick"].
+  human_requirement = "forbidden". named_person = "".
+- If the narration says "you feel it within" or "you just watch", that is a VIEWER ADDRESS — 
+  no human character is present. characters = []. human_requirement = "forbidden".
+- A metaphorical human ("one day I too should soar") is NOT a character. Do not list it.
+- Never invent: man, woman, monk, traveller, sage, observer, narrator, silhouette, child
+  unless explicitly present in the narration.
+- Never replace animals with humans.
+- forbidden_characters should include generic humans/animals that would be wrong as invented substitutes.
+- If no characters are present, characters = [] and allowed_characters = [].
+- story_time, visual_focus, camera_constraints are optional — use empty string when not implied.
+- continuity_reference is only needed when the narration clearly follows a previous scene's protagonist.
+- human_requirement = "permitted_symbolic": use when the narration is philosophical or addresses a
+  universal human quality (wisdom, craft, endurance) — a symbolic human figure (elderly sage,
+  artisan hands, a distant figure) is APPROPRIATE though no one is named. Narration containing
+  "ancient teachers", "the wise", "your hands", "your eyes", "your feet", or philosophical
+  second-person address should use this instead of "forbidden".
+- animal_only classification (reflected via primary_subject) requires the animal to be the
+  unambiguous primary subject. "Birds sing in the Sharad season" → the season/mood is the primary
+  subject, not the birds — do not treat incidental animal mentions as requiring an animal-only shot.
+"""
+
+FAITHFULNESS_VALIDATION_PROMPT = """\
+You are a QA reviewer for image prompt generation.
+
+NARRATION:
+{narration}
+
+SCENE CATEGORY: {scene_category}
+HUMAN_CLASSIFICATION: {human_classification}
+
+GENERATED VISUAL PROMPT:
+{visual_prompt}
+
+Answer ONLY in JSON:
+{{
+  "pass": true/false,
+  "violation": "describe the violation if fail, else empty string",
+  "severity": "critical" | "minor" | "none"
+}}
+
+CHECK FOR:
+1. If human_classification=no_human_allowed, does the prompt contain any human figure
+   (man, woman, person, figure, face, hand, body)? → FAIL (critical)
+2. If scene_category="animal_only", is the animal the clear subject? → FAIL if not (critical)
+3. If human_classification=named_person_required, is the named person described specifically
+   (not as a generic "man in grey linen")? → FAIL if generic (minor)
+4. Does the prompt describe anything NOT in the narration without strong visual justification? → FAIL (minor)
+"""
+
+# ── Task 2.6 Part 2 — LLM validation for ENVIRONMENT_MISMATCH / ─────────────
+# HUMAN_CLASSIFICATION_VIOLATED. Cheap, targeted, binary check — only called
+# when deterministic checks leave exactly these two failure types remaining.
+LLM_VALIDATION_PROMPT = """\
+You are a visual prompt reviewer. Answer in JSON only.
+
+SCENE CATEGORY: {scene_category}
+HUMAN CLASSIFICATION: {human_classification}
+REQUIRED ENVIRONMENT: {environment}
+VISUAL PROMPT: {visual_prompt}
+
+Check:
+1. ENVIRONMENT: Does the prompt depict a setting that matches or is compatible with the required environment?
+   (Symbolic/abstract imagery that evokes the environment counts as a match.)
+2. HUMAN: Does the prompt correctly follow the human classification rule?
+   - NO_HUMAN_ALLOWED: no human figures, body parts, or implied human presence
+   - HUMAN_REQUIRED / HUMAN_SYMBOLIC / HUMAN_OPTIONAL: appropriate human presence
+
+Return ONLY this JSON, nothing else:
+{{"environment_ok": true/false, "human_ok": true/false, "reason": "one sentence"}}"""
+
+
+def build_llm_validation_prompt(
+    scene_category: str,
+    human_classification: str,
+    environment: str,
+    visual_prompt: str,
+) -> str:
+    """Build the Task 2.6 LLM validation prompt for a single scene."""
+    return LLM_VALIDATION_PROMPT.format(
+        scene_category=scene_category,
+        human_classification=human_classification,
+        environment=environment or "unspecified",
+        visual_prompt=visual_prompt,
+    )
+
+
 _DEFAULT_STYLE_GUIDE = """\
 VISUAL STYLE — Cinematic Documentary
 Approach: symbolic storytelling, emotional authenticity, memorable imagery.
@@ -96,16 +259,97 @@ def build_plan_scenes_prompt(topic: str, script: str, style: str | None = None) 
     return _PLAN_SCENES_TEMPLATE.format(topic=topic, script=script)
 
 
+# ── Task 2.8 — Storyboard Mode + Strict Scene Fidelity ────────────────────────
+# Must be the first thing the generation model reads (position 0 in the
+# template) — shapes how the model treats visual_prompt vs narration.
+
+STORYBOARD_MODE_BLOCK = """\
+STORYBOARD MODE
+
+Generate only what is explicitly visible in the visual_prompt.
+The visual_prompt is the authoritative source.
+The narration provides emotional context only.
+Do NOT invent people, animals, objects, actions, or environments not explicitly described.
+Preserve intentional emptiness and negative space.
+If uncertain, omit rather than invent.
+Match the requested shot type, camera angle, composition, lighting, and environment exactly.
+"""
+
+STRICT_SCENE_FIDELITY_BLOCK = """\
+STRICT SCENE FIDELITY
+
+- The visual_prompt is the single source of truth.
+- Narration influences only mood and storytelling intent, never the visible subjects.
+- Never invent characters, animals, props, architecture, or actions.
+- Never continue subjects from previous scenes unless explicitly requested.
+- Preserve intentional emptiness and negative space.
+- When uncertain, omit rather than invent.
+- Match the requested camera angle, composition, lighting, and scale exactly.
+- Treat every scene as an independent storyboard frame, not an artistic reinterpretation.
+- Verify that the generated image matches the visual_prompt before considering the scene complete.
+"""
+
+# Condensed header prepended to every visual_prompt written to
+# image_prompts_manifest.json / IMAGE_PROMPTS.md — the manual-image-gen path
+# (Leonardo, Midjourney, etc.) never sees the generation template above, so
+# the instruction has to travel with the prompt text itself.
+STORYBOARD_HEADER = (
+    "Storyboard Mode. "
+    "The visual_prompt is the authoritative source. "
+    "Do not invent people, animals, objects, actions, or environments "
+    "not explicitly described. "
+    "Preserve intentional emptiness and negative space. "
+    "If uncertain, omit rather than invent. "
+    "Match shot type, camera angle, composition, lighting, and "
+    "environment exactly.\n\n"
+)
+
+
+def prepend_storyboard_header(visual_prompt: str) -> str:
+    """Prepend the storyboard header to a final output prompt. Idempotent."""
+    if visual_prompt.startswith("Storyboard Mode"):
+        return visual_prompt
+    return STORYBOARD_HEADER + visual_prompt
+
+
 _VISUAL_PROMPTS_TEMPLATE = """\
+""" + STORYBOARD_MODE_BLOCK + "\n" + STRICT_SCENE_FIDELITY_BLOCK + """
+⚠ ABSOLUTE CONSTRAINTS — read before generating:
+FORBIDDEN WORDS (never use in any prompt):
+- silhouette → describe the actual subject directly
+- face, faces → describe expression or gaze without naming anatomy
+- profile → use camera angle instead (e.g. "side-angle shot")
+- shoulder, shoulders, torso, chest, arm, arms, leg, legs, forehead → forbidden
+- eye, eyes → only permitted when preceded by an animal name (e.g. "eagle's eye")
+- hand, hands, finger, fingers → only permitted in human_required/human_symbolic scenes
+- text, writing, typography, watermark → never in any image prompt
+- ethereal glow → use specific lighting (e.g. "golden hour light", "soft diffused light")
+
+ANIMAL_ONLY SCENES: if human_classification=NO_HUMAN_ALLOWED, generate ONLY the
+animal subject. No human anatomy, no human observers, no implied human presence.
+
 You are a documentary film director — not an image prompt generator.
 Your task: direct {num_scenes} scenes as ONE coherent cinematic documentary for a {style_label} video.
 This is a visual story, not a collection of independent images. Every frame connects to the next.
 
-{style_guide}
+    {style_guide}
 
-{prev_context_block}══════════════════════════════════════════════════
+    {entity_constraints_section}{scene_analysis_section}{prev_context_block}══════════════════════════════════════════════════
+STORY-FIRST RULES (highest priority — never override these)
+═════════════════════════════════════════════════════
+
+1. The visual must describe what is LITERALLY in the narration — not a rewrite of the story.
+2. Characters may ONLY come from the narration or Scene Analysis below.
+   NEVER invent: man, woman, monk, traveller, sage, observer, narrator, silhouette, child
+   unless explicitly present. NEVER replace animals with humans.
+3. Narration determines: story beat, action, emotion, exact cinematic moment.
+4. Visual Prompt describes ONLY: composition, framing, camera, lens, lighting, environment,
+   atmosphere, colours. It must never rewrite the story.
+5. Priority: Story > Narration > Scene Analysis > Camera > Artistic enhancement.
+
+═════════════════════════════════════════════════════
 BANNED — these patterns are forbidden
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 Opening phrase ban — the very first words of every prompt matter:
   ✗  "A figure..."  |  "A person..."  |  "A silhouette..."  |  "A traveler walks..."  |  "A bird..."
@@ -156,9 +400,9 @@ CULTURAL MIXING ban — every visual element must belong to the same cultural wo
   ✓  Identify the culture from the narration — then match environment, clothing, architecture,
      objects, lighting, and atmosphere to that single culture
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 HUMAN SUBJECT QUALITY — mandatory when a human appears in the scene
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 AI image models render environments beautifully but often produce blurry faces,
 unnatural eyes, and stiff postures.  When a human subject appears, include ALL of
@@ -177,9 +421,9 @@ when a human is present:
   Add: "subject remains visually prominent and detailed despite wide framing"
   Without this, the model may render a tiny, low-detail person inside a large environment.
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 CLOTHING & CULTURAL AUTHENTICITY — mandatory for every human scene
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 Before writing each prompt, ask: "Is the clothing appropriate for the story,
 location, era, and culture?" If not — rewrite the clothing description.
@@ -220,9 +464,9 @@ FOR MODERN SCENES: always prefer realistic everyday clothing:
   T-shirt | shirt | kurta | hoodie | jacket | sweater | office attire |
   casual everyday wear | traditional regional clothing where appropriate
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 CULTURAL AUTHENTICITY — identify once, apply throughout
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 Before writing a single prompt, read ALL narrations and identify the single cultural,
 historical, and geographical world the video inhabits.  Then keep every scene inside
@@ -268,9 +512,9 @@ Context → authentic visual elements (examples — not exhaustive):
 ⚠ NEVER mix elements from unrelated cultures in the same scene.
 ⚠ NEVER invent a cultural context that is absent from the narration.
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 CHARACTER BIBLE
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 Scan the narrations below. If a recurring protagonist appears (referred to as "he", "she", "you", or as a specific described person):
   — Choose ONE physical description and lock it in: age, build, ethnicity, clothing
@@ -278,9 +522,9 @@ Scan the narrations below. If a recurring protagonist appears (referred to as "h
   — Use the SAME description in every scene where a human figure appears
   — If the narration is philosophical with no clear protagonist, use environments, objects, and symbols — do NOT invent random human subjects per scene
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 STORYBOARD — complete this before writing any prompt
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 1. Read all {num_scenes} narrations below.
 2. Define the emotional arc: opening mood → mid-point peak → closing resolution.
@@ -346,9 +590,9 @@ PER-SCENE INTERNAL REASONING (work through this silently before writing each pro
      Would a documentary director choose this exact frame?
      Does this image naturally connect to the scene before and after it?
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 PROMPT STRUCTURE — every prompt must include ALL 10 elements
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 Write one flowing paragraph per scene that naturally weaves in all of these:
   1. Scene objective — the visual idea or emotion being conveyed
@@ -362,9 +606,9 @@ Write one flowing paragraph per scene that naturally weaves in all of these:
   9. Cinematic details — texture, atmosphere, subtle motion, or environmental storytelling
   10. Quality markers — include "no text, no watermark, photorealistic" in every prompt
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 VISUAL CONTINUITY
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 This is ONE documentary, not 30 independent images:
   — Each scene must feel like it could be the next cut in a real film
@@ -373,9 +617,9 @@ This is ONE documentary, not 30 independent images:
   — Avoid sudden unexplained location jumps — use transitional environments when needed
   — Do NOT create one masterpiece per scene; create one coherent visual journey
 
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 WRITING RULES
-══════════════════════════════════════════════════
+═════════════════════════════════════════════════════
 
 — One natural flowing paragraph per scene.
 — Begin with the scene's strongest visual element — never with "A person" or "The camera."
@@ -388,9 +632,9 @@ WRITING RULES
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
 [{{"index": N, "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
 
-═════════════════════════════════════════════════
+═════════════════════════════════════════════════════════
 VISUAL METADATA — classify every scene
-═════════════════════════════════════════════════
+═════════════════════════════════════════════════════════
 
 For EACH scene, include a visual_metadata object with these exact fields:
 
@@ -433,9 +677,9 @@ For EACH scene, include a visual_metadata object with these exact fields:
 
 Choose values that match the narration content. Do not invent metadata that contradicts the scene.
 
-═════════════════════════════════════════════════
+════════════════════════════════════════════════════
 VISUAL ENGAGEMENT & TONE MATCHING
-═════════════════════════════════════════════════
+════════════════════════════════════════════════════
 
 A scene's visual must serve the emotional beat, not just the keyword:
 
@@ -455,19 +699,72 @@ A scene's visual must serve the emotional beat, not just the keyword:
     If the narration is somber (grief, fear, loss) then darker lighting is fine.
     Default is NOT dark mood — only darken when the emotional beat requires it.
 
-═════════════════════════════════════════════════
+════════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])
-═════════════════════════════════════════════════
+════════════════════════════════════════════════════
 {scene_list}\
 """
 
 _ENHANCE_TEMPLATE = _VISUAL_PROMPTS_TEMPLATE  # kept for backward compatibility
 
 
+# Task 2.5 Fix B — environment values that are non-specific and must NOT
+# generate a "REQUIRED SETTING" constraint (there is nothing concrete to pin).
+_SKIP_ENVIRONMENT_VALUES: frozenset[str] = frozenset(
+    {"unspecified", "abstract", "no specific location", ""}
+)
+
+
+def _build_environment_block(environment: str) -> str:
+    """Per-scene hard environment constraint — one line, no paragraph
+    (Task 2.5 token-efficiency rule). Empty string when environment is
+    unspecified/abstract; injecting a constraint there would be misleading."""
+    if not environment or environment.strip().lower() in _SKIP_ENVIRONMENT_VALUES:
+        return ""
+    return (
+        f"REQUIRED SETTING: {environment}\n"
+        "The image MUST be set here. Do not use a different location.\n"
+    )
+
+
+# ── Task 2.7 — Narrative-Visual Bridge ────────────────────────────────────────
+
+VISUAL_ANCHOR_INJECTION = """\
+REQUIRED VISUAL: {visual_anchor}
+This is what the image MUST show. Build the entire prompt around this.
+All style, lighting, camera, and era decisions serve this required visual.
+"""
+
+NARRATION_CONTEXT = """\
+NARRATION FOR THIS SCENE:
+"{narration}"
+The visual prompt must be traceable to something in this narration.
+"""
+
+
+def _build_anchor_block(visual_anchor: str) -> str:
+    """Mandatory-first-line visual directive derived from narration (Part 2).
+    Empty when no anchor was produced — generation proceeds unchanged, no
+    regression on scenes the batch anchor pass didn't cover."""
+    if not visual_anchor:
+        return ""
+    return VISUAL_ANCHOR_INJECTION.format(visual_anchor=visual_anchor)
+
+
+def _build_narration_context_block(narration: str) -> str:
+    """Always-present narration block (Part 3) — the model must always be
+    able to see what is being said, anchor or no anchor."""
+    if not narration:
+        return ""
+    return NARRATION_CONTEXT.format(narration=narration)
+
+
 def build_visual_prompts_prompt(
     scenes: list[dict],
     style: str | None = None,
     prev_context: list[str] | None = None,
+    entity_constraints_section: str = "",
+    scene_analysis_section: str = "",
 ) -> str:
     style_label = f"{style} documentary" if style else "cinematic documentary"
     num_scenes = len(scenes)
@@ -477,7 +774,21 @@ def build_visual_prompts_prompt(
     for s in scenes:
         shot = s.get("shot_type", "")
         shot_tag = f" [{shot}]" if shot else ""
-        scene_lines.append(f"Scene {s['index']}{shot_tag}: {s.get('narration', '')}")
+        narration = s.get("narration", "")
+        scene_lines.append(f"Scene {s['index']}{shot_tag}: {narration}")
+
+        anchor_block = _build_anchor_block(s.get("visual_anchor", ""))
+        if anchor_block:
+            scene_lines.append(anchor_block.rstrip("\n"))
+
+        environment = s.get("scene_analysis", {}).get("environment", "")
+        env_block = _build_environment_block(environment)
+        if env_block:
+            scene_lines.append(env_block.rstrip("\n"))
+
+        narration_block = _build_narration_context_block(narration)
+        if narration_block:
+            scene_lines.append(narration_block.rstrip("\n"))
     scene_list = "\n".join(scene_lines)
 
     if prev_context:
@@ -495,6 +806,8 @@ def build_visual_prompts_prompt(
         style_guide=_style_guide(style),
         num_scenes=num_scenes,
         prev_context_block=prev_context_block,
+        entity_constraints_section=entity_constraints_section,
+        scene_analysis_section=scene_analysis_section,
         scene_list=scene_list,
     )
 
@@ -507,8 +820,52 @@ def build_enhance_prompt(topic: str, scene_json: str, style: str | None = None) 
         style_guide=_style_guide(style),
         num_scenes="N",
         prev_context_block="",
+        entity_constraints_section="",
+        scene_analysis_section="",
         scene_list=scene_json,
     )
+
+
+def build_scene_analysis_prompt(narration: str, scene_id: int) -> str:
+    """Build a prompt for structured scene analysis."""
+    return SCENE_ANALYSIS_PROMPT.format(narration=narration, scene_id=scene_id)
+
+
+def build_scene_analysis_section(analysis_map: dict[int, dict]) -> str:
+    """Build the scene analysis section for the batch visual prompt."""
+    if not analysis_map:
+        return ""
+    lines = ["SCENE ANALYSIS (source of truth for each scene):", ""]
+    for scene_id, analysis in sorted(analysis_map.items()):
+        lines.append(f"Scene {scene_id}:")
+        lines.append(f"  characters={', '.join(analysis.get('characters', [])) or 'none'}")
+        lines.append(f"  allowed_characters={', '.join(analysis.get('allowed_characters', [])) or 'none'}")
+        lines.append(f"  scene_characters={', '.join(analysis.get('scene_characters', [])) or 'none'}")
+        lines.append(f"  scene_objects={', '.join(analysis.get('scene_objects', [])) or 'none'}")
+        lines.append(f"  forbidden_characters={', '.join(analysis.get('forbidden_characters', [])) or 'none'}")
+        lines.append(f"  forbidden_objects={', '.join(analysis.get('forbidden_objects', [])) or 'none'}")
+        lines.append(f"  primary_subject={analysis.get('primary_subject', '')}")
+        lines.append(f"  secondary_subjects={', '.join(analysis.get('secondary_subjects', [])) or 'none'}")
+        lines.append(f"  environment={analysis.get('environment', '')}")
+        lines.append(f"  primary_action={analysis.get('primary_action', '')}")
+        lines.append(f"  emotional_beat={analysis.get('emotional_beat', '')}")
+        lines.append(f"  story_goal={analysis.get('story_goal', '')}")
+        lines.append(f"  human_requirement={analysis.get('human_requirement', 'forbidden')}")
+        lines.append(f"  named_person={analysis.get('named_person', '')}")
+        lines.append(f"  visual_focus={analysis.get('visual_focus', '')}")
+        lines.append(f"  continuity_reference={analysis.get('continuity_reference', '')}")
+        lines.append(f"  story_time={analysis.get('story_time', '')}")
+        lines.append(f"  camera_focus={analysis.get('camera_focus', '')}")
+        lines.append(f"  camera_constraints={analysis.get('camera_constraints', '')}")
+        lines.append("")
+    lines.append("RULES:")
+    lines.append("- ONLY use characters listed in allowed_characters for this scene.")
+    lines.append("- NEVER use any character listed in forbidden_characters.")
+    lines.append("- NEVER include any object listed in forbidden_objects.")
+    lines.append("- NEVER invent: man, woman, monk, traveller, sage, observer, narrator, silhouette, child.")
+    lines.append("- NEVER replace animals with humans.")
+    lines.append("")
+    return "\n".join(lines)
 
 
 # ── Legacy constants (kept for backward compatibility) ────────────────────────

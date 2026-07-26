@@ -193,6 +193,21 @@ class SharedSettings(BaseSettings):
     cartesia_credits_per_request: float = 0.0
     cartesia_usd_per_credit: float = 0.0
 
+    # ------------------------------------------------------------------
+    # Scene Planner — Entity Grounding
+    # ------------------------------------------------------------------
+
+    # Model used for the entity extraction pass (cheap/fast model).
+    # Defaults to a fast model; override via env ENTITY_EXTRACTION_MODEL.
+    entity_extraction_model: str = ""
+
+    # Model used for the faithfulness validation pass (cheap/fast model).
+    # Defaults to a fast model; override via env FAITHFULNESS_VALIDATION_MODEL.
+    faithfulness_validation_model: str = ""
+
+    # Master switch for faithfulness validation gate.
+    faithfulness_validation_enabled: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

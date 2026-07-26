@@ -52,14 +52,21 @@ class GeminiProvider(LLMProvider):
         *,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
 
-        logger.info("Generating response using Gemini")
+        logger.info("Generating response using Gemini json_mode={}", json_mode)
 
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            system_instruction=system_prompt,
-        )
+        config_kwargs: dict = {
+            "temperature": temperature,
+            "system_instruction": system_prompt,
+        }
+        if json_mode:
+            config_kwargs["response_mime_type"] = "application/json"
+            if json_schema:
+                config_kwargs["response_schema"] = json_schema
+        config = types.GenerateContentConfig(**config_kwargs)
 
         logger.info(
             "Using Gemini model: {}",

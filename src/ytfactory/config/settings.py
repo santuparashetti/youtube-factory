@@ -164,6 +164,54 @@ class Settings(SharedSettings):
     image_hand_avoidance_check_enabled: bool = True
 
     # ------------------------------------------------------------------
+    # Scene Planner — Retry Engine Reliability
+    # (docs/script/task-2.2-retry-engine-reliability.md)
+    # ------------------------------------------------------------------
+
+    # Retry attempts per scene in the per-scene faithfulness retry loop.
+    scene_planner_max_retries: int = 2
+
+    # Use response_format={"type": "json_object"} on structured retry LLM calls
+    # so the model returns raw JSON instead of prose wrapped in markdown fences.
+    scene_planner_json_mode: bool = True
+
+    # Use response_format={"type": "json_schema", ...} (strict schema) on retry
+    # calls instead of loose json_object mode, where the provider supports it.
+    scene_planner_strict_schema: bool = False
+
+    # Faithfulness gate logs failed scenes to phase1_report.json but never
+    # blocks the pipeline — recoverable in Phase 2 by manually fixing the
+    # image prompt. Reserved for a future hard-gate mode; currently the gate
+    # is always non-blocking regardless of this flag.
+    faithfulness_gate_fail_pipeline: bool = False
+
+    # Task 2.6: LLM validation layer for ENVIRONMENT_MISMATCH and
+    # HUMAN_CLASSIFICATION_VIOLATED — deterministic checks that require
+    # semantic understanding. Only called when these are the ONLY remaining
+    # deterministic failures (never on scenes that already pass, never
+    # alongside FORBIDDEN_CHARACTER/SYMBOLIC_REPLACEMENT — fix those via
+    # retry first).
+    faithfulness_llm_validation_enabled: bool = True
+
+    # Cheap/fast model for the LLM validation call — separate from the main
+    # generation model. Same provider/base_url/api_key as the main client
+    # (routed via _get_cheap_llm's model-override pattern), just a different
+    # model name.
+    faithfulness_validator_model: str = "google/gemini-2.5-flash-lite"
+
+    # Reserved for future max_tokens tuning. NOT currently wired to the
+    # provider call — LLMProvider.generate() has no per-call max_tokens
+    # parameter, and adding one is out of scope for Task 2.6 (its own doc
+    # forbids touching openai_provider.py's signature).
+    faithfulness_validator_max_tokens: int = 150
+
+    # Task 2.7: narrative-visual bridge — a batch LLM pass that derives a
+    # concrete visual_anchor per scene from its narration, before prompt
+    # generation, so abstract/empty-chars scenes get a specific literal
+    # directive instead of drifting to generic "spiritual documentary" imagery.
+    visual_anchor_enabled: bool = True
+
+    # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------
     # Reviewed 2026-07-12: intentionally factory-side — ytfactory's VoicePipeline
@@ -175,6 +223,12 @@ class Settings(SharedSettings):
 
     # Validate every generated audio clip (file size, duration, word-count ratio)
     tts_validate_audio: bool = True
+
+    # File-level cache: if a scene's audio already exists on disk with a valid
+    # size, skip the TTS provider call entirely instead of re-spending credits
+    # (e.g. Cartesia) when Phase 1 is re-run against the same script. Separate
+    # from TTSCache's API-level key-based cache, which this runs ahead of.
+    tts_skip_existing: bool = True
 
     # ------------------------------------------------------------------
     # Contemplative Pacing Engine
@@ -466,6 +520,26 @@ class Settings(SharedSettings):
 
     # Path to the overlay manifest JSON.
     overlay_manifest_path: str = "assets/overlays/overlay_manifest.json"
+
+    # Base directory clip "file" entries in the manifest are resolved against.
+    # Previously hardcoded to "assets/overlays" in OverlayCompositor — now
+    # configurable so a non-default manifest location's clips still resolve.
+    overlay_assets_dir: str = "assets/overlays"
+
+    # Master switch for grain specifically (independent of skip_overlays,
+    # which disables mood overlays too). Grain itself is also conditional —
+    # see OverlayCompositor._should_apply_grain() — this flag is a hard
+    # override that skips it regardless of scene composition.
+    overlay_grain_enabled: bool = True
+
+    # ------------------------------------------------------------------
+    # Phase 1.5 — Image QA Gate (verify-images CLI, Task 2.10)
+    # ------------------------------------------------------------------
+
+    image_qa_enabled: bool = True
+
+    # Reserved: VisionProvider.review() has no per-call max_tokens param.
+    image_qa_max_tokens: int = 200
 
     # ------------------------------------------------------------------
     # Runtime

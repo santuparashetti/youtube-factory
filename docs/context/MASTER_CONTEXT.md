@@ -11,7 +11,361 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2644 passing (as of 2026-07-24)
+**Test count:** 2895 passing, 1 skipped, 1 pre-existing unrelated failure (as of 2026-07-26)
+
+## 2026-07-26 — docs/ reorganized (move-only, no content changes)
+Structure: `adr/`, `architecture/` (new), `branding/`, `image-prompt/` (renamed
+from `image-prompt-generation/`, gained `tasks/` subfolder for all
+task-2.2–2.10 + Task_0/1/2_1 specs, moved from `script/`), `video/`,
+`tts/`, `review/` (renamed from `video-quality-review/`), `pipeline/` (new),
+`plug-and-play-setup/` (untouched), `publishing/`, `roadmap/`, `fix-prompts/`
+(new, historical kilo-code fix prompts), `reference/` (new, CLI_REFERENCE.md).
+`docs/context/MASTER_CONTEXT.md` and `docs/script/` (remaining ADR-0010/11/12
++ script-enhancer specs) untouched. All `docs/script/task-2.X...` and
+`docs/image-prompt-generation/...` refs in this file updated to their new
+paths accordingly — if you have an older cached path for any spec doc below,
+it moved to `image-prompt/tasks/` or `image-prompt/`.
+
+## 2026-07-26 — Task 2.10: Phase 1.5 Image QA Gate
+**Spec:** `docs/image-prompt/tasks/task-2.10-phase1.5-image-qa.md`. New CLI:
+`ytfactory verify-images --project <id> [--scenes 1,5,12] [--auto]`.
+New `src/ytfactory/images/verify.py`: `verify_scene()`/`verify_all_scenes()`
+call the REAL `VisionProvider.review(image_path, visual_prompt, scene_context)`
+→ `VisionReviewResult` (status/recommend_regeneration/issues) — the doc
+assumed a fictional `vision_client.verify(image_b64=...)` text API that
+doesn't exist in this codebase; mapped `recommend_regeneration`→REGENERATE,
+`issues[].description`→reasons instead. `_parse_qa_response()` kept as a
+tested standalone text-parser per the doc's spec (not used by the real
+vision path, which returns structured results already). Writes
+`images/image_qa_report.json`; exit code 1 if any REGENERATE/MISSING.
+Also replaced `image_generation_rules.md`'s content with v2 (Storyboard
+Mode) — written by `two_phase/pipeline.py::_write_image_prompts_manifest()`
+via new `IMAGE_GENERATION_RULES_V2` constant. New settings
+`image_qa_enabled`/`image_qa_max_tokens` (max_tokens reserved, not wired —
+no such param on `VisionProvider.review()`). +14 tests. Test count → 2895.
+
+## 2026-07-26 — Task 2.9: Grain Overlay — Conditional, Not Mandatory
+**Spec:** `docs/image-prompt/tasks/task-2.9-grain-conditional.md`. Grain no
+longer applies unconditionally to every video. New
+`OverlayCompositor._should_apply_grain(scenes)` (`video/overlay.py`) fires
+only when any non-brand-card scene's `visual_metadata` has era∈{HISTORICAL,
+ANCIENT, SYMBOLIC, TRANSITIONAL}, mood∈{reverent,mysterious,reflective,
+fearful,lonely}, or visual_style∈{CINEMATIC,DOCUMENTARY}. **Deviation:** the
+doc's pseudocode read flat `scene.get("era")` — real schema nests these
+under `scene["visual_metadata"]` (dict or `VisualMetadata` object) as
+`era`/`mood`/`visual_style` (not `style`). New setting
+`overlay_grain_enabled` (default True, hard override independent of the
+composition check) in `ytfactory/config/settings.py` (not `SharedSettings` —
+same layering-rule reasoning as prior overlay/TTS settings). `_apply_overlays()`
+now logs exactly why grain fired or was skipped. +12 tests. Test count → 2870.
+
+## 2026-07-26 — Task 2.8: Storyboard Mode + Strict Scene Fidelity
+**Spec:** `docs/image-prompt/tasks/task-2.8-storyboard-mode.md`. Two new
+blocks (`STORYBOARD_MODE_BLOCK`, `STRICT_SCENE_FIDELITY_BLOCK`) prepended at
+position 0 of `_VISUAL_PROMPTS_TEMPLATE` — instructs the generation model
+that `visual_prompt` is authoritative, narration is mood-only context, no
+inventing subjects, treat every scene as an independent storyboard frame.
+New `prepend_storyboard_header()` (idempotent) applied to every non-
+brand-card `visual_prompt` written to `image_prompts_manifest.json`
+(`two_phase/pipeline.py`) and `IMAGE_PROMPTS.md` (`scene_planner.py`'s
+`_write_prompts_file`) — the manual-image-gen workflow never sees the
+generation template, so the instruction has to travel with the prompt text
+itself. **Deviation:** doc's tests assumed a static `VISUAL_PROMPT_TEMPLATE`
+containing the anchor/narration text; actual constant is
+`_VISUAL_PROMPTS_TEMPLATE` and anchor/narration are injected per-scene
+dynamically — wrote tests against the real structure. Also fixed 2 Task 2.5
+tests that asserted the *old* position-0 block (forbidden words). +11 tests.
+Test count → 2881.
+
+## 2026-07-26 — Overlay Compositing: Audit + Fix (untracked feature, never wired)
+Audit found `OverlayCompositor` (`video/overlay.py`) was never called from
+anywhere in the pipeline — and even if wired onto per-scene `video/scene-NNN.mp4`
+clips (what its API was shaped for), it would have had zero effect on the
+shipped video: `render_continuous()` builds `final.mp4` directly from raw
+assets in one continuous stream, never reading those per-scene clips (they
+exist only for the review/remediation system). Fixed: new `_apply_overlays()`
+in `video/pipeline.py`, inserted between `render_continuous()` and
+`_apply_bgm()` (all call sites, incl. resume-guard). Composites via
+time-gated blend stages (`enable='between(t,start,end)'` from cumulative
+scene durations) directly on the continuous stream — no slicing/re-concat,
+preserving the no-GOP-boundary property. Grain always last, whole-video, no
+time gate. Deleted a second, broken, unused `apply_overlays()` method
+(passed `{}` instead of the scene). New `overlay_assets_dir` setting
+(previously hardcoded `assets/overlays`). +15 tests
+(`tests/test_overlay_compositing.py`); fixed 3 pre-existing tests that fully
+mocked `_apply_bgm` without knowing about the new intermediate call. Test
+count → 2858 (baseline going in: 2843).
+
+## 2026-07-26 — Task 2.7: Narrative-Visual Bridge
+**Spec:** `docs/image-prompt/tasks/task-2.7-narrative-visual-bridge.md`.
+Scope: `agents/nodes/scene_planner.py` + `agents/prompts/scene_planner.py`.
+
+Root cause: the visual-prompt generation template received style/entity/camera
+metadata but never an explicit answer to "what does this narration show?" —
+`abstract` scenes with empty extracted characters had zero narrative direction
+and drifted to generic "spiritual documentary aesthetic object" imagery
+(journal, candle, sandal).
+
+- **`_build_visual_anchors()` / `_build_anchor_batch_prompt()`**
+  (`agents/nodes/scene_planner.py`): one batch LLM call (reuses the Task 2.6
+  `_get_cheap_llm(settings, "llm_validation")` client — its instantiation
+  moved earlier so both this pass and the later LLM validation step share one
+  client) that reads every scene's narration and returns a one-sentence
+  `visual_anchor` per scene — literal, specific, named subjects only.
+  Brand-card scenes excluded (fixed asset, not generated). Non-blocking: any
+  parse failure/exception → empty dict, scenes generate exactly as before.
+  Few-shot examples included in the prompt.
+- **`_build_anchor_block()` / `_build_narration_context_block()`**
+  (`agents/prompts/scene_planner.py`): injected per-scene inside
+  `build_visual_prompts_prompt()`'s scene-list loop (same integration point as
+  Task 2.5's environment block — this codebase batches scenes per generation
+  call, so there's no separate per-scene prompt formatter to hook). The anchor
+  block ("REQUIRED VISUAL: ...") only appears when an anchor exists; the
+  narration block ("NARRATION FOR THIS SCENE: ...") is unconditional per the
+  spec.
+- `scene["visual_anchor"]` is set directly on the same dict objects
+  serialized into `scene-plan.json` — persisted with zero extra code.
+- New setting `visual_anchor_enabled` (default True) — added to
+  `ytfactory/config/settings.py`, not `SharedSettings`, same layering-rule
+  reasoning as Task 2.6. `VISUAL_ANCHOR_ENABLED` added to `.env.example`.
+- +13 tests in `tests/test_task_2_7_narrative_visual_bridge.py`. Full suite:
+  2833 passing (was 2820), same 1 pre-existing unrelated failure, no regressions.
+
+## 2026-07-26 — Task 2.6: Deterministic Fixes + LLM Validation Layer
+**Spec:** `docs/image-prompt/tasks/task-2.6-deterministic-plus-llm.md`. Baseline: 13/28 PASS after Task 2.5.
+Scope: `validators.py` + `agents/nodes/scene_planner.py` + `agents/prompts/scene_planner.py`.
+
+**Part 1 — two deterministic fixes:**
+- Fix 1A: `should_skip_environment_check()` gained 3 catch-all rules on top of
+  the expanded `ABSTRACT_ENVIRONMENTS` set — `env.startswith("implied")`,
+  `"no specific" in env`, and `"realm" in env` when the phrase is ≤5 words
+  (avoids over-matching a long concrete description that happens to say "realm").
+- Fix 1B: removed the story-time check entirely (was never part of any spec —
+  a semantic rule keyword matching can't satisfy, e.g. "day of celebration").
+
+**Part 2 — new LLM validation layer** for `ENVIRONMENT_MISMATCH` /
+`HUMAN_CLASSIFICATION_VIOLATED` (the two checks needing semantic understanding):
+called ONLY when these are the sole remaining critical errors for a scene
+(never on scenes that already pass, never mixed with structural failures like
+`FORBIDDEN_CHARACTER`). `LLM_VALIDATABLE_CHECKS`, `_should_use_llm_validation()`,
+`_run_llm_validation()` in `scene_planner.py`; `LLM_VALIDATION_PROMPT` +
+`build_llm_validation_prompt()` in `agents/prompts/scene_planner.py`. Parse
+failure or any exception → treated as PASS (never blocks). New
+`faithfulness_qa.llm_validated`/`llm_reason` fields. New settings:
+`faithfulness_llm_validation_enabled` (default True),
+`faithfulness_validator_model` (default `google/gemini-2.5-flash-lite`),
+`faithfulness_validator_max_tokens` (default 150, **not actually wired** — see
+deviation below). Separate cheap LLM client via the existing
+`_get_cheap_llm(settings, "llm_validation")` pattern — no new client
+instantiation mechanism needed.
+
+**Part 3:** `FORBIDDEN_CHARACTER` now checks `is_equivalent_character()`
+against `allowed_characters` before firing — fixes the case where entity
+extraction put the same term in both `allowed_characters` and
+`forbidden_characters` (e.g. allowed=["boy","mother"], forbidden
+accidentally includes "boy").
+
+**Found and fixed while here:** `scene_planner_max_retries`,
+`scene_planner_json_mode`, `scene_planner_strict_schema`,
+`faithfulness_gate_fail_pipeline` were genuinely duplicated between
+`video_core/config/shared_settings.py` and `ytfactory/config/settings.py`
+(an artifact of Task 2.2's concurrent-tool episode). Removed the duplicates
+from `shared_settings.py` — scene-planner concepts are ytfactory-only per the
+layering rule, so `ytfactory/config/settings.py` is their correct home. Also
+added all 7 scene-planner env vars to `.env.example` for the first time (Task
+2.2–2.6 vars were never there before).
+
+**Deviations (both explicitly out of scope per the doc's own "Do NOT touch"
+list, same pattern as Task 2.4):** `openai_provider.py`/`get_llm_provider()`
+signatures untouched — `max_tokens` per call and the doc's
+`get_llm_provider(provider=, model=, base_url=, api_key=)` pseudocode aren't
+implemented; reused the existing `_get_cheap_llm` model-override pattern instead.
+
++25 tests in `tests/test_task_2_6_deterministic_plus_llm.py`. Full suite: 2820
+passing (was 2795), same 1 pre-existing unrelated failure, no regressions.
+
+## 2026-07-26 — Task 2.5: Three Targeted Fixes (follow-up to 2.4)
+**Spec:** `docs/image-prompt/tasks/task-2.5-three-fixes.md`. Baseline: 15/30 PASS after Task 2.4.
+Scope: `agents/prompts/scene_planner.py` + `agents/nodes/scene_planner.py` only.
+
+- **Fix A:** forbidden-words block moved from mid-prompt to the literal start
+  of `_VISUAL_PROMPTS_TEMPLATE` (before "You are a documentary film
+  director...") — an expanded "⚠ ABSOLUTE CONSTRAINTS" block with per-word
+  camera-angle alternatives and an explicit `ANIMAL_ONLY SCENES` rule.
+- **Fix B:** new `_build_environment_block()` injects a per-scene
+  `REQUIRED SETTING: {environment}` hard constraint read from
+  `scene["scene_analysis"]["environment"]`, inline in the batch scene list
+  inside `build_visual_prompts_prompt()` — covers both batch generation and
+  `validators.py`'s single-scene retry prompt (same function). Skipped for
+  unspecified/abstract/empty environment values.
+- **Fix C — the real remaining bug:** `deterministic_result.passed` requires
+  zero errors of *any* severity (critical AND minor — e.g.
+  `STORY_TIME_MISSING`, `CAMERA_MISSING`), but retry feedback
+  (`compose_feedback`) only ever acts on `critical_errors`. A minor-only issue
+  therefore blocked PASS with empty feedback (generic "Prompt failed
+  validation" message) — the same "FAIL | 0 errors" symptom as Task 2.4 Fix 1,
+  but through a different mechanism (no legacy-check disagreement involved).
+  Task 2.4 had already unified the retry loop to one evaluation point; this
+  task tightened that point's condition from `deterministic_result.passed` to
+  `not deterministic_result.critical_errors`.
+- +11 tests in `tests/test_task_2_5_three_fixes.py`; one Task 2.4 source-scan
+  test updated to match the tightened condition. Full suite: 2795 passing (was
+  2784), same 1 pre-existing unrelated failure, no regressions.
+
+## 2026-07-26 — Task 2.4: Validator & Generation Fix (7 targeted fixes)
+**Spec:** `docs/image-prompt/tasks/task-2.4-seven-fixes.md`. Baseline going in: 6/26 PASS after Task 2.3.
+Scope: `validators.py` + `agents/nodes/scene_planner.py` (+ `agents/prompts/scene_planner.py`
+for Fix 5's generation-prompt wording).
+
+1. **Zero-errors-is-pass bug:** `scene_planner.py`'s retry loop had
+   `if deterministic_result.passed and legacy_passed:` — a scene with zero
+   deterministic errors could still be marked FAILED if the separate LLM-based
+   legacy faithfulness check (added in Task 2.2, not mentioned in this doc)
+   disagreed. That's the exact "FAIL | 0 errors" log symptom. Fixed: deterministic
+   pass is now unconditional; legacy disagreement is logged as a warning only.
+2. **Article stripping:** `_normalize_char()` strips leading "a "/"an "/"the "
+   before every character comparison in `is_equivalent_character()` — allowed
+   `["a man"]` now matches detected `"man"`.
+3. **Equivalence wiring:** confirmed `is_equivalent_character()` fires before
+   `UNSUPPORTED_CHARACTER` is raised (it already was; the visible symptom was
+   actually Fix 2's article bug). Added a DEBUG log line when a character is
+   exempted via equivalence.
+4. **`UNAMBIGUOUS_HUMAN_WORDS` expanded:** face/faces, shoulder/shoulders,
+   torso, arm/arms, leg/legs, chest, forehead, chin, cheek, hand/hands,
+   finger/fingers, eye/eyes. New `_is_animal_possessive_context()` helper: for
+   `eye`/`eyes`/`hand`/`hands` **only** (per the doc's own scoping), skip the
+   violation in `animal_only` scenes when the word is within 3 tokens after an
+   animal name from `scene_analysis["characters"]` (e.g. "the eagle's eye").
+   All other newly-added body-part words are flagged unconditionally in
+   `animal_only` scenes — they were genuine misses, not false positives.
+5. **Forbidden generation words:** `agents/prompts/scene_planner.py`'s
+   `_VISUAL_PROMPTS_TEMPLATE` gained an explicit "FORBIDDEN WORDS" block
+   (silhouette, ethereal glow, text, watermark) — these were already banned in
+   the validator but nothing in the *generation* prompt told the model not to
+   write them, so it kept regenerating them across retries.
+6. **`ABSTRACT_ENVIRONMENTS` expanded** (~20 new entries: "inside his/her/their
+   head", "the mind", "imagination", "memory", "vision", "dream", etc.) —
+   substring/fuzzy matching was already in place from Task 2.3.
+7. **Symbolic figures in `abstract` + no-characters-extracted scenes** ("sage",
+   "elder", etc.) are now a logged WARNING, not a hard violation, when
+   `scene_category == "abstract"` and `scene_analysis["characters"]` is empty —
+   applied to both the `FORBIDDEN_CHARACTER` and `UNSUPPORTED_CHARACTER` code
+   paths.
+8. **Token efficiency (partial):** `ValidationError.to_feedback_block()` /
+   `ValidationResult.feedback_text` compacted to one line per error — dropped
+   the restated "VALIDATION FAILED — ..." preamble/trailer since
+   `build_retry_prompt()` already supplies its own framing (saves the ~60-80
+   tokens/retry the doc called out). Per-call `max_tokens` tuning and prompt
+   caching were **not** implemented — both require changing
+   `LLMProvider.generate()`'s signature in `openai_provider.py`, explicitly out
+   of scope for this task.
+- +17 tests in `tests/test_task_2_4_seven_fixes.py`. Full suite: 2784 passing
+  (was 2767), same 1 pre-existing unrelated failure, no regressions.
+
+## 2026-07-26 — Task 2.3: Story Fidelity Validator Fix
+**Spec:** `docs/image-prompt/tasks/task-2.3-validator-fix.md`. Scope: `ytfactory/images/validators.py` only
+(plus one call-site update in `scene_planner.py` to thread `scene_category` through).
+
+Root cause: the validator's "semantic" checks were lexical/pattern matchers
+trying to judge whether cinematic imagery *embodies* a concept — a well-written
+prompt expresses "reverence" or "perseverance" through imagery, never as a
+literal substring, so these checks had a 0/29 pass rate.
+
+- Removed 6 lexical semantic checks: `NARRATION_NOT_REPRESENTED`,
+  `STORY_GOAL_MISSING`, `EMOTIONAL_BEAT_MISSING`, `VISUAL_FOCUS_MISSING`,
+  `PRIMARY_SUBJECT_MISSING`, `PRIMARY_ACTION_MISSING`. Kept the structural
+  checks (`FORBIDDEN_CHARACTER`, `UNSUPPORTED_CHARACTER`,
+  `HUMAN_CLASSIFICATION_VIOLATED`, `CAMERA_MISSING`, `SYMBOLIC_REPLACEMENT`,
+  `FORBIDDEN_OBJECT`).
+- `UNAMBIGUOUS_HUMAN_WORDS` set replaces the old inline 7-word human-indicator
+  list for the `NO_HUMAN_ALLOWED` check. `ANIMAL_SAFE_WORDS` (pronouns/relational
+  words — "her", "its", "mother") is defined but **deliberately not swept**
+  even in `animal_only` scenes — adding it to the active detection set (even
+  gated by `scene_category`) broke real passing scenes that never declare
+  `animal_only` explicitly (e.g. "tests its wings" flagged on "its"). Kept as
+  a documented safety net only.
+- `CHARACTER_EQUIVALENTS` map + `is_equivalent_character()` — "woman"~"she",
+  "boy"~"child", etc. — fixes `UNSUPPORTED_CHARACTER` false positives where a
+  detected word and an allowed character refer to the same person differently.
+- `SYMBOLIC_HUMAN_FIGURES` set — "elder", "sage", "ascetic", etc. always
+  exempt from `UNSUPPORTED_CHARACTER` in `human_symbolic` scenes.
+- `ABSTRACT_ENVIRONMENTS` set + `should_skip_environment_check()` — skips
+  `ENVIRONMENT_MISMATCH` when Scene Analysis environment is abstract/internal
+  and a real-world visual metaphor is standing in for it (correct practice).
+- `run_validators()`/`StoryFidelityValidator.validate()` gained a
+  `scene_category: str = ""` param (default preserves old behavior for any
+  caller that doesn't pass it).
+- 6 pre-existing tests in `tests/test_validators.py` that asserted the removed
+  checks' old behavior were rewritten to assert those checks no longer fire.
+  +14 new tests in `tests/test_validator_semantic_fix.py`.
+- Full suite: 2767 passing (was 2753), same 1 pre-existing unrelated failure,
+  1 skipped — no regressions.
+
+## 2026-07-26 — Task 2.2: Retry Engine Reliability & Strict Structured Output
+**Spec:** `docs/image-prompt/tasks/task-2.2-retry-engine-reliability.md`
+
+Fixed the scene-planner root cause where two separate retry systems (inline
+story-fidelity retry + a later batch "Retrying N failed prompt(s)" phase) fired
+independently, didn't know about each other, and the batch phase always wrote
+`"retry parse failed"` because its prompt/parser pair could never agree on a
+format.
+
+- **`video_core/providers/llm/*`:** `generate()` (base + all providers —
+  openai_provider/deepinfra/groq/ollama/gemini) gained `json_mode: bool` and
+  `json_schema: dict | None`, wired to `response_format={"type": "json_object"}`
+  or strict `{"type": "json_schema", ...}` on the OpenAI-compatible providers;
+  Gemini maps this to `response_mime_type`/`response_schema`.
+- **`ytfactory/agents/nodes/scene_planner.py`:** batch retry phase deleted;
+  replaced with a single inline per-scene generate → validate (deterministic +
+  legacy LLM faithfulness) → structured-retry loop, capped at
+  `scene_planner_max_retries`. Fixed an `UnboundLocalError` on `legacy_passed`
+  that would have fired on every scene whose first attempt failed deterministic
+  validation.
+- **`ytfactory/images/validators.py`:** `HumanClassification.HUMAN_SYMBOLIC`,
+  `SYMBOLIC_BODY_PART_EXCEPTION` (hands/feet/eyes in close-up don't count as a
+  human-figure violation), `RETRY_RESPONSE_SCHEMA`, `parse_retry_response()`
+  (handles raw/fenced/embedded JSON, logs exact `JSONDecodeError` position),
+  `build_retry_prompt()` (single-scene strict-JSON retry request).
+- **`ytfactory/agents/prompts/scene_planner.py`:** entity-extraction and
+  scene-analysis prompts gained `human_symbolic` scene_category /
+  `permitted_symbolic` human_requirement (philosophical/viewer-address
+  narrations — "ancient teachers", "your hands" — get a symbolic human, not a
+  false `no_human_allowed` flag) and an `animal_only` vs `abstract`
+  disambiguation rule (incidental animal mentions ≠ animal-only shot).
+- **`ytfactory/scenes/models.py`:** `FaithfulnessStatus` enum (`pass` /
+  `failed` / `skipped`) replaces the old ad-hoc status strings.
+- **`ytfactory/images/faithfulness_gate.py`** (new): `evaluate_faithfulness_gate()`
+  — named to avoid colliding with the pre-existing, unrelated
+  `ytfactory.retention.pre_render_gate` (a retention-scoring gate). Writes
+  `scenes/faithfulness-gate.json`; never blocks the pipeline. Wired into
+  `two_phase/pipeline.py::_write_phase1_report()` under the `faithfulness_gate`
+  key in `phase1_report.json`.
+- **New settings** (`ytfactory/config/settings.py`): `scene_planner_max_retries`
+  (default 2), `scene_planner_json_mode` (default True),
+  `scene_planner_strict_schema` (default False), `faithfulness_gate_fail_pipeline`
+  (default False, reserved — gate is currently always non-blocking by design).
+- **Tests:** +29 across `tests/test_json_mode_providers.py` and
+  `tests/test_retry_engine_reliability.py` (parser edge cases, HUMAN_SYMBOLIC /
+  body-part exception, entity-extractor mapping, gate pass/fail, no-batch-retry
+  source check, provider `json_mode` wiring).
+- **Known gap:** the per-scene retry loop is inline in `scene_planner_node`
+  rather than a standalone function, so it's covered via its building blocks
+  (parser/validator/gate/provider) rather than one end-to-end mocked run.
+  Re-verifying real scenes 17/18/19/20/24 from the log in the spec doc against
+  an actual project run was not done (needs a live pipeline run).
+- **Pre-existing, unrelated bug found while regression-testing:**
+  `tests/test_two_phase_pipeline.py::test_prep_only_requires_project_id` fails —
+  `agents/runner.py` validates `pipeline_mode == "resume"` requires a
+  `project_id` but has no equivalent check for `pipeline_mode == "prep_only"`,
+  so it falls through into a real (slow, live-API) pipeline run instead of
+  raising `ValueError` early. Predates this task (last touched in the two-phase
+  workflow commit); not fixed here — out of scope.
+- **Concurrency note:** another tool/session was independently implementing
+  the same spec in `validators.py`/`scene_planner.py` while this work was in
+  progress; per explicit user direction ("take over and continue"), their
+  `HUMAN_SYMBOLIC`-enum design was adopted as source of truth and finished
+  (missing `logger`/`build_visual_prompts_prompt` imports fixed, dead
+  leftover class attrs removed).
 
 ## 2026-07-24 — Renderer CFR enforcement and remediation data-reconstruction fixes
 - `video/ffmpeg.py` `render_continuous()`: added `-r` and `-s` encoding options so the final MP4 is forced CFR at the target frame rate and resolution, eliminating potential VFR judder from concat-joined scene segments.
@@ -109,7 +463,7 @@ New `src/video_core/visual_intelligence/` package:
 **Vision provider interface extended:** `review()` now accepts `visual_metadata: VisualMetadata | None` and `prompt_package: PromptPackage | None`. All providers updated (Gemini, local, HF, llama.cpp, mock, throttled).
 
 ## 2026-07-18 — ADR-0015 Human Subject Quality Gate + TTS/vision fixes
-**ADR-0015 Human Subject Quality Gate** (`docs/image-prompt-generation/ADR-0015_Human_Subject_Quality_Gate.md`):
+**ADR-0015 Human Subject Quality Gate** (`docs/image-prompt/ADR-0015_Human_Subject_Quality_Gate.md`):
 - If human occupies >20% of frame or is primary storytelling subject → mandatory Human QA required
 - Reject if: missing/extra body parts, broken anatomy, impossible pose, deformed face, wrong age/gender/ethnicity/emotion if specified, subject cropped incorrectly
 - Mandatory Hand QA if hands visible: reject for incorrect finger count, fused/missing/duplicate fingers, deformed thumb, distorted palm, unnatural wrist, impossible finger joints
@@ -123,7 +477,7 @@ New `src/video_core/visual_intelligence/` package:
 **llama.cpp SIGSEGV fix:** `set_rows()` guard + SIGABRT handler in `src/video_core/providers/vision/local.py` for Qwen2.5-VL-3B.
 
 ## 2026-07-17 — ADR-0014 Pipeline Progress Reporting & Status Tracking
-(`docs/ADR-0014_Pipeline_Progress_Reporting_Status_Tracking.md`)
+(`docs/adr/ADR-0014_Pipeline_Progress_Reporting_Status_Tracking.md`)
 - `PipelineStatusWriter` in `ytfactory.shared.pipeline_status` — atomic `pipeline-status.json` writes + terminal progress
 - Stage lifecycle: `stage_start()` / `stage_progress()` / `stage_retry()` / `stage_complete()` / `stage_fail()`
 - Progress types: Determinate (counters), Indeterminate (spinner), Iterative (retry count + score)
@@ -133,7 +487,7 @@ New `src/video_core/visual_intelligence/` package:
 - Pipeline stages tracked: Research → Light Normalization → Documentary Enhancer Pass 1/2 → Scene Planning → Image Generation → Image QA → Image Regeneration → TTS → Subtitle Generation → Subtitle Editing → Background Music → Scene Rendering → Video Merge → CTA Overlay → Final Packaging
 
 ## 2026-07-17 — ADR-0013 Subject Criticality & Human Anatomy Specialist Review
-(`docs/image-prompt-generation/ADR-0013_Subject_Criticality_Validation.md`)
+(`docs/image-prompt/ADR-0013_Subject_Criticality_Validation.md`)
 - If primary storytelling subject is human hand/face/eye/body/gesture → must be anatomically realistic
 - Hand validation checklist: exactly five fingers, natural thumb attachment, correct palm proportions, natural wrist transition, correct finger joint placement, no fused/duplicate/stretched fingers, natural resting pose, photorealistic skin texture
 - Review strategy: Generation → Overall Image Review → Subject Specialist Review → Approve only if BOTH pass
@@ -761,7 +1115,7 @@ Registry parses `runtime`, `capabilities`, `bundle.artifacts`, `bundle.warm_infe
 ---
 
 ### 14. IMAGE_REVIEW_PIPELINE_V1
-**Spec:** `docs/video-quality-review/IMAGE_REVIEW_PIPELINE.md`  
+**Spec:** `docs/review/IMAGE_REVIEW_PIPELINE.md`  
 **New files:** `src/video_core/providers/vision/` package (6 modules, incl. `llama_cpp_provider.py` added 07-12), `src/ytfactory/images/review_config.py`, `src/ytfactory/images/review_engine.py`, `src/ytfactory/images/review_models.py`, `src/ytfactory/review/validation/rules/vision_review.py`, `tests/test_vision_provider.py`, `tests/test_image_review_engine.py`  
 **Moved to `video_core` in Phase 0 (2026-07-12).** Originally `src/ytfactory/providers/vision/`; now `src/video_core/providers/vision/`.  
 **Modified:** `src/ytfactory/images/pipeline.py`, `src/ytfactory/config/settings.py`, `src/ytfactory/review/validation/runner.py`, `src/ytfactory/review/validation/config.py`
@@ -993,7 +1347,7 @@ patch("ytfactory.config.settings.Settings", ...)   # correct
 ## 2026-07-22 — Fixes: single brand card, closing dedup, POLLINATIONS, Scene import, cartesia align
 - `scene_planner.py`: `_mark_asset_scenes` now scans backward from the end and marks only the LAST closing scene as an asset scene — prevents missing the brand card when closing text spans >3 scenes and prevents duplicate brand cards.
 - `scene_planner.py`: Before splitting, consecutive duplicate lines (caused by Pass 2 of the script enhancer re-appending closing/CTA phrases) are deduped.
-- `docs/fix_vision_concurrency_tests.md`: Vision concurrency test fixes.
+- `docs/review/fix_vision_concurrency_tests.md`: Vision concurrency test fixes.
 - `pollinations.py`, `huggingface.py`: Pillow resampling compatibility change (`Image.Resampling.LANCZOS` → `Image.LANCZOS`).
 - `huggingface_vision_provider.py`: Vision cache key now incorporates prompt_text to avoid stale revocation.
 - `build/pipeline.py`: Scene import path fixed from `ytfactory.retention.models` to `ytfactory.scenes.models`.

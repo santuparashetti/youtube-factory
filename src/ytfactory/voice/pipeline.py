@@ -14,7 +14,7 @@ from video_core.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.pacing.injector import PauseInjector
 from video_core.providers.tts.validator import AudioValidator, ValidationResult
 from video_core.providers.tts.analytics.collector import TTSAnalyticsCollector
-from video_core.providers.tts.analytics.models import TTSVideoSummary
+from video_core.providers.tts.analytics.models import TTSAnalyticsRecord, TTSVideoSummary
 from video_core.providers.tts.analytics.pricing import ProviderPricingConfig
 
 from .aligner import align as whisperx_align
@@ -79,6 +79,17 @@ class VoicePipeline:
                 }
             }
         })
+        if (
+            settings.tts_analytics_enabled
+            and settings.cartesia_credits_per_character == 0.0
+            and settings.cartesia_credits_per_request == 0.0
+        ):
+            logger.warning(
+                "Cartesia pricing is not configured (CARTESIA_CREDITS_PER_CHARACTER / "
+                "CARTESIA_CREDITS_PER_REQUEST are both 0.0 in .env) — Estimated Credits "
+                "and Estimated Cost will report 0.0 regardless of actual usage. Set these "
+                "from your Cartesia plan's rate to get real estimates."
+            )
         self._analytics = TTSAnalyticsCollector(
             enabled=settings.tts_analytics_enabled,
             pricing_config=self._pricing_config,
@@ -123,6 +134,42 @@ class VoicePipeline:
 
             if output.exists() and timing_output.exists():
                 logger.debug("TTS skip scene {} (already generated)", scene["index"])
+                if _w:
+                    _w.stage_progress(idx + 1)
+                continue
+
+            # File-level cache: audio exists (e.g. timing.json missing from an
+            # interrupted prior run) — skip the paid TTS call entirely rather
+            # than re-spending credits. Distinct from TTSCache's API-level
+            # key-based cache, which only helps when text/voice/model match
+            # exactly; this is a coarser, cheaper check that runs first.
+            if (
+                self._settings.tts_skip_existing
+                and output.exists()
+                and output.stat().st_size > 1000
+            ):
+                logger.info(
+                    "TTS skip scene {} — cache_hit=True (file exists, {} bytes)",
+                    scene["index"],
+                    output.stat().st_size,
+                )
+                if not timing_output.exists():
+                    timing_output.write_text("[]", encoding="utf-8")
+                self._repository.save(
+                    VoiceArtifact(scene_id=scene["index"], audio_path=output)
+                )
+                if self._analytics.enabled:
+                    narration = scene["narration"]
+                    self._analytics.record(
+                        TTSAnalyticsRecord(
+                            scene_id=str(scene["index"]),
+                            provider=self._provider.capabilities.provider_name,
+                            characters=len(narration),
+                            words=len(narration.split()),
+                            cache_hit=True,
+                            output_bytes=output.stat().st_size,
+                        )
+                    )
                 if _w:
                     _w.stage_progress(idx + 1)
                 continue

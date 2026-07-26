@@ -132,6 +132,39 @@ class TestTTSAnalyticsCollector:
         assert summary.cache_hits == 2
         assert summary.cache_misses == 1
 
+    def test_video_summary_total_scenes(self) -> None:
+        """Regression: total_scenes must be incremented, not left at 0
+        (previously caused 'Scenes: 0' / 'Average Scene Duration: 0.0s' in
+        the logged TTS summary even when records were collected correctly)."""
+        collector = TTSAnalyticsCollector(enabled=True)
+        collector.set_current_video("video-1")
+        for i in range(3):
+            collector.record(TTSAnalyticsRecord(
+                scene_id=f"scene-{i:03d}",
+                provider="cartesia",
+                characters=100,
+                audio_duration=5.0,
+            ))
+        summary = collector.video_summary("video-1")
+        assert summary is not None
+        assert summary.total_scenes == 3
+        assert summary.avg_scene_duration == 5.0
+        assert summary.avg_characters_per_scene == 100.0
+
+    def test_video_summary_multiple_records_per_scene_counts_scene_once(self) -> None:
+        """Contemplative pacing can emit multiple TTS requests for one scene
+        (one per sentence) — total_scenes must count distinct scenes, not
+        total requests."""
+        collector = TTSAnalyticsCollector(enabled=True)
+        collector.set_current_video("video-1")
+        collector.record(TTSAnalyticsRecord(scene_id="scene-001", provider="cartesia", audio_duration=2.0))
+        collector.record(TTSAnalyticsRecord(scene_id="scene-001", provider="cartesia", audio_duration=3.0))
+        collector.record(TTSAnalyticsRecord(scene_id="scene-002", provider="cartesia", audio_duration=4.0))
+        summary = collector.video_summary("video-1")
+        assert summary is not None
+        assert summary.total_requests == 3
+        assert summary.total_scenes == 2
+
     def test_cache_hit_rate(self) -> None:
         collector = TTSAnalyticsCollector(enabled=True)
         collector.set_current_video("video-1")

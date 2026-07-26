@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -17,6 +18,7 @@ from ytfactory.scenes.repository.scene_repository import SceneRepository
 
 from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
+from .overlay import OverlayCompositor
 
 
 def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> float:
@@ -125,6 +127,170 @@ def _resolve_bgm_category(settings: Settings, project_dir: Path) -> str:
         pass
 
     return detect_category(title, scene_titles)
+
+
+def _apply_overlays(
+    tmp: Path,
+    output_path: Path,
+    settings: Settings,
+    scenes: list[dict],
+    durations: list[float],
+    intro_seconds: float,
+) -> None:
+    """Composite mood overlays (per-scene, time-gated) + grain (global, always
+    last) onto the continuous single-stream render, before BGM mixing.
+
+    *tmp* is the just-rendered continuous video (all scenes + subtitle
+    burn-in, one stream, no per-scene boundaries). Overlays are matched to
+    time windows computed from *durations* rather than sliced/re-concatenated,
+    preserving the single continuous stream (no GOP boundaries reintroduced).
+
+    Falls back to a plain rename when overlays are disabled, the manifest is
+    missing, or no scene matches any category — never blocks the render.
+    """
+    compositor = OverlayCompositor(
+        manifest_path=settings.overlay_manifest_path,
+        skip=settings.skip_overlays,
+        assets_dir=settings.overlay_assets_dir,
+    )
+    if compositor.skip or not compositor.manifest:
+        tmp.rename(output_path)
+        return
+
+    width = settings.video_width
+    height = settings.video_height
+    fps = settings.video_fps
+    assets_base = (
+        compositor.assets_dir
+        if compositor.assets_dir.is_absolute()
+        else Path.cwd() / compositor.assets_dir
+    )
+
+    windows: list[tuple[float, float]] = []
+    t = max(0.0, intro_seconds)
+    for dur in durations:
+        windows.append((t, t + dur))
+        t += dur
+    total_duration = t
+
+    cmd: list[str] = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp)]
+    filter_chains: list[str] = []
+    current_label = "0:v"
+    stage = 0
+
+    for i, scene in enumerate(scenes):
+        category, _motion_type = compositor.select_category(scene)
+        if not category:
+            continue
+        clips = compositor.manifest.get(category, [])
+        if not clips:
+            continue
+        clip = clips[i % len(clips)]
+        clip_path = assets_base / clip["file"]
+        if not clip_path.is_file():
+            logger.warning(
+                "Overlay clip missing for scene {} (category={}): {} — skipping",
+                scene.get("index", i),
+                category,
+                clip_path,
+            )
+            continue
+
+        stage += 1
+        start, end = windows[i]
+        blend_mode = clip.get("blend_mode", "screen")
+        opacity = float(clip.get("opacity", 0.25))
+        ov_in = f"{stage}:v"
+        ov_label = f"ov{stage}"
+        out_label = f"s{stage}"
+        cmd += ["-stream_loop", "-1", "-t", f"{total_duration:.4f}", "-i", str(clip_path)]
+        filter_chains.append(
+            f"[{ov_in}]scale={width}:{height},setsar=1,format=rgba,"
+            f"colorchannelmixer=aa={opacity:.3f}[{ov_label}]"
+        )
+        filter_chains.append(
+            f"[{current_label}][{ov_label}]blend=all_mode={blend_mode}:"
+            f"enable='between(t,{start:.4f},{end:.4f})'[{out_label}]"
+        )
+        current_label = out_label
+
+    # Grain: conditional (Task 2.9) — global whole-video, layered last on top
+    # of any mood overlay, but only when overall composition warrants it.
+    grain_clips = compositor.manifest.get("grain", [])
+    if not settings.overlay_grain_enabled:
+        logger.info("Overlay: grain skipped (OVERLAY_GRAIN_ENABLED=false)")
+    elif not grain_clips:
+        logger.info("Overlay: grain skipped (no grain clip in manifest)")
+    elif not compositor._should_apply_grain(scenes):
+        logger.info(
+            "Overlay: grain skipped (no scene era/mood/style warrants grain — "
+            "contemporary/realistic composition)"
+        )
+    else:
+        clip = grain_clips[0]
+        clip_path = assets_base / clip["file"]
+        if not clip_path.is_file():
+            logger.warning("Grain overlay clip missing: {} — skipping", clip_path)
+        else:
+            stage += 1
+            blend_mode = clip.get("blend_mode", "grainmerge")
+            opacity = float(clip.get("opacity", 0.07))
+            ov_in = f"{stage}:v"
+            ov_label = f"ov{stage}"
+            out_label = f"s{stage}"
+            cmd += ["-stream_loop", "-1", "-t", f"{total_duration:.4f}", "-i", str(clip_path)]
+            filter_chains.append(
+                f"[{ov_in}]scale={width}:{height},setsar=1,format=rgba,"
+                f"colorchannelmixer=aa={opacity:.3f}[{ov_label}]"
+            )
+            filter_chains.append(
+                f"[{current_label}][{ov_label}]blend=all_mode={blend_mode}[{out_label}]"
+            )
+            current_label = out_label
+            logger.info(
+                "Overlay: applying grain (whole-video, opacity={:.2f})", opacity
+            )
+
+    if stage == 0:
+        tmp.rename(output_path)
+        return
+
+    filter_chains.append(f"[{current_label}]format=yuv420p[outv]")
+    cmd += [
+        "-filter_complex",
+        "; ".join(filter_chains),
+        "-map",
+        "[outv]",
+        "-map",
+        "0:a?",
+        "-c:a",
+        "copy",
+        "-r",
+        str(fps),
+        str(output_path),
+    ]
+
+    t0 = time.perf_counter()
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="replace")[-800:] if exc.stderr else ""
+        logger.error(
+            "Overlay compositing failed ({} stage(s)) — falling back to render without "
+            "overlays: {}",
+            stage,
+            stderr,
+        )
+        tmp.rename(output_path)
+        return
+
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Overlay compositing: {} stage(s) (mood + grain) in {:.2f}s",
+        stage,
+        elapsed,
+    )
+    tmp.unlink(missing_ok=True)
 
 
 def _apply_bgm(
@@ -264,7 +430,12 @@ def compose_continuous_video(
     # scene-plan.json always reflects exactly what was rendered.
     SceneRepository().save_scenes(project_dir, scenes)
 
-    _apply_bgm(tmp, output_path, settings, project_dir)
+    overlay_tmp = output_path.with_suffix(".overlay.tmp.mp4")
+    _apply_overlays(
+        tmp, overlay_tmp, settings, scenes, durations,
+        settings.video_intro_seconds if settings.video_intro_enabled else 0.0,
+    )
+    _apply_bgm(overlay_tmp, output_path, settings, project_dir)
 
 
 class VideoPipeline:
@@ -471,15 +642,23 @@ class VideoPipeline:
         """
         tmp = output_path.with_suffix(".work.mp4")
 
+        overlay_tmp = output_path.with_suffix(".overlay.tmp.mp4")
+        intro_seconds = (
+            self._settings.video_intro_seconds if self._settings.video_intro_enabled else 0.0
+        )
+
         # Resume guard: if a previous run was interrupted after render_continuous
-        # but before BGM mixing completed, tmp exists but output_path does not.
-        # Skip the expensive re-render and jump straight to BGM.
+        # but before overlay/BGM mixing completed, tmp exists but output_path does not.
+        # Skip the expensive re-render and jump straight to overlays + BGM.
         if tmp.exists() and not output_path.exists():
             logger.info(
-                "Resuming BGM mix from existing {} (render already complete)",
+                "Resuming overlay/BGM mix from existing {} (render already complete)",
                 tmp.name,
             )
-            _apply_bgm(tmp, output_path, self._settings, project_dir)
+            _apply_overlays(
+                tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+            )
+            _apply_bgm(overlay_tmp, output_path, self._settings, project_dir)
             return
 
         self.renderer.render_continuous(
@@ -490,4 +669,7 @@ class VideoPipeline:
             intro_enabled=self._settings.video_intro_enabled,
             intro_seconds=self._settings.video_intro_seconds,
         )
-        _apply_bgm(tmp, output_path, self._settings, project_dir)
+        _apply_overlays(
+            tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+        )
+        _apply_bgm(overlay_tmp, output_path, self._settings, project_dir)

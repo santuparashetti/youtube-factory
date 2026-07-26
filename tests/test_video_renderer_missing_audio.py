@@ -301,6 +301,7 @@ class TestComposeContinuousVideoMissingAudio:
         output_dir = project_dir / "video"
 
         with patch("ytfactory.video.pipeline.FFmpegRenderer") as MockFFmpeg, \
+             patch("ytfactory.video.pipeline._apply_overlays"), \
              patch("ytfactory.video.pipeline._apply_bgm"):
             compose_continuous_video(project_dir, output_dir, self._mock_settings())
 
@@ -470,6 +471,7 @@ class TestVideoPipelineSequentialMissingAudio:
         _scaffold_assets(project_dir, n_scenes=2)
 
         with patch("ytfactory.video.pipeline.FFmpegRenderer") as MockFFmpeg, \
+             patch("ytfactory.video.pipeline._apply_overlays"), \
              patch("ytfactory.video.pipeline._apply_bgm"), \
              patch("ytfactory.video.pipeline._actual_audio_duration", return_value=5.0):
             MockFFmpeg.return_value.render_continuous = MagicMock()

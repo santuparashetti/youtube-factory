@@ -1,8 +1,53 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from video_core.domain.visual_metadata import VisualMetadata
+
+
+class FaithfulnessStatus(str, Enum):
+    """Status of a scene's faithfulness QA pass.
+
+    Replaces the old ad-hoc strings ("violation", "retry parse failed") which
+    were implementation details, not validation outcomes — see
+    docs/script/task-2.2-retry-engine-reliability.md Phase 7.
+    """
+
+    PASS = "pass"        # Validated clean (initial attempt or after retry).
+    FAILED = "failed"    # Retries exhausted — violation unresolved.
+    SKIPPED = "skipped"  # brand_card or other scene type exempt from validation.
+
+
+@dataclass
+class SceneAnalysis:
+    """
+    Structured analysis of a single narration scene.
+    This becomes the source of truth for prompt generation.
+    """
+    scene_id: int
+    characters: list[str] = field(default_factory=list)
+    allowed_characters: list[str] = field(default_factory=list)
+    primary_subject: str = ""
+    secondary_subjects: list[str] = field(default_factory=list)
+    environment: str = ""
+    primary_action: str = ""
+    emotional_beat: str = ""
+    story_goal: str = ""
+    human_requirement: Literal["required", "optional", "forbidden", "permitted_symbolic"] = "forbidden"
+    named_person: str = ""
+    camera_focus: str = ""
+    scene_characters: list[str] = field(default_factory=list)
+    scene_objects: list[str] = field(default_factory=list)
+    forbidden_characters: list[str] = field(default_factory=list)
+    forbidden_objects: list[str] = field(default_factory=list)
+    visual_focus: str = ""
+    continuity_reference: str = ""
+    story_time: str = ""
+    camera_constraints: str = ""
 
 
 class Scene(BaseModel):
@@ -24,6 +69,8 @@ class Scene(BaseModel):
     linked_segment: dict | None = Field(default=None, description="Serialized ScriptSegment linking this scene to its narration beat")
     asset_path: str | None = Field(default=None, description="Resolved path to the source image/video asset for this scene")
     asset_id: str | None = Field(default=None, description="Original asset identifier (path or ID) from brand or source config")
+    faithfulness_qa: dict | None = Field(default=None, description="QA result from faithfulness validation pass")
+    scene_analysis: SceneAnalysis | None = Field(default=None, description="Structured scene analysis for story-first prompt generation")
 
 
 class ScenePlan(BaseModel):

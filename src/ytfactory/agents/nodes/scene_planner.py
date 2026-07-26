@@ -4,21 +4,45 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA, WELCOME_VARIATIONS
-from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
+from video_core.providers.llm.base import LLMProvider
+from video_core.providers.llm.factory import get_llm_provider
+from ytfactory.agents.prompts.branding import (
+    CLOSING_VARIATIONS,
+    SOFT_CTA,
+    WELCOME_VARIATIONS,
+)
+from ytfactory.agents.prompts.scene_planner import (
+    ENTITY_EXTRACTION_PROMPT,
+    FAITHFULNESS_VALIDATION_PROMPT,
+    build_llm_validation_prompt,
+    build_scene_analysis_prompt,
+    build_scene_analysis_section,
+    build_visual_prompts_prompt,
+    prepend_storyboard_header,
+)
 from ytfactory.agents.state import VideoState
 from ytfactory.branding.config import get_brand_config
 from ytfactory.config.settings import Settings
+from ytfactory.images.faithfulness_gate import evaluate_faithfulness_gate
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
-from video_core.providers.llm.base import LLMProvider
-from video_core.providers.llm.factory import get_llm_provider
+from ytfactory.images.validators import (
+    RETRY_RESPONSE_SCHEMA,
+    HumanClassification,
+    build_retry_prompt,
+    compose_feedback,
+    parse_retry_response,
+    run_validators,
+)
+from ytfactory.scenes.models import FaithfulnessStatus
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.artifact_repository import ArtifactRepository
@@ -39,6 +63,322 @@ _OPENING_TRIGGERS: frozenset[str] = frozenset(
 console = Console()
 
 _TARGET_WORDS_PER_SCENE = 35  # ~16s scenes at 130 wpm → ~30-35 scenes per 9 min video
+
+
+@dataclass
+class SceneEntities:
+    """
+    Who and what are literally present in this narration segment.
+    Extracted before visual_prompt generation. Injected as a constraint.
+    """
+    characters: list[str] = field(default_factory=list)
+    environment: list[str] = field(default_factory=list)
+    objects: list[str] = field(default_factory=list)
+    human_classification: HumanClassification = HumanClassification.NO_HUMAN_ALLOWED
+    human_names: list[str] = field(default_factory=list)
+    human_description: str = ""
+    scene_category: Literal[
+        "animal_only",
+        "human_named",
+        "human_implied",
+        "human_symbolic",
+        "abstract",
+        "brand_card",
+    ] = "abstract"
+
+    @property
+    def has_human(self) -> bool:
+        return self.human_classification in (
+            HumanClassification.HUMAN_REQUIRED,
+            HumanClassification.NAMED_PERSON_REQUIRED,
+        )
+
+
+def _get_cheap_llm(settings: Settings, purpose: str) -> LLMProvider:
+    """Return an LLM provider configured for cheap/fast inference."""
+    model_override = {
+        "extraction": settings.entity_extraction_model,
+        "validation": settings.faithfulness_validation_model,
+        "llm_validation": settings.faithfulness_validator_model,
+    }.get(purpose, "")
+
+    if not model_override:
+        return get_llm_provider(settings)
+
+    provider_type = settings.llm_provider.lower()
+    update: dict = {}
+    if provider_type == "anthropic":
+        update["anthropic_model"] = model_override
+    elif provider_type == "gemini":
+        update["gemini_text_model"] = model_override
+    elif provider_type == "groq":
+        update["groq_model"] = model_override
+    elif provider_type == "ollama":
+        update["ollama_model"] = model_override
+    elif provider_type == "deepinfra":
+        update["deepinfra_model"] = model_override
+
+    if update:
+        return get_llm_provider(settings.model_copy(update=update))
+    return get_llm_provider(settings)
+
+
+def _parse_json_response(text: str) -> dict | None:
+    """Parse a JSON object from LLM response text, handling code fences."""
+    raw = text.strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        raw = raw.strip()
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _extract_scene_entities(narration: str, llm_client: LLMProvider) -> SceneEntities:
+    """Extract entity constraints from a narration segment."""
+    prompt = ENTITY_EXTRACTION_PROMPT.format(narration=narration)
+    response = llm_client.generate(prompt, temperature=0.0)
+
+    data = _parse_json_response(response.text)
+    if not data:
+        logger.warning("Entity extraction returned invalid JSON; defaulting to abstract")
+        return SceneEntities(scene_category="abstract")
+
+    raw_classification = data.get("human_classification", "").lower()
+    classification_map = {
+        "no_human_allowed": HumanClassification.NO_HUMAN_ALLOWED,
+        "human_optional": HumanClassification.HUMAN_OPTIONAL,
+        "human_required": HumanClassification.HUMAN_REQUIRED,
+        "named_person_required": HumanClassification.NAMED_PERSON_REQUIRED,
+        "human_symbolic": HumanClassification.HUMAN_SYMBOLIC,
+    }
+    human_classification = classification_map.get(
+        raw_classification, HumanClassification.NO_HUMAN_ALLOWED
+    )
+
+    try:
+        return SceneEntities(
+            characters=data.get("characters", []) or [],
+            environment=data.get("environment", []) or [],
+            objects=data.get("objects", []) or [],
+            human_classification=human_classification,
+            human_names=data.get("human_names", []) or [],
+            human_description=data.get("human_description", "") or "",
+            scene_category=data.get("scene_category", "abstract") or "abstract",
+        )
+    except (TypeError, ValueError) as exc:
+        logger.warning("Entity extraction malformed: {}; defaulting to abstract", exc)
+        return SceneEntities(scene_category="abstract")
+
+
+def _analyze_scene(narration: str, scene_id: int, llm_client: LLMProvider) -> dict:
+    """Analyze a single scene for story-first visual grounding."""
+    prompt = build_scene_analysis_prompt(narration, scene_id)
+    response = llm_client.generate(prompt, temperature=0.0)
+    data = _parse_json_response(response.text)
+    if not data:
+        logger.warning("Scene analysis returned invalid JSON for scene {}", scene_id)
+        return {"scene_id": scene_id}
+    return data
+
+
+def _build_entity_block(entities: SceneEntities) -> str:
+    """Build the entity constraint section for the visual prompt template."""
+    lines = [
+        "ENTITY CONSTRAINTS — the following entities were extracted from this narration.",
+        "You MUST include ONLY these characters. You MUST NOT add any human figure,",
+        "person, man, woman, or body part unless human_classification allows it.",
+        "",
+        f"  scene_category: {entities.scene_category}",
+        f"  human_classification: {entities.human_classification.value}",
+    ]
+    if entities.characters:
+        lines.append(f"  characters_present: {', '.join(entities.characters)}")
+    if entities.human_names:
+        lines.append(f"  named_humans: {', '.join(entities.human_names)}")
+    if entities.human_description:
+        lines.append(f"  human_description: {entities.human_description}")
+    if entities.environment:
+        lines.append(f"  environment: {', '.join(entities.environment)}")
+    if entities.objects:
+        lines.append(f"  objects: {', '.join(entities.objects)}")
+    lines.append("")
+    lines.append("VIOLATION EXAMPLES (never do these):")
+    lines.append("  - Narration is about an eagle and chick → prompt adds 'a man watching from a cliff' ❌")
+    lines.append("  - Narration is about Bhagiratha → prompt adds a generic man in grey linen ❌")
+    lines.append("  - Narration is a rhetorical question → prompt shows a specific person ❌")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _build_entity_constraints_section(scenes: list[dict], entity_map: dict[int, SceneEntities]) -> str:
+    """Build per-scene entity constraints for the batch prompt."""
+    if not entity_map:
+        return ""
+    lines = ["ENTITY CONSTRAINTS PER SCENE:", ""]
+    for scene in scenes:
+        idx = scene["index"]
+        entities = entity_map.get(idx)
+        if not entities:
+            continue
+        lines.append(f"Scene {idx}:")
+        lines.append(f"  category={entities.scene_category}  human_classification={entities.human_classification.value}")
+        if entities.characters:
+            lines.append(f"  characters={', '.join(entities.characters)}")
+        if entities.human_names:
+            lines.append(f"  named_humans={', '.join(entities.human_names)}")
+        if entities.human_description:
+            lines.append(f"  human_description={entities.human_description}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _validate_prompt_faithfulness(
+    narration: str,
+    entities: SceneEntities,
+    visual_prompt: str,
+    llm_client: LLMProvider,
+) -> tuple[bool, str]:
+    """Validate that a visual prompt respects entity constraints.
+
+    Returns (passed: bool, violation_description: str).
+    """
+    prompt = FAITHFULNESS_VALIDATION_PROMPT.format(
+        narration=narration,
+        scene_category=entities.scene_category,
+        human_classification=entities.human_classification.value,
+        visual_prompt=visual_prompt,
+    )
+    response = llm_client.generate(prompt, temperature=0.0)
+    data = _parse_json_response(response.text)
+    if not data:
+        logger.warning("Faithfulness validation returned invalid JSON")
+        return True, ""
+
+    passed = bool(data.get("pass", True))
+    violation = data.get("violation", "")
+    severity = data.get("severity", "none")
+    return passed, violation if severity == "critical" else ""
+
+
+# ── Task 2.6 Part 2 — LLM validation layer ────────────────────────────────────
+# ENVIRONMENT_MISMATCH and HUMAN_CLASSIFICATION_VIOLATED require semantic
+# understanding that keyword matching can't reliably provide. Only called when
+# these are the ONLY remaining deterministic failures for a scene — never on
+# scenes that already pass, never alongside structural failures like
+# FORBIDDEN_CHARACTER (fix those via retry first).
+LLM_VALIDATABLE_CHECKS: frozenset[str] = frozenset(
+    {"ENVIRONMENT_MISMATCH", "HUMAN_CLASSIFICATION_VIOLATED"}
+)
+
+
+def _should_use_llm_validation(error_codes: list[str]) -> bool:
+    """True only when every remaining error code is LLM-validatable."""
+    return bool(error_codes) and set(error_codes).issubset(LLM_VALIDATABLE_CHECKS)
+
+
+def _run_llm_validation(
+    scene_analysis: dict,
+    human_classification: HumanClassification,
+    visual_prompt: str,
+    llm_client: LLMProvider,
+) -> tuple[bool, str]:
+    """Binary environment+human check via a cheap LLM call.
+
+    Returns (passed, reason). Never blocks on failure — a parse error is
+    treated as a pass so a flaky validator call can't stall the retry loop.
+    """
+    prompt = build_llm_validation_prompt(
+        scene_category=scene_analysis.get("scene_category", "abstract"),
+        human_classification=human_classification.value,
+        environment=scene_analysis.get("environment", ""),
+        visual_prompt=visual_prompt,
+    )
+    try:
+        response = llm_client.generate(prompt, json_mode=True, temperature=0.0)
+        data = _parse_json_response(response.text)
+        if not data:
+            logger.warning("LLM validation returned invalid JSON — accepting prompt")
+            return True, "llm_parse_failed: invalid JSON"
+        passed = bool(data.get("environment_ok", True)) and bool(data.get("human_ok", True))
+        return passed, data.get("reason", "")
+    except Exception as exc:
+        logger.warning("LLM validation call failed: {} — accepting prompt", exc)
+        return True, f"llm_parse_failed: {exc}"
+
+
+# ── Task 2.7 — Narrative-Visual Bridge ────────────────────────────────────────
+# Root cause: the generation prompt receives style/entity/camera metadata but
+# never an explicit answer to "what does this narration show?" — abstract
+# scenes with no extracted characters drift to generic "spiritual documentary
+# aesthetic object" imagery. This batch pass derives one concrete, literal
+# visual_anchor per scene from its narration before any prompt is generated.
+
+_ANCHOR_FEW_SHOT_EXAMPLES = """\
+EXAMPLES (do not output these, they are guidance only):
+- Narration: "parents smiling, children smile too" → "A mother kneeling to her child at dawn, both smiling"
+- Narration: "if you use your hands you become a karma yogi" → "Skilled hands shaping clay on a potter's wheel"
+- Narration: "cannot master the chapati, cannot fight the empire" → "Hands rolling chapati dough with precise, deliberate pressure"
+- Narration: "eagle soared with absolute confidence after eight days" → "An eagle in full flight, wings spread against open sky, from below"
+- Narration: "he took a simple flower, turned it into bread, built an empire" → "A marigold beside a freshly baked chapati on a woven plate"
+- Narration: "even on a simple bed, if your spirit is alive, you feel like a king" → "Two beds side by side — one ornate and cold, one simple and warmly lit\""""
+
+
+def _build_anchor_batch_prompt(scenes: list[dict]) -> str:
+    """Build the batch visual-anchor prompt. Brand-card scenes are excluded —
+    they use a fixed asset, not a generated image."""
+    scene_lines = [
+        f"Scene {scene['index']:03d}: {scene.get('narration', '').strip()}"
+        for scene in scenes
+        if scene.get("scene_type") != "brand_card"
+    ]
+    batch_text = "\n".join(scene_lines)
+
+    return f"""\
+For each scene below, write ONE sentence describing the single most important
+visual element to show in the image. Be specific and literal. Name actual
+subjects, actions, or objects from the narration.
+
+Rules:
+- Do NOT suggest generic spiritual objects (journal, candle, stone, sandal,
+  empty chair, abstract light) unless they appear in the narration.
+- DO anchor to a person, animal, action, or object named in the narration.
+- If narration describes an emotion/philosophy with no literal subject,
+  find the closest concrete metaphor the narration itself suggests.
+
+{_ANCHOR_FEW_SHOT_EXAMPLES}
+
+{batch_text}
+
+Return ONLY JSON: {{"001": "anchor sentence", "002": "anchor sentence", ...}}
+No explanation, no markdown, no preamble."""
+
+
+def _build_visual_anchors(
+    scenes: list[dict],
+    cheap_llm_client: LLMProvider,
+) -> dict[int, str]:
+    """Batch call: narration → visual_anchor per scene index.
+
+    Falls back to an empty dict on any failure (non-blocking) — scenes then
+    generate exactly as they did before this task.
+    """
+    prompt = _build_anchor_batch_prompt(scenes)
+    try:
+        response = cheap_llm_client.generate(prompt, json_mode=True, temperature=0.0)
+        data = _parse_json_response(response.text)
+        if not data:
+            logger.warning("Visual anchor batch returned invalid JSON — proceeding without anchors")
+            return {}
+        return {
+            int(k): v for k, v in data.items() if isinstance(v, str) and v.strip()
+        }
+    except Exception as exc:
+        logger.warning("Visual anchor batch failed: {} — proceeding without anchors", exc)
+        return {}
 
 
 def _attach_emotional_metadata(project_id: str, scenes: list[dict]) -> None:
@@ -351,6 +691,9 @@ def _write_prompts_file(
         filename = f"scene-{idx:03d}.png"
         save_path = abs_images_dir / filename
         vm = scene.get("visual_metadata", {})
+        prompt_text = scene.get("visual_prompt", "")
+        if scene.get("scene_type") != "brand_card":
+            prompt_text = prepend_storyboard_header(prompt_text)
 
         lines += [
             f"## Scene {idx} — `{filename}`",
@@ -361,7 +704,7 @@ def _write_prompts_file(
             "",
             "**Image Prompt:**",
             "",
-            f"> {scene.get('visual_prompt', '')}",
+            f"> {prompt_text}",
             "",
             f"**Visual Metadata:** era={vm.get('era', '—')} role={vm.get('narrative_role', '—')} "
             f"env={vm.get('environment', '—')} mood={vm.get('mood', '—')} "
@@ -374,6 +717,34 @@ def _write_prompts_file(
     content = "\n".join(lines)
     out_path = images_dir / "IMAGE_PROMPTS.md"
     out_path.write_text(content, encoding="utf-8")
+    return out_path
+
+
+def _write_faithfulness_gate_report(project_id: str, scenes: list[dict]) -> Path:
+    """Evaluate the faithfulness gate and write its result to scenes/faithfulness-gate.json.
+
+    Non-blocking — the gate never raises or halts the pipeline. Failures are
+    logged and recorded so a human can review and manually fix flagged image
+    prompts in Phase 2. two_phase.pipeline._write_phase1_report() folds this
+    file into phase1_report.json under the "faithfulness_gate" key.
+    """
+    gate_result = evaluate_faithfulness_gate(scenes)
+    out_path = Path(WORKSPACE_DIR) / project_id / "scenes" / "faithfulness-gate.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(gate_result.to_dict(), indent=2), encoding="utf-8"
+    )
+    if gate_result.failed_count:
+        console.print(
+            f"  [yellow]⚠[/yellow] Faithfulness gate: {gate_result.failed_count} scene(s) FAILED "
+            f"— {gate_result.passed_count} PASS, {gate_result.skipped_count} SKIPPED "
+            f"[dim](see {out_path})[/dim]"
+        )
+    else:
+        console.print(
+            f"  [green]✓[/green] Faithfulness gate passed — "
+            f"{gate_result.passed_count} PASS, {gate_result.skipped_count} SKIPPED"
+        )
     return out_path
 
 
@@ -461,10 +832,12 @@ def _parse_visual_prompts(text: str) -> list[dict] | None:
 
 
 def _generate_vp_sub_batches(
-    llm: "LLMProvider",
+    llm: LLMProvider,
     batch: list[dict],
     style: str,
     visual_diary: list[str],
+    entity_constraints_section: str = "",
+    scene_analysis_section: str = "",
 ) -> list[dict] | None:
     """Retry a truncated batch by splitting it in half and calling each half separately."""
     half = max(1, len(batch) // 2)
@@ -472,7 +845,11 @@ def _generate_vp_sub_batches(
     for sub in [batch[:half], batch[half:]]:
         if not sub:
             continue
-        sub_prompt = build_visual_prompts_prompt(sub, style, prev_context=visual_diary or None)
+        sub_prompt = build_visual_prompts_prompt(
+            sub, style, prev_context=visual_diary or None,
+            entity_constraints_section=entity_constraints_section,
+            scene_analysis_section=scene_analysis_section,
+        )
         sub_resp = llm.generate(sub_prompt, temperature=0.35)
         if sub_resp.finish_reason == "length":
             logger.warning(
@@ -578,6 +955,7 @@ def scene_planner_node(state: VideoState) -> dict:
 
         prompts_path = _write_prompts_file(project_id, scenes, style, settings)
         console.print(f"  [green]✓[/green] Image prompts: [dim]{prompts_path}[/dim]")
+        _write_faithfulness_gate_report(project_id, scenes)
         project_repo.update_stage(project_id, "scenes", "completed")
         return {"scene_plan": scenes}
 
@@ -625,6 +1003,22 @@ def scene_planner_node(state: VideoState) -> dict:
     # music, and retention scoring downstream.
     _attach_emotional_metadata(project_id, scenes)
 
+    # ── Scene Analysis (NEW) — structured story-first grounding per scene ─────
+    console.print("  [cyan]→[/cyan] Analyzing scenes for story-first grounding...")
+    _analysis_llm = _get_cheap_llm(settings, "extraction")
+    scene_analysis_map: dict[int, dict] = {}
+    for scene in scenes:
+        if scene.get("scene_type", "generated_image") == "generated_image":
+            analysis = _analyze_scene(
+                scene.get("narration", ""), scene["index"], _analysis_llm
+            )
+            scene_analysis_map[scene["index"]] = analysis
+            scene["scene_analysis"] = analysis
+    scene_analysis_section = build_scene_analysis_section(scene_analysis_map)
+    console.print(
+        f"  [green]✓[/green] Scene analysis complete for {len(scene_analysis_map)} scenes"
+    )
+
     total = sum(s.get("duration_seconds", 0) for s in scenes)
     narration_words = sum(len(s.get("narration", "").split()) for s in scenes)
     console.print(
@@ -650,6 +1044,39 @@ def scene_planner_node(state: VideoState) -> dict:
     generated_scenes = [
         s for s in scenes if s.get("scene_type", "generated_image") == "generated_image"
     ]
+
+    # ── Layer 1: Entity Extraction Pass ──────────────────────────────────
+    _extraction_llm = _get_cheap_llm(settings, "extraction")
+    entity_map: dict[int, SceneEntities] = {}
+    for scene in generated_scenes:
+        entities = _extract_scene_entities(scene.get("narration", ""), _extraction_llm)
+        entity_map[scene["index"]] = entities
+        logger.debug(
+            "Entity extraction scene {:03d}: category={} human_classification={} chars={}",
+            scene["index"],
+            entities.scene_category,
+            entities.human_classification.value,
+            entities.characters,
+        )
+    entity_constraints_section = _build_entity_constraints_section(generated_scenes, entity_map)
+
+    # ── Narrative-Visual Bridge (Task 2.7) ────────────────────────────────
+    # Runs after entity extraction, before prompt generation, so abstract/
+    # empty-chars scenes get a concrete literal directive instead of drifting
+    # to generic aesthetic imagery. Non-blocking: on any failure scenes
+    # generate exactly as before this task.
+    _llm_validation_client = _get_cheap_llm(settings, "llm_validation")
+    if settings.visual_anchor_enabled:
+        visual_anchors = _build_visual_anchors(generated_scenes, _llm_validation_client)
+    else:
+        visual_anchors = {}
+    for scene in generated_scenes:
+        scene["visual_anchor"] = visual_anchors.get(scene["index"], "")
+    if visual_anchors:
+        console.print(
+            f"  [green]✓[/green] Visual anchors: {len(visual_anchors)}/{len(generated_scenes)} scenes"
+        )
+
     console.print(
         f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
         f"[dim]({settings.llm_provider}, batches of {_VP_BATCH}, "
@@ -657,6 +1084,7 @@ def scene_planner_node(state: VideoState) -> dict:
     )
     vp_map: dict[int, str] = {}
     _vm_map: dict[int, dict] = {}
+    _faithfulness_qa: dict[int, dict] = {}
     visual_diary: list[
         str
     ] = []  # cross-batch continuity: short summaries of prompts already written
@@ -665,7 +1093,9 @@ def scene_planner_node(state: VideoState) -> dict:
         batch = generated_scenes[batch_start : batch_start + _VP_BATCH]
         batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
         prompt = build_visual_prompts_prompt(
-            batch, style, prev_context=visual_diary or None
+            batch, style, prev_context=visual_diary or None,
+            entity_constraints_section=entity_constraints_section,
+            scene_analysis_section=scene_analysis_section,
         )
         vp_response = llm.generate(prompt, temperature=0.35)
 
@@ -677,7 +1107,7 @@ def scene_planner_node(state: VideoState) -> dict:
                 batch_nums,
                 vp_response.completion_tokens,
             )
-            vp_list = _generate_vp_sub_batches(llm, batch, style, visual_diary)
+            vp_list = _generate_vp_sub_batches(llm, batch, style, visual_diary, entity_constraints_section)
         else:
             vp_list = _parse_visual_prompts(vp_response.text)
             # Retry once on parse failure
@@ -725,6 +1155,190 @@ def scene_planner_node(state: VideoState) -> dict:
                 batch_nums,
             )
 
+    # ── Layer 3: Story Fidelity Validation ─────────────────────────────────
+    # Per-scene generate -> validate -> structured-retry loop. Replaces the old
+    # two-system design (inline story-fidelity retry + a separate batch
+    # "Retrying N failed prompt(s)" phase) that fired a second, differently-shaped
+    # retry request after all scenes were already processed and could never parse
+    # the result. See docs/script/task-2.2-retry-engine-reliability.md.
+    console.print("  [cyan]→[/cyan] Validating prompt fidelity...")
+    _validation_llm = _get_cheap_llm(settings, "validation")
+    validation_issues = 0
+    max_retries = settings.scene_planner_max_retries
+    use_json_mode = settings.scene_planner_json_mode
+    retry_schema = RETRY_RESPONSE_SCHEMA if settings.scene_planner_strict_schema else None
+
+    for scene in generated_scenes:
+        idx = scene["index"]
+        current_prompt = vp_map.get(idx, "")
+        if not current_prompt:
+            continue
+        entities = entity_map.get(idx)
+        if not entities:
+            continue
+
+        scene_analysis = scene.get("scene_analysis", {})
+        attempt = 0
+        last_violation = ""
+        final_status = FaithfulnessStatus.FAILED
+        attempts = 0
+        critical_error_codes: list[str] = []
+        llm_validated = False
+        llm_reason_text = ""
+
+        while attempt <= max_retries:
+            deterministic_result = run_validators(
+                scene_analysis=scene_analysis,
+                prompt=current_prompt,
+                narration=scene.get("narration", ""),
+                human_classification=entities.human_classification,
+                scene_category=entities.scene_category,
+            )
+
+            # Task 2.4 Fix 1 / Task 2.5 Fix C: zero CRITICAL errors = PASS,
+            # always — the single unified evaluation point for every attempt.
+            # `deterministic_result.passed` requires zero errors of ANY
+            # severity (including minor ones like STORY_TIME_MISSING or
+            # CAMERA_MISSING), so a minor-only issue was blocking PASS despite
+            # zero critical violations — that was scenes 020/022's "FAIL | 0
+            # errors" with no legacy-disagreement log line (a different path
+            # from scene 028's legacy-override case, but the same root bug:
+            # something other than "zero critical errors" was gating PASS).
+            # The legacy LLM faithfulness check remains advisory only — it
+            # must never override a clean deterministic result.
+            critical_errors = deterministic_result.critical_errors
+            if not critical_errors:
+                if settings.faithfulness_validation_enabled:
+                    legacy_passed, legacy_violation = _validate_prompt_faithfulness(
+                        scene.get("narration", ""), entities, current_prompt, _validation_llm
+                    )
+                    if not legacy_passed:
+                        logger.warning(
+                            "Scene {:03d} | attempt {} | deterministic PASS, "
+                            "legacy faithfulness check disagreed ({}) — accepting anyway "
+                            "(zero deterministic errors = pass)",
+                            idx,
+                            attempt,
+                            legacy_violation,
+                        )
+                final_status = FaithfulnessStatus.PASS
+                attempts = attempt + 1
+                vp_map[idx] = current_prompt
+                logger.info("Scene {:03d} | attempt {} | PASS", idx, attempt)
+                break
+
+            critical_error_codes = [e.code for e in critical_errors]
+
+            # Task 2.6 Part 2: ENVIRONMENT_MISMATCH / HUMAN_CLASSIFICATION_VIOLATED
+            # need semantic understanding keyword matching can't provide. Only
+            # spend an LLM call when they're the ONLY remaining failures —
+            # structural violations (FORBIDDEN_CHARACTER, SYMBOLIC_REPLACEMENT,
+            # etc.) go through the normal retry path first.
+            if settings.faithfulness_llm_validation_enabled and _should_use_llm_validation(
+                critical_error_codes
+            ):
+                llm_passed, llm_reason = _run_llm_validation(
+                    scene_analysis, entities.human_classification, current_prompt, _llm_validation_client
+                )
+                if llm_passed:
+                    logger.info(
+                        "Scene {:03d} | attempt {} | LLM validation PASS (overrides deterministic) | {}",
+                        idx,
+                        attempt,
+                        llm_reason,
+                    )
+                    final_status = FaithfulnessStatus.PASS
+                    attempts = attempt + 1
+                    llm_validated = True
+                    llm_reason_text = llm_reason
+                    vp_map[idx] = current_prompt
+                    break
+                logger.warning(
+                    "Scene {:03d} | attempt {} | LLM validation FAIL | {}",
+                    idx,
+                    attempt,
+                    llm_reason,
+                )
+                llm_reason_text = llm_reason
+                # Fall through to normal retry.
+
+            feedback = compose_feedback(deterministic_result)
+
+            if not feedback:
+                feedback = "Prompt failed validation. Please regenerate preserving the story and narration."
+
+            logger.warning(
+                "Scene {:03d} | attempt {} | FAIL | {} errors",
+                idx,
+                attempt,
+                len(critical_errors),
+            )
+            validation_issues += 1
+            last_violation = feedback
+
+            if attempt >= max_retries:
+                final_status = FaithfulnessStatus.FAILED
+                attempts = attempt + 1
+                logger.error(
+                    "Scene {:03d} | FAILED after {} retries | final violation: {}",
+                    idx,
+                    max_retries,
+                    feedback,
+                )
+                break
+
+            attempt += 1
+            logger.info(
+                "Scene {:03d} | retrying (attempt {}/{}) | json_mode={}",
+                idx,
+                attempt,
+                max_retries,
+                use_json_mode,
+            )
+
+            retry_prompt = build_retry_prompt(
+                scene=scene,
+                scene_analysis=scene_analysis,
+                narration=scene.get("narration", ""),
+                violation_feedback=feedback,
+                style=style,
+                entity_constraints_section=entity_constraints_section,
+                scene_analysis_section=scene_analysis_section,
+            )
+            retry_resp = llm.generate(
+                retry_prompt,
+                json_mode=use_json_mode,
+                json_schema=retry_schema,
+                temperature=0.35,
+            )
+            parsed = parse_retry_response(retry_resp.text, idx)
+            if parsed:
+                current_prompt = parsed["visual_prompt"]
+                last_violation = parsed.get("violation_addressed", "")
+                vp_map[idx] = current_prompt
+                logger.info("Scene {:03d} | retry passed parsing on attempt {}", idx, attempt)
+            else:
+                final_status = FaithfulnessStatus.FAILED
+                attempts = attempt + 1
+                logger.error("Scene {:03d} | retry parse failed on attempt {}", idx, attempt)
+                break
+
+        _faithfulness_qa[idx] = {
+            "status": final_status.value,
+            "violation": last_violation,
+            "attempts": attempts,
+            "critical_errors": critical_error_codes if final_status == FaithfulnessStatus.FAILED else [],
+            "llm_validated": llm_validated,
+            "llm_reason": llm_reason_text,
+        }
+
+    if validation_issues:
+        console.print(
+            f"  [yellow]⚠[/yellow] Prompt fidelity: {validation_issues} issue(s) — retries attempted"
+        )
+    else:
+        console.print("  [green]✓[/green] Prompt fidelity passed")
+
     # Apply prompts and visual_metadata; fall back to title-based placeholder for any missed scene
     for s in scenes:
         if s["index"] in vp_map:
@@ -738,6 +1352,17 @@ def scene_planner_node(state: VideoState) -> dict:
             s["visual_metadata"] = _vm_map[s["index"]]
         if not s.get("visual_metadata"):
             s["visual_metadata"] = {}
+        if s["index"] in _faithfulness_qa:
+            s["faithfulness_qa"] = _faithfulness_qa[s["index"]]
+        elif s.get("scene_type") in ("asset", "brand_card"):
+            s["faithfulness_qa"] = {
+                "status": FaithfulnessStatus.SKIPPED.value,
+                "violation": "",
+                "attempts": 0,
+                "critical_errors": [],
+                "llm_validated": False,
+                "llm_reason": "",
+            }
 
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:
@@ -807,6 +1432,9 @@ def scene_planner_node(state: VideoState) -> dict:
     console.print(
         f"  [green]✓[/green] Image prompts exported: [dim]{prompts_path}[/dim]"
     )
+
+    # ── Faithfulness pre-render gate (non-blocking) ────────────────────────
+    _write_faithfulness_gate_report(project_id, scenes)
 
     # Print summary table
     table = Table(title="Scene Plan", show_lines=True)

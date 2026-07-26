@@ -416,9 +416,6 @@ You are a faithful documentary editor. Your only role in this pass is to faithfu
 the original discourse as a clean, documentary-quality narration that loses nothing.
 
 TOPIC: {topic}
-TARGET DURATION: {target_minutes} minutes of spoken narration
-ACCEPTABLE RANGE: {min_m}-{max_m} minutes ({min_words}-{max_words} words at ~{wpm} wpm)
-CURRENT LENGTH: {raw_words} words (~{raw_est:.1f} min) — you must {direction_verb} by ~{word_gap} words
 
 {voice_guide}
 
@@ -455,7 +452,7 @@ WHAT PASS 1 MUST NOT DO:
 - Do not cut content to improve pacing — preserve coverage
 - Do not add channel branding, welcome message, CTA, or closing
 - Do not rewrite sentences that are already clear
- - If retention and fidelity ever conflict, fidelity always wins — no exceptions
+  If retention and fidelity ever conflict, fidelity always wins — no exceptions
 
 {brand_block_preservation}
 
@@ -509,7 +506,6 @@ You have received a faithfully-rendered Pass 1 script that accurately represents
 Your role is to optimize it for long-form YouTube viewer retention without compromising philosophical fidelity.
 
 TOPIC: {topic}
-TARGET DURATION: {target_minutes} minutes (~{target_words} words at ~{wpm} wpm)
 
 {voice_guide}
 
@@ -683,6 +679,81 @@ def _format_scripture_list(placeholders: dict[str, str]) -> str:
         preview = original[:120] + ("…" if len(original) > 120 else "")
         lines.append(f'  {{{{{key}}}}} → "{preview}"')
     return "\n".join(lines)
+
+
+def build_duration_system_prompt(
+    target_minutes: int,
+    speaking_rate_wpm: int = NARRATION_WPM,
+    target_words: int | None = None,
+    min_words: int | None = None,
+    max_words: int | None = None,
+) -> str:
+    if target_words is None:
+        target_words = target_minutes * speaking_rate_wpm
+    if min_words is None or max_words is None:
+        min_m = target_minutes - DURATION_TOLERANCE_MINUTES
+        max_m = target_minutes + DURATION_TOLERANCE_MINUTES
+        min_words = min_m * speaking_rate_wpm
+        max_words = max_m * speaking_rate_wpm
+
+    return f"""\
+You are generating a narrated script.
+
+Hard Constraints:
+- Target duration: {target_minutes} minutes
+- Speaking rate: {speaking_rate_wpm} WPM
+- Target words: {target_words}
+- Allowed range: {min_words}-{max_words} words
+- Never exceed the maximum.
+- Prefer removing repetition rather than compressing important ideas.
+- Preserve story, meaning, emotion and pacing.
+
+These constraints have higher priority than writing style."""
+
+
+def build_duration_correction_prompt(
+    script: str,
+    current_words: int,
+    target_words: int,
+    min_words: int,
+    max_words: int,
+    exact_adjustment: int,
+    direction: str,
+) -> str:
+    action = "remove" if direction == "shorten" else "add"
+    correction_scope = "PRIORITY 1 — CUT REDUNDANT EXAMPLES AND REPETITION\n  Identify ideas explained more than once. Keep the sharpest version; cut the rest. Cut entire paragraphs before cutting individual sentences.\n\nPRIORITY 2 — TIGHTEN VERBOSE PASSAGES\n  Find passages where 3 sentences say what 1 could. Distil to the essential idea.\n\nPRIORITY 3 — REMOVE LOW-VALUE TRANSITIONS\n  Cut sentences that merely announce what comes next.\n\nPRIORITY 4 — PRESERVE THE CORE\n  Never cut: the opening hook, the central argument, any unique insight, the closing. Never rephrase what you keep — only decide what stays and what goes.\n"
+    
+    addition_scope = "PRIORITY 1 — EXTEND DURATION THROUGH PACING AND SILENCE\n  Break long paragraphs at thought boundaries. One complete idea per paragraph. Give any sentence that carries a key insight its own paragraph. Place a single standalone line at emotional peaks.\n\nPRIORITY 2 — ADD MEANINGFUL PAUSES AT THOUGHT BOUNDARIES\n  After each major idea completes, create visual breathing space in the text.\n\nPRIORITY 3 — ADD NEW CONTENT ONLY WHEN NECESSARY\n  Only add if priorities 1-2 still leave the script under target. When you do add content, it must introduce something genuinely new: a specific real-world example, a fresh analogy, or a question the listener is likely asking right now followed by its answer.\n"
+
+    scope = correction_scope if direction == "shorten" else addition_scope
+
+    return f"""\
+You are a documentary script editor.
+
+HARD CONSTRAINTS:
+- Target words: {target_words}
+- Allowed range: {min_words}-{max_words} words
+- Current word count: {current_words}
+- You must {action} exactly {exact_adjustment} words.
+
+───────────────────────────────────────────────────────────────
+{scope}
+───────────────────────────────────────────────────────────────
+Preserve philosophy, emotional arc, speaker voice, and all brand blocks exactly.
+Do not introduce new arguments, facts, or conclusions.
+Never add filler or repetitive explanations.
+
+───────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+───────────────────────────────────────────────────────────────
+Return ONLY the narration text. No title. No "Here is the script:". No explanations. No section labels.
+Separate major narrative sections with ONE blank line. The text will be read aloud word-for-word.
+
+───────────────────────────────────────────────────────────────
+SCRIPT
+───────────────────────────────────────────────────────────────
+{script}\
+"""
 
 
 def build_pass1_prompt(

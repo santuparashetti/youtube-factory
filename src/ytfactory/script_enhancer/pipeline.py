@@ -26,16 +26,11 @@ from ytfactory.agents.prompts.branding import (
     get_transition,
     get_welcome,
 )
-from ytfactory.agents.prompts.branding import (
-    get_closing,
-    get_closing_brand,
-    get_cta,
-    get_transition,
-    get_welcome,
-)
 from ytfactory.agents.prompts.script_enhancer import (
     build_analysis_prompt,
     build_comparison_prompt,
+    build_duration_correction_prompt,
+    build_duration_system_prompt,
     build_pass1_prompt,
     build_pass2_prompt,
 )
@@ -573,6 +568,14 @@ class DocumentaryScriptEnhancerPipeline:
         max_minutes = target_minutes + DURATION_TOLERANCE_MINUTES
         raw_est = raw_words / NARRATION_WPM
 
+        # ── Word budget planner ──────────────────────────────────────────────────
+        system_prompt = build_duration_system_prompt(
+            target_minutes=target_minutes,
+            target_words=target_words,
+            min_words=min_minutes * NARRATION_WPM,
+            max_words=max_minutes * NARRATION_WPM,
+        )
+
         if raw_est > max_minutes:
             mode = "shorten"
             mode_label = "shortening to target"
@@ -660,7 +663,9 @@ class DocumentaryScriptEnhancerPipeline:
             architecture_analysis=architecture_analysis or None,
             comparison_report=comparison_report or None,
         )
-        pass1_response = self._llm.generate(pass1_prompt, temperature=0.4)
+        pass1_response = self._llm.generate(
+            pass1_prompt, system_prompt=system_prompt, temperature=0.4
+        )
         pass1_ph_text = pass1_response.text.strip()
 
         pass1_ok, pass1_errors = self._validator.validate_pass1(
@@ -715,7 +720,9 @@ class DocumentaryScriptEnhancerPipeline:
                 architecture_analysis=architecture_analysis or None,
                 comparison_report=comparison_report or None,
             )
-            pass2_response = self._llm.generate(pass2_prompt, temperature=0.7)
+            pass2_response = self._llm.generate(
+                pass2_prompt, system_prompt=system_prompt, temperature=0.7
+            )
             raw_output = pass2_response.text.strip()
 
             pass2_ph_text, narrative_score, editors_notes = _parse_narrative_score(raw_output)
@@ -834,16 +841,31 @@ class DocumentaryScriptEnhancerPipeline:
                 f"({enhanced_est:.1f} min → target {target_minutes} min, temp=0.4)..."
             )
             corr_ph_text, corr_placeholders = extract_scripture_spans(final_restored)
-            corr_prompt = build_pass1_prompt(
-                topic=topic,
+
+            exact_adjustment = target_words - enhanced_words
+            direction = "expand" if exact_adjustment > 0 else "shorten"
+            abs_adjustment = abs(exact_adjustment)
+
+            min_words = min_minutes * NARRATION_WPM
+            max_words = max_minutes * NARRATION_WPM
+
+            corr_prompt = build_duration_correction_prompt(
                 script=corr_ph_text,
-                style=style,
-                target_minutes=target_minutes,
-                mode=correction_mode,
-                raw_words=enhanced_words,
-                placeholders=corr_placeholders,
+                current_words=enhanced_words,
+                target_words=target_words,
+                min_words=min_words,
+                max_words=max_words,
+                exact_adjustment=abs_adjustment,
+                direction=direction,
             )
-            corr_response = self._llm.generate(corr_prompt, temperature=0.4)
+            console.print(
+                f"  [cyan]Pass 3:[/cyan] Duration correction — "
+                f"exact adjustment ({enhanced_est:.1f} min → target {target_minutes} min, "
+                f"{'add' if direction == 'expand' else 'remove'} {abs_adjustment} words, temp=0.4)..."
+            )
+            corr_response = self._llm.generate(
+                corr_prompt, system_prompt=system_prompt, temperature=0.4
+            )
             corr_ph_out = corr_response.text.strip()
             corr_raw_words = len(corr_ph_out.split())
             logger.info(

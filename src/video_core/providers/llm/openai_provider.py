@@ -26,10 +26,14 @@ class OpenAICompatibleProvider(LLMProvider):
         *,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         model = self._settings.anthropic_model
         logger.info(
-            "Generating response via OpenAI-compatible proxy — model: {}", model
+            "Generating response via OpenAI-compatible proxy — model: {} json_mode={}",
+            model,
+            json_mode,
         )
 
         messages = []
@@ -43,12 +47,31 @@ class OpenAICompatibleProvider(LLMProvider):
         # gives most models ~32K+ tokens for actual output after reasoning.
         max_tokens = 65536
 
-        response = self._client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        request_params: dict = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        if json_mode:
+            if json_schema:
+                # Strict structured output — not all OpenAI-compatible endpoints
+                # (e.g. DeepSeek V3 via OpenRouter) support this. Callers that need
+                # a guaranteed fallback should catch and retry with json_schema=None.
+                request_params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "scene_retry_response",
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                }
+            else:
+                # Loose JSON mode — guarantees syntactically valid JSON, not schema.
+                request_params["response_format"] = {"type": "json_object"}
+
+        response = self._client.chat.completions.create(**request_params)
 
         choice = response.choices[0]
         content = choice.message.content

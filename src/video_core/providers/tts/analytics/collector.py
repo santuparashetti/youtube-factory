@@ -99,6 +99,11 @@ class TTSAnalyticsCollector:
         scene_key = str(record.scene_id)
         if scene_key not in self._scene_records:
             self._scene_records[scene_key] = []
+            # Count distinct scenes, not requests — a single scene can produce
+            # multiple records (e.g. contemplative pacing generates per
+            # sentence), which must not inflate the scene count used for
+            # per-scene averages (avg_scene_duration, avg_characters_per_scene).
+            summary.total_scenes += 1
         self._scene_records[scene_key].append(record)
         summary.scene_summaries.append({
             "scene_id": record.scene_id,

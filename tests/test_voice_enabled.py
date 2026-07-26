@@ -186,7 +186,8 @@ class TestComposeContinuousVideoVoiceDisabled:
 
         with patch("ytfactory.video.pipeline.FFmpegRenderer") as mock_renderer:
             mock_renderer.return_value.render_continuous.return_value = None
-            with patch("ytfactory.video.pipeline._apply_bgm"):
+            with patch("ytfactory.video.pipeline._apply_overlays"), \
+                 patch("ytfactory.video.pipeline._apply_bgm"):
                 compose_continuous_video(
                     project_dir=project_dir,
                     output_dir=project_dir / "video",

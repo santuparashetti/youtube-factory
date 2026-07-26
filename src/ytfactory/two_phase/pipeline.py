@@ -19,12 +19,90 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 
+from ytfactory.agents.prompts.scene_planner import prepend_storyboard_header
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.paths import safe_project_dir
 from ytfactory.storage.project_repository import ProjectRepository
 
 console = Console()
+
+# Task 2.10 — v2, Storyboard Mode. Written to every Phase 1 job folder as
+# image_generation_rules.md for the manual-image-gen workflow.
+IMAGE_GENERATION_RULES_V2 = """\
+# Image Generation Rules
+**Version:** 2.0 — Storyboard Mode
+
+---
+
+## Source of Truth
+
+- The `visual_prompt` is the **single source of truth** for what to generate.
+- The narration provides **emotional tone and mood only** — it does not add subjects, actions, or environments.
+- Never infer visual elements from the narration that are not in the `visual_prompt`.
+- When uncertain whether to include something: **omit rather than invent**.
+
+---
+
+## Storyboard Mode (mandatory)
+
+Every scene is an independent storyboard frame. Treat it as such:
+
+- Generate **only** what is explicitly described in the `visual_prompt`.
+- Do **not** continue characters, objects, or environments from previous scenes unless explicitly stated.
+- Do **not** invent people, animals, props, furniture, architecture, or landscape elements not described.
+- Preserve intentional emptiness and negative space — empty space in the prompt means empty space in the image.
+- Match the requested shot type, camera angle, composition, lighting, and environment **exactly**.
+
+---
+
+## Camera & Composition
+
+- Apply the exact shot type specified: establishing, wide, medium, close-up, extreme close-up, drone, low angle, high angle, POV, tracking, over-the-shoulder, profile, environmental portrait.
+- Apply cinematic optics: Wide ~24–35mm, Medium ~50–85mm, Close-up ~85–135mm, natural depth of field.
+- Respect subject placement, scale, framing, and negative space as described.
+- Maintain realistic perspective — object size must change naturally with distance.
+
+---
+
+## Subject & Scale
+
+- Maintain real-world physical scale for all subjects (humans, animals, objects, architecture, vegetation).
+- Use realistic proportions — anatomically and structurally accurate humans, animals, and environments.
+- Preserve environmental scale cues (terrain, rocks, trees, doors reinforce believable size relationships).
+
+---
+
+## Continuity
+
+When scenes share a character, location, or setting:
+- Same character appearance, costume, age, and build across scenes
+- Same environment lighting, time of day, and visual style
+- Same overall color palette unless the prompt specifies a change
+
+---
+
+## Quality
+
+- Photorealistic cinematic quality
+- Natural lighting, realistic materials, physically accurate shadows
+- No text, no watermark, no artifacts, no cartoon, no illustration style
+- Output: **1280×720 px (16:9)**
+
+---
+
+## Rejection Criteria (regenerate immediately)
+
+Regenerate without hesitation if:
+- Wrong or missing primary subject
+- Invented subject not in the prompt
+- Wrong camera angle or shot type
+- Wrong environment or setting
+- Text or watermark visible
+- Wrong lighting or time of day
+- Non-photorealistic or illustrated look
+- Incorrect aspect ratio or resolution
+"""
 
 
 class TwoPhasePipeline:
@@ -182,14 +260,18 @@ class TwoPhasePipeline:
         for scene in scenes:
             index = scene.get("index", 0)
             filename = f"scene-{index:03d}.png"
+            scene_type = scene.get("scene_type", "generated_image")
+            visual_prompt = scene.get("visual_prompt", "")
+            if scene_type != "brand_card":
+                visual_prompt = prepend_storyboard_header(visual_prompt)
             manifest.append(
                 {
                     "scene_id": index,
                     "expected_filename": filename,
-                    "visual_prompt": scene.get("visual_prompt", ""),
+                    "visual_prompt": visual_prompt,
                     "shot_type": scene.get("shot_type", ""),
                     "motion_type": scene.get("motion_type") or "",
-                    "scene_type": scene.get("scene_type", "generated_image"),
+                    "scene_type": scene_type,
                     "narration": scene.get("narration", ""),
                 }
             )
@@ -202,24 +284,7 @@ class TwoPhasePipeline:
         console.print(f"[green]✓[/green] Image prompts manifest: {manifest_path}")
 
         rules_path = project_dir / "image_generation_rules.md"
-        rules_path.write_text(
-            "\n".join([
-                "# Image Generation Rules",
-                "",
-                "- Follow both the visual_prompt and narration. Use the narration to infer the emotion, action, timing, and storytelling intent—not just the literal visual description.",
-                "- Maintain realistic physical scale. All subjects (humans, birds, animals, objects, buildings, vegetation) must respect real-world dimensions.",
-                "- Respect perspective. Object size must change naturally with distance. Never enlarge subjects unnaturally unless justified by camera proximity.",
-                "- Use realistic proportions. Ensure anatomically and structurally accurate humans, animals, architecture, and environments.",
-                "- Apply cinematic camera optics. Use appropriate focal lengths (Wide: ~24–35 mm, Medium: ~50–85 mm, Close-up: ~85–135 mm) with natural depth of field.",
-                "- Preserve environmental scale cues. Terrain, rocks, trees, stairs, temples, doors, and other elements should reinforce believable size relationships.",
-                "- Show the story, not just the scene. Every image should capture the key moment, emotion, or action described in the narration.",
-                "- Maintain visual continuity. Keep characters, locations, lighting, costumes, and overall style consistent across scenes unless the story specifies a change.",
-                "- Photorealistic cinematic quality. Natural lighting, realistic materials, physically accurate shadows, high detail, no text, no watermark.",
-                "- Output: 1280×720 resolution (16:9).",
-                "",
-            ]),
-            encoding="utf-8",
-        )
+        rules_path.write_text(IMAGE_GENERATION_RULES_V2, encoding="utf-8")
         console.print(f"[green]✓[/green] Image generation rules: {rules_path}")
         return manifest_path
 
@@ -248,6 +313,7 @@ class TwoPhasePipeline:
         images_folder = project_dir / "images"
 
         qc = self._run_qc_for_report(project_id, scene_plan_path)
+        faithfulness_gate = self._read_faithfulness_gate(project_dir)
 
         report = f"""# Phase 1 Report — {project_id}
 
@@ -304,6 +370,17 @@ class TwoPhasePipeline:
                 for v in qc["violations"]:
                     report += f"- {v}\n"
 
+        if faithfulness_gate:
+            report += f"""
+## Faithfulness Gate (image prompt story fidelity)
+
+**Passed:** {"Yes" if faithfulness_gate.get("passed") else "No"}
+**Scenes:** {faithfulness_gate.get("passed_count", 0)} PASS, {faithfulness_gate.get("failed_count", 0)} FAILED, {faithfulness_gate.get("skipped_count", 0)} SKIPPED
+
+"""
+            for s in faithfulness_gate.get("failed_scenes", []):
+                report += f"- Scene {s.get('index')}: {s.get('violation', '')}\n"
+
         report_path = project_dir / "phase1_report.md"
         report_path.write_text(report, encoding="utf-8")
         console.print(f"[green]✓[/green] Phase 1 report: {report_path}")
@@ -326,6 +403,7 @@ class TwoPhasePipeline:
             ],
             "stages_skipped": ["image_generation"],
             "qc": qc or {},
+            "faithfulness_gate": faithfulness_gate or {},
             "outputs": {
                 "manifest": str(manifest_path),
                 "images_folder": str(images_folder),
@@ -401,6 +479,16 @@ class TwoPhasePipeline:
                 "violations": result.violations,
             }
         except Exception:
+            return None
+
+    def _read_faithfulness_gate(self, project_dir: Path) -> dict | None:
+        """Read scenes/faithfulness-gate.json written by scene_planner_node, if present."""
+        gate_path = project_dir / "scenes" / "faithfulness-gate.json"
+        if not gate_path.is_file():
+            return None
+        try:
+            return json.loads(gate_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
             return None
 
     # ── Validation ─────────────────────────────────────────────────────────────
