@@ -157,10 +157,27 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
     Convert an existing 'animation' string (Asset Scene System V1) into a
     MotionSpec so the renderer uses a single unified code path.
 
-    If no animation is set, defaults to slow_zoom (brand card standard).
-    Unrecognized animation strings fall back to slow_zoom instead of static
-    to prevent an asset scene from rendering as a frozen frame.
+    If no animation is set, defaults to slow_zoom. Unrecognized animation
+    strings also fall back to slow_zoom instead of static, to prevent a
+    plain asset scene from rendering as a frozen frame.
+
+    brand_card is the one exception: it always renders fully static
+    (no zoom/pan/drift) regardless of any 'animation' value present —
+    a plain held cut, not a Ken Burns shot.
     """
+    if scene.get("scene_type") == "brand_card":
+        return MotionSpec(
+            motion_type="static",
+            start_scale=1.0,
+            end_scale=1.0,
+            anchor_x=0.5,
+            anchor_y=0.5,
+            drift_x=0.0,
+            drift_y=0.0,
+            easing=cfg.easing,
+            emotion="asset",
+        )
+
     animation = scene.get("animation", "slow_zoom")
     _, hi = cfg.scale_range_medium
 
@@ -267,7 +284,9 @@ class MotionPlanner:
             else:
                 repeat_count = 1
 
-            if repeat_count >= 3:
+            # brand_card must stay static — never swapped out by the
+            # repeat-run variety override below.
+            if repeat_count >= 3 and scene_type != "brand_card":
                 scene_duration = float(scene.get("duration_seconds", 5.0))
                 alts = []
                 seen: set[str] = set()

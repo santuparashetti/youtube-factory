@@ -60,6 +60,10 @@ class MotionRebalancer:
                 stride = self._cfg.rebalance_stride
                 for scene_idx in range(run_start + 1, end, stride):
                     scene = result[scene_idx]
+                    if scene.get("scene_type") == "brand_card":
+                        # Brand card must stay static — never swapped for
+                        # variety like a regular scene.
+                        continue
                     emotion = (
                         scene.get("motion", {}).get("emotion") or "revelation"
                     )

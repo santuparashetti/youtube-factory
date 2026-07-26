@@ -261,8 +261,17 @@ class FFmpegRenderer:
             audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
             ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
             srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
+            # Brand card is a voice-only static card — no caption burn-in.
+            # Phase 1 still writes the .ass/.srt file for this scene (untouched);
+            # we just never feed it into the subtitle filter here.
             subtitle: Path | None = (
-                ass_sub if ass_sub.exists() else srt_sub if srt_sub.exists() else None
+                None
+                if scene.get("scene_type") == "brand_card"
+                else ass_sub
+                if ass_sub.exists()
+                else srt_sub
+                if srt_sub.exists()
+                else None
             )
 
             vid_inp = inp
@@ -407,6 +416,7 @@ class FFmpegRenderer:
         transition_in: dict | None = None,
         transition_out: dict | None = None,
         effect_spec: dict | None = None,
+        scene_type: str | None = None,
     ) -> None:
         """
         Render image + audio + subtitles → MP4.
@@ -439,6 +449,10 @@ class FFmpegRenderer:
             subtitle:      SRT file for subtitle burn-in.
             output:        Output MP4 path.
             duration_hint: Approximate scene duration in seconds.
+            scene_type:    When "brand_card", subtitle burn-in is skipped —
+                           the card is a voice-only static held image. The
+                           .ass/.srt file on disk is unaffected; it's simply
+                           not fed into the filter chain.
         """
         output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -457,15 +471,15 @@ class FFmpegRenderer:
         # 2. Visual effects — inserted before subtitle so text stays clean
         effect_parts = self._effects_filters(effect_spec)
 
-        # 3. Subtitle burn-in
-        sub_part = f"subtitles='{subtitle}'"
+        # 3. Subtitle burn-in — brand card is voice-only, no captions
+        sub_parts = [] if scene_type == "brand_card" else [f"subtitles='{subtitle}'"]
 
         # 4. Fade transitions — after subtitle for cohesive fade
         fade_parts = self._fade_filters(
             transition_in, transition_out, fps, duration_hint
         )
 
-        vf = ",".join([spatial] + effect_parts + fade_parts + [sub_part])
+        vf = ",".join([spatial] + effect_parts + fade_parts + sub_parts)
 
         # Build the encoder argument list from settings so CRF, preset, tune,
         # keyframe interval, and audio bitrate are all configurable.

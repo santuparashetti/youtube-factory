@@ -1446,6 +1446,115 @@ class TestMotionPlannerFixes:
                 )
 
 
+class TestBrandCardStaticMotion:
+    """Brand card must render as a plain static held image — no zoom, pan,
+    push_in, pull_out, or drift — regardless of 'animation' value, repeat-run
+    variety overrides, or post-planning rebalancing."""
+
+    @staticmethod
+    def _cfg():
+        from video_core.cinematic.profiles import ProfileConfig
+
+        return ProfileConfig(
+            scale_range_small=(1.0, 1.05),
+            scale_range_medium=(1.0, 1.10),
+            scale_range_large=(1.0, 1.15),
+            drift_amount=0.05,
+            easing="ease_in_out",
+            motion_map={},
+        )
+
+    def test_asset_motion_forces_static_for_brand_card(self):
+        from video_core.cinematic.motion import _asset_motion
+
+        spec = _asset_motion(
+            {"scene_type": "brand_card", "animation": "slow_zoom"}, self._cfg()
+        )
+        assert spec.motion_type == "static"
+        assert spec.start_scale == spec.end_scale == 1.0
+        assert spec.drift_x == 0.0
+        assert spec.drift_y == 0.0
+
+    def test_asset_motion_still_zooms_for_plain_asset_scenes(self):
+        """Non-brand-card asset scenes keep their existing slow_zoom default —
+        only brand_card is forced static."""
+        from video_core.cinematic.motion import _asset_motion
+
+        spec = _asset_motion({"scene_type": "asset", "animation": "slow_zoom"}, self._cfg())
+        assert spec.motion_type == "push_in"
+
+    def test_plan_forces_static_even_when_animation_field_set(self):
+        from video_core.cinematic.motion import MotionPlanner
+
+        scenes = [
+            {
+                "index": 1,
+                "scene_type": "brand_card",
+                "narration": "This is Atma Theory.",
+                "duration_seconds": 10.0,
+                "animation": "slow_zoom",
+            }
+        ]
+        result = MotionPlanner().plan(scenes, profile="cinematic")
+        motion = result[0]["motion"]
+        assert motion["motion_type"] == "static"
+        assert motion["start_scale"] == motion["end_scale"] == 1.0
+
+    def test_plan_repeat_override_does_not_touch_brand_card(self):
+        """Even if 3+ consecutive scenes share a motion_type ending on the
+        brand card, the repeat-run variety override must skip it."""
+        from unittest.mock import patch
+        from video_core.cinematic.motion import MotionPlanner
+
+        scenes = [
+            {"index": 1, "scene_type": "generated_image", "narration": "test", "duration_seconds": 5.0},
+            {"index": 2, "scene_type": "generated_image", "narration": "test", "duration_seconds": 5.0},
+            {"index": 3, "scene_type": "generated_image", "narration": "test", "duration_seconds": 5.0},
+            {"index": 4, "scene_type": "brand_card", "narration": "This is Atma Theory.", "duration_seconds": 10.0},
+        ]
+        with patch("video_core.cinematic.motion.classify_scene") as mock:
+            mock.return_value.emotion.value = "curiosity"
+            result = MotionPlanner().plan(list(scenes), profile="cinematic")
+
+        assert result[-1]["motion"]["motion_type"] == "static"
+
+    def test_rebalancer_never_reassigns_brand_card_motion(self):
+        from video_core.cinematic.rebalancer import MotionRebalancer
+
+        def _static_scene(index, scene_type="generated_image"):
+            return {
+                "index": index,
+                "scene_type": scene_type,
+                "motion": {"motion_type": "static", "emotion": "asset"},
+            }
+
+        scenes = [_static_scene(i) for i in range(1, 4)]
+        scenes.append(_static_scene(4, scene_type="brand_card"))
+
+        result = MotionRebalancer().rebalance(scenes)
+        assert result[-1]["motion"]["motion_type"] == "static"
+        assert result[-1]["scene_type"] == "brand_card"
+
+    def test_render_filter_for_brand_card_has_no_motion_keywords(self):
+        from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
+
+        motion = {
+            "motion_type": "static",
+            "start_scale": 1.0,
+            "end_scale": 1.0,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "drift_x": 0.0,
+            "drift_y": 0.0,
+            "easing": "ease_in_out",
+        }
+        filter_str = build_zoompan_filter(1280, 720, 30, motion, duration_hint=10.0)
+        for motion_kw in ("zoompan", "zoom=", "pan"):
+            assert motion_kw not in filter_str.lower(), (
+                f"Brand card filter must not contain motion keyword: {motion_kw}"
+            )
+
+
 class TestImg007AndRend007:
     """IMG_007 blocks static holds and REND_007 enforces brand-card final scene."""
 

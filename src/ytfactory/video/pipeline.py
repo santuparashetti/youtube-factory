@@ -594,6 +594,7 @@ class VideoPipeline:
                         transition_in=t_in,
                         transition_out=t_out,
                         effect_spec=effect_spec,
+                        scene_type=scene.get("scene_type"),
                     )
                 except Exception as exc:
                     scene_errors.append(f"Scene {index} render failed: {exc}")

@@ -126,6 +126,7 @@ def video_renderer_node(state: VideoState) -> dict:
                 transition_in=t_in,
                 transition_out=t_out,
                 effect_spec=effect_spec,
+                scene_type=scene.get("scene_type"),
             )
             scene_video_paths[index] = str(output)
         except Exception as exc:
