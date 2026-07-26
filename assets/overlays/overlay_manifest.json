@@ -3,7 +3,7 @@
     {
       "file": "Smoke/Soft rolling smoke.mp4",
       "blend_mode": "screen",
-      "opacity": 0.25,
+      "opacity": 0.16,
       "notes": "Full-frame rolling smoke/fog, fairly generic but clean bg"
     }
   ],
@@ -11,44 +11,44 @@
     {
       "file": "Particles/Golden bokeh particles.mp4",
       "blend_mode": "screen",
-      "opacity": 0.3,
-      "notes": "Golden bokeh particles \u2014 primary choice for divine/sacred scenes"
+      "opacity": 0.20,
+      "notes": "Golden bokeh particles — primary choice for divine/sacred scenes"
     },
     {
       "file": "Particles/Warm ember - rising particles.mp4",
       "blend_mode": "screen",
-      "opacity": 0.25,
-      "notes": "Warm ember/rising particles \u2014 slow drift, good for penance/longing scenes"
+      "opacity": 0.18,
+      "notes": "Warm ember/rising particles — slow drift, good for penance/longing scenes"
     }
   ],
   "god_rays": [
     {
       "file": "God-rays/God-ray with visible dust in beam.mp4",
       "blend_mode": "screen",
-      "opacity": 0.35,
-      "notes": "God-ray with visible dust in beam \u2014 primary choice, richer than the vertical shaft variant"
+      "opacity": 0.23,
+      "notes": "God-ray with visible dust in beam — primary choice, richer than the vertical shaft variant"
     },
     {
       "file": "God-rays/Vertical god-ray - light shaft.mp4",
       "blend_mode": "screen",
-      "opacity": 0.3,
-      "notes": "Simpler single beam \u2014 backup/variant to avoid repetition across scenes"
+      "opacity": 0.20,
+      "notes": "Simpler single beam — backup/variant to avoid repetition across scenes"
     }
   ],
   "rain": [
     {
       "file": "Rain/Sparse falling light streaks.mp4",
       "blend_mode": "screen",
-      "opacity": 0.2,
-      "notes": "Subtle mist/rain \u2014 use only for mood-tagged scenes (grief, penance, longing)"
+      "opacity": 0.12,
+      "notes": "Subtle mist/rain — use only for mood-tagged scenes (grief, penance, longing)"
     }
   ],
   "grain": [
     {
       "file": "Grain/Film grain texture.mp4",
       "blend_mode": "grainmerge",
-      "opacity": 0.07,
-      "notes": "Mid-gray noise texture, 1920x1080 native \u2014 applied globally to every scene, not mood-conditional. Uses grainmerge blend, NOT screen (screen would wash out a mid-gray texture)."
+      "opacity": 0.05,
+      "notes": "Mid-gray noise texture, 1920x1080 native — applied globally to every scene, not mood-conditional. Uses grainmerge blend, NOT screen (screen would wash out a mid-gray texture)."
     }
   ]
 }

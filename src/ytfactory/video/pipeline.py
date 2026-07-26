@@ -463,6 +463,7 @@ class VideoPipeline:
     def run(
         self,
         project_id: str,
+        overlay: bool = True,
     ) -> None:
 
         project_dir = Path("workspace") / "jobs" / project_id
@@ -617,7 +618,7 @@ class VideoPipeline:
         # filter_complex timeline, producing a single H.264 stream with no GOP
         # boundaries at scene cuts. Required for clean YouTube transcoding.
         self._compose_final_video_continuous(
-            scenes, durations, project_dir, final_video
+            scenes, durations, project_dir, final_video, overlay=overlay
         )
 
         if _w:
@@ -633,6 +634,7 @@ class VideoPipeline:
         durations: list[float],
         project_dir: Path,
         output_path: Path,
+        overlay: bool = True,
     ) -> None:
         """Single-pass render from raw assets → final.mp4, then apply BGM.
 
@@ -655,10 +657,16 @@ class VideoPipeline:
                 "Resuming overlay/BGM mix from existing {} (render already complete)",
                 tmp.name,
             )
-            _apply_overlays(
-                tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+            if overlay:
+                _apply_overlays(
+                    tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+                )
+            _apply_bgm(
+                overlay_tmp if overlay else tmp,
+                output_path,
+                self._settings,
+                project_dir,
             )
-            _apply_bgm(overlay_tmp, output_path, self._settings, project_dir)
             return
 
         self.renderer.render_continuous(
@@ -669,7 +677,13 @@ class VideoPipeline:
             intro_enabled=self._settings.video_intro_enabled,
             intro_seconds=self._settings.video_intro_seconds,
         )
-        _apply_overlays(
-            tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+        if overlay:
+            _apply_overlays(
+                tmp, overlay_tmp, self._settings, scenes, durations, intro_seconds
+            )
+        _apply_bgm(
+            overlay_tmp if overlay else tmp,
+            output_path,
+            self._settings,
+            project_dir,
         )
-        _apply_bgm(overlay_tmp, output_path, self._settings, project_dir)
