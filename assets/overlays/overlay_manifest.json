@@ -3,7 +3,7 @@
     {
       "file": "Smoke/Soft rolling smoke.mp4",
       "blend_mode": "screen",
-      "opacity": 0.16,
+      "opacity": 0.10,
       "notes": "Full-frame rolling smoke/fog, fairly generic but clean bg"
     }
   ],
@@ -11,13 +11,13 @@
     {
       "file": "Particles/Golden bokeh particles.mp4",
       "blend_mode": "screen",
-      "opacity": 0.20,
+      "opacity": 0.10,
       "notes": "Golden bokeh particles — primary choice for divine/sacred scenes"
     },
     {
       "file": "Particles/Warm ember - rising particles.mp4",
       "blend_mode": "screen",
-      "opacity": 0.18,
+      "opacity": 0.10,
       "notes": "Warm ember/rising particles — slow drift, good for penance/longing scenes"
     }
   ],
@@ -25,13 +25,13 @@
     {
       "file": "God-rays/God-ray with visible dust in beam.mp4",
       "blend_mode": "screen",
-      "opacity": 0.23,
+      "opacity": 0.12,
       "notes": "God-ray with visible dust in beam — primary choice, richer than the vertical shaft variant"
     },
     {
       "file": "God-rays/Vertical god-ray - light shaft.mp4",
       "blend_mode": "screen",
-      "opacity": 0.20,
+      "opacity": 0.12,
       "notes": "Simpler single beam — backup/variant to avoid repetition across scenes"
     }
   ],
@@ -40,15 +40,15 @@
       "file": "Rain/Sparse falling light streaks.mp4",
       "blend_mode": "screen",
       "opacity": 0.12,
-      "notes": "Subtle mist/rain — use only for mood-tagged scenes (grief, penance, longing)"
+      "notes": "Subtle mist/rain — use only for mood-tagged scenes (grief, penance, longing) or a rain/downpour visual_prompt keyword"
     }
   ],
   "grain": [
     {
       "file": "Grain/Film grain texture.mp4",
-      "blend_mode": "grainmerge",
-      "opacity": 0.05,
-      "notes": "Mid-gray noise texture, 1920x1080 native — applied globally to every scene, not mood-conditional. Uses grainmerge blend, NOT screen (screen would wash out a mid-gray texture)."
+      "blend_mode": "overlay",
+      "opacity": 0.03,
+      "notes": "Mid-gray noise texture, 1920x1080 native — applied globally to every scene, not mood-conditional. Task 2.11: uses overlay blend, NOT grainmerge — grainmerge darkens mid-tones, overlay preserves scene brightness."
     }
   ]
 }

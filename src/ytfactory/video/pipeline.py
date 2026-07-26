@@ -18,7 +18,7 @@ from ytfactory.scenes.repository.scene_repository import SceneRepository
 
 from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
-from .overlay import OverlayCompositor
+from .overlay import OVERLAY_MAX_OPACITIES, OverlayCompositor
 
 
 def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> float:
@@ -198,8 +198,12 @@ def _apply_overlays(
 
         stage += 1
         start, end = windows[i]
-        blend_mode = clip.get("blend_mode", "screen")
-        opacity = float(clip.get("opacity", 0.25))
+        # Task 2.11 Fix 2 — mood overlays must never darken the base video;
+        # screen blend only adds light, so it's enforced regardless of the
+        # manifest value. Opacity is clamped to the category's max.
+        blend_mode = "screen"
+        max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
+        opacity = min(float(clip.get("opacity", max_opacity)), max_opacity)
         ov_in = f"{stage}:v"
         ov_label = f"ov{stage}"
         out_label = f"s{stage}"
@@ -233,8 +237,11 @@ def _apply_overlays(
             logger.warning("Grain overlay clip missing: {} — skipping", clip_path)
         else:
             stage += 1
-            blend_mode = clip.get("blend_mode", "grainmerge")
-            opacity = float(clip.get("opacity", 0.07))
+            # Task 2.11 Fix 2 — grainmerge (addition minus 128) darkens
+            # mid-tones; overlay blend preserves scene brightness while still
+            # adding texture. Opacity clamped to the grain max.
+            blend_mode = "overlay"
+            opacity = min(float(clip.get("opacity", OVERLAY_MAX_OPACITIES["grain"])), OVERLAY_MAX_OPACITIES["grain"])
             ov_in = f"{stage}:v"
             ov_label = f"ov{stage}"
             out_label = f"s{stage}"

@@ -11,7 +11,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 
-from ytfactory.video.overlay import OverlayCompositor
+from ytfactory.video.overlay import OVERLAY_MAX_OPACITIES, OverlayCompositor
 from ytfactory.video.pipeline import _apply_overlays
 
 _MANIFEST = {
@@ -88,6 +88,87 @@ class TestSelectCategory:
         assert c.manifest == {}
 
 
+# ── select_category — visual_prompt keyword trigger (Task 2.11 Fix 1) ────────────
+# Scoped to rain/particles/smoke/fog only; god_rays and everything else stay
+# motion_type/mood-only. fog aliases to the "smoke" manifest category, same as
+# motion_type="fog" already does (see test_motion_alias_fog_maps_to_smoke).
+
+
+class TestVisualKeywordTrigger:
+    def test_rain_triggered_by_visual_keyword(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "static",
+            "visual_metadata": {"mood": "hopeful"},
+            "visual_prompt": "a sunflower standing in a downpour",
+        }
+        category, _ = c.select_category(scene)
+        assert category == "rain"
+
+    def test_particles_triggered_by_visual_keyword(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "static",
+            "visual_metadata": {"mood": "peaceful"},
+            "visual_prompt": "dust motes floating in shaft of morning light",
+        }
+        category, _ = c.select_category(scene)
+        assert category == "particles"
+
+    def test_smoke_triggered_by_visual_keyword(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "static",
+            "visual_metadata": {"mood": "reflective"},
+            "visual_prompt": "incense smoke rising slowly in a quiet room",
+        }
+        category, _ = c.select_category(scene)
+        assert category == "smoke"
+
+    def test_fog_keyword_aliases_to_smoke_category(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "static",
+            "visual_metadata": {"mood": "mysterious"},
+            "visual_prompt": "a misty valley at dawn",
+        }
+        category, _ = c.select_category(scene)
+        assert category == "smoke"
+
+    def test_god_rays_not_triggered_by_visual_keyword(self):
+        c = _compositor()
+        # "shafts of light" matches no rain/particles/smoke/fog keyword, and
+        # god_rays itself is never covered by the keyword check.
+        result = c._category_from_visual_prompt("shafts of light filtering through columns")
+        assert result is None
+
+    def test_primary_motion_type_wins_over_keyword(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "particles",  # primary match
+            "visual_metadata": {"mood": "hopeful"},
+            "visual_prompt": "heavy rain falling",  # keyword would say rain
+        }
+        category, _ = c.select_category(scene)
+        assert category == "particles"
+
+    def test_no_keyword_match_returns_none(self):
+        c = _compositor()
+        scene = {
+            "motion_type": "static",
+            "visual_metadata": {"mood": "hopeful"},
+            "visual_prompt": "a sunflower in golden hour light",
+        }
+        category, _ = c.select_category(scene)
+        assert category is None
+
+    def test_keyword_check_requires_category_present_in_manifest(self):
+        c = _compositor(manifest={"rain": []})  # empty clip list
+        scene = {"motion_type": "static", "visual_prompt": "heavy rain falling"}
+        category, _ = c.select_category(scene)
+        assert category is None
+
+
 # ── _should_apply_grain (Task 2.9) ────────────────────────────────────────────
 # Real schema: era/mood/visual_style live under scene["visual_metadata"], not
 # as flat scene fields — the task doc's own pseudocode used flat fields.
@@ -146,6 +227,43 @@ class TestShouldApplyGrain:
             visual_style = _Enum("DOCUMENTARY")
 
         assert c._should_apply_grain([{"visual_metadata": _VM()}]) is True
+
+    def test_grain_fires_at_40_percent(self):
+        """Task 2.11 Fix 3 — 40% majority rule, not 'any scene matches'."""
+        c = _compositor()
+        historical = [
+            {"scene_type": "content", "visual_metadata": {
+                "era": "HISTORICAL", "mood": "reverent", "visual_style": "CINEMATIC"}}
+        ] * 12
+        modern = [
+            {"scene_type": "content", "visual_metadata": {
+                "era": "MODERN", "mood": "hopeful", "visual_style": "REALISTIC"}}
+        ] * 17
+        assert c._should_apply_grain(historical + modern) is True
+
+    def test_grain_skipped_below_40_percent(self):
+        c = _compositor()
+        historical = [
+            {"scene_type": "content", "visual_metadata": {
+                "era": "HISTORICAL", "mood": "reverent", "visual_style": "CINEMATIC"}}
+        ] * 5
+        modern = [
+            {"scene_type": "content", "visual_metadata": {
+                "era": "MODERN", "mood": "hopeful", "visual_style": "REALISTIC"}}
+        ] * 24
+        assert c._should_apply_grain(historical + modern) is False
+
+    def test_grain_threshold_excludes_brand_card_from_denominator(self):
+        """A single matching content scene plus brand cards should still hit
+        100% of *content* scenes, not be diluted by the brand cards."""
+        c = _compositor()
+        scenes = [
+            {"scene_type": "brand_card", "visual_metadata": {}},
+            {"scene_type": "content", "visual_metadata": {
+                "era": "HISTORICAL", "mood": "hopeful", "visual_style": "REALISTIC"}},
+            {"scene_type": "brand_card", "visual_metadata": {}},
+        ]
+        assert c._should_apply_grain(scenes) is True
 
 
 # ── _apply_overlays ────────────────────────────────────────────────────────────
@@ -226,10 +344,12 @@ class TestApplyOverlays:
         assert str(clip_file) in cmd
         filter_idx = cmd.index("-filter_complex") + 1
         filter_str = cmd[filter_idx]
-        assert "colorchannelmixer=aa=0.300" in filter_str
+        # Task 2.11 Fix 2 — opacity clamped to the particles max (0.10) even
+        # though the manifest clip specifies 0.3.
+        assert "colorchannelmixer=aa=0.100" in filter_str
         assert "blend=all_mode=screen:enable='between(t,0.0000,8.0000)'" in filter_str
 
-    def test_grain_always_appended_last_with_grainmerge(self, tmp_path, monkeypatch):
+    def test_grain_always_appended_last_with_overlay_blend(self, tmp_path, monkeypatch):
         tmp = tmp_path / "in.mp4"
         tmp.write_bytes(b"x")
         out = tmp_path / "out.mp4"
@@ -256,10 +376,14 @@ class TestApplyOverlays:
             _apply_overlays(tmp, out, settings, scenes, [5.0], intro_seconds=0.0)
 
         filter_str = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
-        assert "blend=all_mode=grainmerge" in filter_str
-        assert "colorchannelmixer=aa=0.070" in filter_str
+        # Task 2.11 Fix 2 — overlay blend forced regardless of the manifest's
+        # "grainmerge" value (grainmerge darkens mid-tones); opacity clamped
+        # to the grain max (0.03) even though the manifest clip specifies 0.07.
+        assert "blend=all_mode=overlay" in filter_str
+        assert "grainmerge" not in filter_str
+        assert "colorchannelmixer=aa=0.030" in filter_str
         # Grain has no time gate — applies for the whole video.
-        assert "grainmerge:enable" not in filter_str
+        assert "overlay:enable" not in filter_str
 
     def test_ffmpeg_failure_falls_back_to_rename(self, tmp_path, monkeypatch):
         tmp = tmp_path / "in.mp4"
@@ -299,6 +423,62 @@ class TestApplyOverlays:
 
         mock_run.assert_not_called()
         assert out.is_file()
+
+
+class TestOverlayOpacityAndBrightness:
+    """Task 2.11 Fix 2 — overlays must never darken or overpower the video."""
+
+    def test_real_manifest_opacities_within_max(self):
+        """The real overlay_manifest.json ships opacities under the max —
+        catches manifest edits that drift back above the cap."""
+        c = OverlayCompositor(manifest_path="assets/overlays/overlay_manifest.json")
+        assert c.manifest, "expected the real manifest to load"
+        for category, clips in c.manifest.items():
+            max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
+            for clip in clips:
+                assert clip["opacity"] <= max_opacity, (
+                    f"{category} clip {clip['file']} opacity {clip['opacity']} "
+                    f"exceeds max {max_opacity}"
+                )
+
+    def test_real_manifest_grain_uses_overlay_blend(self):
+        c = OverlayCompositor(manifest_path="assets/overlays/overlay_manifest.json")
+        assert c.manifest["grain"][0]["blend_mode"] == "overlay"
+
+    def test_mood_overlay_blend_forced_to_screen_regardless_of_manifest(
+        self, tmp_path, monkeypatch
+    ):
+        """Even if a manifest clip specifies a different blend mode, the
+        rendered mood-overlay stage must use screen (never darkens)."""
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        settings = _settings()
+
+        overlays_root = tmp_path / "assets" / "overlays" / "Rain"
+        overlays_root.mkdir(parents=True)
+        clip_file = overlays_root / "rain.mp4"
+        clip_file.write_bytes(b"x")
+        monkeypatch.chdir(tmp_path)
+
+        fake_manifest = {
+            "rain": [{"file": "Rain/rain.mp4", "blend_mode": "normal", "opacity": 0.5}],
+        }
+        captured_cmd = {}
+
+        def _fake_run(cmd, **kwargs):
+            captured_cmd["cmd"] = cmd
+            out.write_bytes(b"x")
+            return MagicMock(returncode=0)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run", side_effect=_fake_run):
+            scenes = [{"index": 1, "motion_type": "rain"}]
+            _apply_overlays(tmp, out, settings, scenes, [5.0], intro_seconds=0.0)
+
+        filter_str = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
+        assert "blend=all_mode=screen" in filter_str
+        assert "colorchannelmixer=aa=0.120" in filter_str  # clamped to rain max
 
 
 class TestGrainConditional:

@@ -22,6 +22,39 @@ _GRAIN_ERAS = {"HISTORICAL", "ANCIENT", "SYMBOLIC", "TRANSITIONAL"}
 _GRAIN_MOODS = {"reverent", "mysterious", "reflective", "fearful", "lonely"}
 _GRAIN_STYLES = {"CINEMATIC", "DOCUMENTARY"}
 
+# Task 2.11 Fix 1 — secondary visual_prompt keyword trigger, scoped to these
+# four categories only. God rays and everything else stay motion_type/mood-only.
+# Priority when multiple match: particles > smoke > fog > rain.
+_VISUAL_KEYWORDS: dict[str, set[str]] = {
+    "rain": {
+        "rain", "downpour", "monsoon", "rainfall", "rainstorm",
+        "drizzle", "shower", "precipitation", "pouring",
+    },
+    "particles": {
+        "particles", "dust motes", "floating dust", "pollen",
+        "embers", "sparks", "fireflies", "motes", "spores",
+        "drifting particles", "swirling dust",
+    },
+    "smoke": {
+        "smoke", "incense", "steam", "smoke rising", "smoky",
+        "vapour", "vapor",
+    },
+    "fog": {
+        "mist", "fog", "haze", "misty", "foggy", "low cloud",
+        "morning mist", "evening mist",
+    },
+}
+
+# Task 2.11 Fix 2 — overlays must enhance atmosphere subtly, never darken or
+# overpower the base video. Keyed by manifest category name (post-alias).
+OVERLAY_MAX_OPACITIES: dict[str, float] = {
+    "grain": 0.03,
+    "rain": 0.12,
+    "particles": 0.10,
+    "smoke": 0.10,
+    "god_rays": 0.12,
+}
+
 
 class OverlayCompositor:
     """Second-pass overlay compositing.
@@ -106,46 +139,83 @@ class OverlayCompositor:
         return str(value).strip()
 
     def _should_apply_grain(self, scenes: list[dict]) -> bool:
-        """True if ANY scene's visual_metadata (era/mood/visual_style)
-        warrants film grain. Task 2.9 — grain is conditional on overall
-        composition, not applied to every video unconditionally."""
-        for scene in scenes:
-            if scene.get("scene_type") == "brand_card":
-                continue
+        """True when at least 40% of content scenes' visual_metadata
+        (era/mood/visual_style) warrant film grain.
 
+        Task 2.11 Fix 3 — was "any scene matches", which fired grain on
+        almost every video since a single historical/reverent scene sufficed.
+        A minority-share threshold means grain now reflects the video's
+        overall composition, not one outlier scene."""
+        content_scenes = [s for s in scenes if s.get("scene_type") != "brand_card"]
+        if not content_scenes:
+            return False
+
+        matching = 0
+        for scene in content_scenes:
             era = self._visual_metadata_field(scene, "era").upper()
             mood = self._visual_metadata_field(scene, "mood").lower()
             style = self._visual_metadata_field(scene, "visual_style").upper()
 
-            if era in _GRAIN_ERAS:
-                return True
-            if mood in _GRAIN_MOODS:
-                return True
-            if style in _GRAIN_STYLES:
-                return True
+            if era in _GRAIN_ERAS or mood in _GRAIN_MOODS or style in _GRAIN_STYLES:
+                matching += 1
 
-        return False
+        threshold = 0.40
+        ratio = matching / len(content_scenes)
+        result = ratio >= threshold
+        logger.debug(
+            "Grain check: %d/%d scenes (%.0f%%) — threshold=%.0f%% — %s",
+            matching,
+            len(content_scenes),
+            ratio * 100,
+            threshold * 100,
+            "ON" if result else "OFF",
+        )
+        return result
+
+    def _category_from_visual_prompt(self, visual_prompt: str) -> str | None:
+        """Secondary visual-prompt keyword check — ONLY rain/particles/smoke/fog.
+
+        Returns the raw (pre-alias) keyword category, or None if nothing
+        matches. ``select_category`` maps the result through
+        ``_MOTION_ALIASES`` before checking it against the manifest, same as
+        it already does for motion_type. Priority: particles > smoke > fog > rain.
+        """
+        prompt_lower = (visual_prompt or "").lower()
+        for category in ("particles", "smoke", "fog", "rain"):
+            if any(kw in prompt_lower for kw in _VISUAL_KEYWORDS[category]):
+                return category
+        return None
 
     def select_category(self, scene: dict) -> tuple[str | None, str | None]:
         """Return (category, motion_type) for the scene's mood overlay.
 
         None means no overlay applies for this scene.
         """
-        motion_type = self._resolve_motion_type(scene)
-        if not motion_type:
-            return None, None
         if not self.manifest:
             return None, None
 
-        mapped = _MOTION_ALIASES.get(motion_type, motion_type)
-        if mapped in self.manifest:
-            clip_list = self.manifest[mapped]
-            if clip_list:
-                return mapped, motion_type
+        motion_type = self._resolve_motion_type(scene)
 
-        mood = self._resolve_mood(scene)
-        if mood in _RAIN_MOODS and "rain" in self.manifest:
-            return "rain", motion_type if motion_type == "rain" else f"mood:{mood}"
+        if motion_type:
+            mapped = _MOTION_ALIASES.get(motion_type, motion_type)
+            if mapped in self.manifest:
+                clip_list = self.manifest[mapped]
+                if clip_list:
+                    return mapped, motion_type
+
+            mood = self._resolve_mood(scene)
+            if mood in _RAIN_MOODS and "rain" in self.manifest:
+                return "rain", motion_type if motion_type == "rain" else f"mood:{mood}"
+
+        # Secondary: visual_prompt keyword check — rain/particles/smoke/fog
+        # only (Task 2.11 Fix 1). Primary motion_type/mood match above always
+        # wins when present; this only fires as a fallback.
+        keyword_category = self._category_from_visual_prompt(scene.get("visual_prompt", ""))
+        if keyword_category:
+            mapped = _MOTION_ALIASES.get(keyword_category, keyword_category)
+            clip_list = self.manifest.get(mapped)
+            if clip_list:
+                return mapped, motion_type or f"visual:{keyword_category}"
 
         return None, motion_type
 
@@ -176,8 +246,12 @@ class OverlayCompositor:
             raise ValueError(f"No clips found for overlay category: {category}")
 
         clip = clips[scene_index % len(clips)]
-        blend_mode = clip.get("blend_mode", "screen")
-        opacity = float(clip.get("opacity", 0.25))
+        # Task 2.11 Fix 2 — screen for mood overlays (never darkens), overlay
+        # blend for grain (grainmerge darkens mid-tones); opacity clamped to
+        # the category's max regardless of what the manifest clip specifies.
+        blend_mode = "overlay" if category == "grain" else "screen"
+        max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
+        opacity = min(float(clip.get("opacity", max_opacity)), max_opacity)
         overlay_rel = clip["file"]
 
         overlay_base = self.assets_dir if self.assets_dir.is_absolute() else Path(os.getcwd()) / self.assets_dir
