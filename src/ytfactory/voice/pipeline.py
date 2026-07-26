@@ -65,6 +65,46 @@ def _normalize_audio_attack(audio_path: Path) -> None:
             tmp.unlink(missing_ok=True)
 
 
+def _get_audio_duration(path: Path) -> float:
+    """Return audio duration in seconds via ffprobe. Returns 0.0 on error."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def _estimate_word_boundaries(narration: str, duration: float) -> list[dict]:
+    """Estimate per-word timestamps by distributing duration proportionally."""
+    words = narration.split()
+    if not words or duration <= 0:
+        return []
+    total_chars = sum(len(w) for w in words)
+    boundaries: list[dict] = []
+    cursor = 0.0
+    for word in words:
+        weight = len(word) / max(total_chars, 1)
+        end = cursor + weight * duration
+        boundaries.append({"word": word, "start": cursor, "end": end})
+        cursor = end
+    return boundaries
+
+
 class VoicePipeline:
     """Generate narration audio for every scene."""
 
@@ -101,6 +141,48 @@ class VoicePipeline:
         if self._provider is None:
             self._provider = get_tts_provider(self._settings, analytics=self._analytics)
         return self._provider
+
+    def _regenerate_subtitles(
+        self,
+        scene: dict,
+        audio_path: Path,
+        timing_output: Path,
+        language: str,
+    ) -> None:
+        """Regenerate subtitle timing when missing (e.g. TTS was cached)."""
+        alignment_output = audio_path.with_suffix(".alignment.json")
+
+        if (
+            self._settings.whisperx_enabled
+            and audio_path.exists()
+            and not alignment_output.exists()
+        ):
+            try:
+                alignment = whisperx_align(
+                    scene["narration"],
+                    audio_path,
+                    device=self._settings.whisperx_device,
+                    language=language,
+                )
+                save_alignment(alignment, alignment_output)
+            except Exception as exc:
+                logger.warning(
+                    "WhisperX alignment failed for scene {} — "
+                    "subtitle timing will use estimated boundaries instead. Error: {}",
+                    scene["index"],
+                    exc,
+                )
+
+        if not timing_output.exists():
+            duration = _get_audio_duration(audio_path)
+            if duration > 0:
+                boundaries = _estimate_word_boundaries(scene["narration"], duration)
+            else:
+                boundaries = []
+            timing_output.write_text(
+                json.dumps(boundaries, indent=2),
+                encoding="utf-8",
+            )
 
     def run(
         self,
@@ -143,6 +225,7 @@ class VoicePipeline:
             # than re-spending credits. Distinct from TTSCache's API-level
             # key-based cache, which only helps when text/voice/model match
             # exactly; this is a coarser, cheaper check that runs first.
+            tts_skipped = False
             if (
                 self._settings.tts_skip_existing
                 and output.exists()
@@ -153,8 +236,7 @@ class VoicePipeline:
                     scene["index"],
                     output.stat().st_size,
                 )
-                if not timing_output.exists():
-                    timing_output.write_text("[]", encoding="utf-8")
+                tts_skipped = True
                 self._repository.save(
                     VoiceArtifact(scene_id=scene["index"], audio_path=output)
                 )
@@ -170,212 +252,217 @@ class VoicePipeline:
                             output_bytes=output.stat().st_size,
                         )
                     )
-                if _w:
-                    _w.stage_progress(idx + 1)
-                continue
 
-            scene_position = idx / max(total - 1, 1)
-            original_text = scene["narration"]
-            word_count = len(original_text.split())
-            scene_title = scene.get("title", "")
-            scene_type = scene.get("scene_type", "generated_image")
+            if not tts_skipped:
+                scene_position = idx / max(total - 1, 1)
+                original_text = scene["narration"]
+                word_count = len(original_text.split())
+                scene_title = scene.get("title", "")
+                scene_type = scene.get("scene_type", "generated_image")
 
-            debug = TTSDebugWriter(
-                project_id=project_id,
-                scene_index=scene["index"],
-                enabled=self._settings.tts_debug,
-            )
-            debug.write_original(original_text)
-
-            # Contemplative pacing is skipped for asset/brand scenes (short by design).
-            use_pacing = self._settings.tts_pacing_enabled and scene_type not in ("asset", "brand_card")
-
-            if not use_pacing:
-                # Standard path: optimizer runs on the full narration.
-                optimized = _optimizer.optimize(
-                    original_text,
-                    style=style,
-                    scene_position=scene_position,
-                    keywords=[scene_title] if scene_title else None,
+                debug = TTSDebugWriter(
+                    project_id=project_id,
+                    scene_index=scene["index"],
+                    enabled=self._settings.tts_debug,
                 )
-                debug.write_optimized(optimized)
+                debug.write_original(original_text)
 
-            # Retry loop with exponential backoff
-            boundaries: list[dict] = []
-            validation: ValidationResult | None = None
-            retry_count = 0
-            max_retries = (
-                self._settings.tts_max_retries if self._settings.tts_auto_retry else 1
-            )
+                # Contemplative pacing is skipped for asset/brand scenes (short by design).
+                use_pacing = self._settings.tts_pacing_enabled and scene_type not in ("asset", "brand_card")
 
-            for attempt in range(max_retries):
-                if attempt > 0:
-                    delay = _RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
-                    logger.info(
-                        "TTS retry scene {} attempt {}/{} (backoff {:.1f}s)",
-                        scene["index"],
-                        attempt + 1,
-                        max_retries,
-                        delay,
+                if not use_pacing:
+                    # Standard path: optimizer runs on the full narration.
+                    optimized = _optimizer.optimize(
+                        original_text,
+                        style=style,
+                        scene_position=scene_position,
+                        keywords=[scene_title] if scene_title else None,
                     )
-                    time.sleep(delay)
-                    if output.exists():
-                        output.unlink()
+                    debug.write_optimized(optimized)
 
-                try:
-                    if use_pacing:
-                        # Pacing path: PauseInjector calls optimizer per-sentence
-                        # and injects silence between sentences via FFmpeg concat.
-                        _, boundaries = _pacer.generate(
-                            narration=original_text,
-                            output_path=output,
-                            optimizer=_optimizer,
-                            provider=self._provider,
-                            profile=self._settings.tts_pacing_profile,
-                            style=style,
-                            language=language,
-                            scene_position=scene_position,
-                            keywords=[scene_title] if scene_title else None,
+                # Retry loop with exponential backoff
+                boundaries: list[dict] = []
+                validation: ValidationResult | None = None
+                retry_count = 0
+                max_retries = (
+                    self._settings.tts_max_retries if self._settings.tts_auto_retry else 1
+                )
+
+                for attempt in range(max_retries):
+                    if attempt > 0:
+                        delay = _RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+                        logger.info(
+                            "TTS retry scene {} attempt {}/{} (backoff {:.1f}s)",
+                            scene["index"],
+                            attempt + 1,
+                            max_retries,
+                            delay,
                         )
+                        time.sleep(delay)
+                        if output.exists():
+                            output.unlink()
+
+                    try:
+                        if use_pacing:
+                            # Pacing path: PauseInjector calls optimizer per-sentence
+                            # and injects silence between sentences via FFmpeg concat.
+                            _, boundaries = _pacer.generate(
+                                narration=original_text,
+                                output_path=output,
+                                optimizer=_optimizer,
+                                provider=self._provider,
+                                profile=self._settings.tts_pacing_profile,
+                                style=style,
+                                language=language,
+                                scene_position=scene_position,
+                                keywords=[scene_title] if scene_title else None,
+                            )
+                        else:
+                            debug.write_provider_request(
+                                {
+                                    "text": optimized,
+                                    "language": language,
+                                    "style": style,
+                                    "scene_position": scene_position,
+                                }
+                            )
+                            _, boundaries = self._provider.generate_with_boundaries(
+                                text=optimized,
+                                output_path=output,
+                                language=language,
+                                style=style,
+                                scene_position=scene_position,
+                            )
+                    except Exception as exc:
+                        logger.error("TTS error scene {}: {}", scene["index"], exc)
+                        retry_count = attempt + 1
+                        continue
+
+                    debug.write_provider_response(boundaries)
+                    debug.write_timing(boundaries)
+
+                    # Audio validation
+                    if self._settings.tts_validate_audio:
+                        validation = _validator.validate(
+                            audio_path=output,
+                            word_count=word_count,
+                            scene_index=scene["index"],
+                        )
+                        debug.write_validation(validation.to_dict())
+
+                        if validation.passed:
+                            retry_count = attempt
+                            break
+
+                        retry_count = attempt + 1
+                        if attempt + 1 >= max_retries:
+                            logger.warning(
+                                "TTS scene {} failed validation after {} attempts — keeping last output",
+                                scene["index"],
+                                max_retries,
+                            )
                     else:
-                        debug.write_provider_request(
-                            {
-                                "text": optimized,
-                                "language": language,
-                                "style": style,
-                                "scene_position": scene_position,
-                            }
-                        )
-                        _, boundaries = self._provider.generate_with_boundaries(
-                            text=optimized,
-                            output_path=output,
-                            language=language,
-                            style=style,
-                            scene_position=scene_position,
-                        )
-                except Exception as exc:
-                    logger.error("TTS error scene {}: {}", scene["index"], exc)
-                    retry_count = attempt + 1
-                    continue
-
-                debug.write_provider_response(boundaries)
-                debug.write_timing(boundaries)
-
-                # Audio validation
-                if self._settings.tts_validate_audio:
-                    validation = _validator.validate(
-                        audio_path=output,
-                        word_count=word_count,
-                        scene_index=scene["index"],
-                    )
-                    debug.write_validation(validation.to_dict())
-
-                    if validation.passed:
                         retry_count = attempt
                         break
 
-                    retry_count = attempt + 1
-                    if attempt + 1 >= max_retries:
-                        logger.warning(
-                            "TTS scene {} failed validation after {} attempts — keeping last output",
-                            scene["index"],
-                            max_retries,
-                        )
-                else:
-                    retry_count = attempt
-                    break
+                # Normalise TTS audio to fix soft attack at start of speech
+                if output.exists():
+                    _normalize_audio_attack(output)
 
-            # Normalise TTS audio to fix soft attack at start of speech
-            if output.exists():
-                _normalize_audio_attack(output)
-
-            # Write timing even on partial success
-            timing_output.write_text(
-                json.dumps(boundaries, indent=2),
-                encoding="utf-8",
-            )
-
-            # WhisperX forced alignment (optional — gives accurate word timestamps)
-            if self._settings.whisperx_enabled and output.exists():
-                alignment_output = output.with_suffix(".alignment.json")
-                if not alignment_output.exists():
-                    try:
-                        alignment = whisperx_align(
-                            original_text,
-                            output,
-                            device=self._settings.whisperx_device,
-                            language=language,
-                        )
-                        save_alignment(alignment, alignment_output)
-                    except Exception as exc:
-                        logger.warning(
-                            "WhisperX alignment failed for scene {} — "
-                            "subtitle timing will use TTS boundaries instead. Error: {}",
-                            scene["index"],
-                            exc,
-                        )
-
-            # Collect debug metadata for project summary
-            duration = (
-                validation.duration_seconds
-                if validation
-                else (boundaries[-1]["end"] if boundaries else 0.0)
-            )
-            scene_meta = {
-                "scene_index": scene["index"],
-                "provider": self._provider.capabilities.provider_name,
-                "voice": None,
-                "style": style,
-                "language": language,
-                "duration_seconds": duration,
-                "word_count": word_count,
-                "retry_count": retry_count,
-                "validation_passed": validation.passed if validation else True,
-                "validation_issues": validation.issues if validation else [],
-                "pacing_enabled": use_pacing,
-                "pacing_profile": self._settings.tts_pacing_profile
-                if use_pacing
-                else None,
-            }
-            debug.write_metadata(scene_meta)
-            scenes_metadata.append(scene_meta)
-
-            self._repository.save(
-                VoiceArtifact(
-                    scene_id=scene["index"],
-                    audio_path=output,
+                # Write timing even on partial success
+                timing_output.write_text(
+                    json.dumps(boundaries, indent=2),
+                    encoding="utf-8",
                 )
-            )
+
+                # WhisperX forced alignment (optional — gives accurate word timestamps)
+                if self._settings.whisperx_enabled and output.exists():
+                    alignment_output = output.with_suffix(".alignment.json")
+                    if not alignment_output.exists():
+                        try:
+                            alignment = whisperx_align(
+                                original_text,
+                                output,
+                                device=self._settings.whisperx_device,
+                                language=language,
+                            )
+                            save_alignment(alignment, alignment_output)
+                        except Exception as exc:
+                            logger.warning(
+                                "WhisperX alignment failed for scene {} — "
+                                "subtitle timing will use TTS boundaries instead. Error: {}",
+                                scene["index"],
+                                exc,
+                            )
+
+                # Collect debug metadata for project summary
+                duration = (
+                    validation.duration_seconds
+                    if validation
+                    else (boundaries[-1]["end"] if boundaries else 0.0)
+                )
+                scene_meta = {
+                    "scene_index": scene["index"],
+                    "provider": self._provider.capabilities.provider_name,
+                    "voice": None,
+                    "style": style,
+                    "language": language,
+                    "duration_seconds": duration,
+                    "word_count": word_count,
+                    "retry_count": retry_count,
+                    "validation_passed": validation.passed if validation else True,
+                    "validation_issues": validation.issues if validation else [],
+                    "pacing_enabled": use_pacing,
+                    "pacing_profile": self._settings.tts_pacing_profile
+                    if use_pacing
+                    else None,
+                }
+                debug.write_metadata(scene_meta)
+                scenes_metadata.append(scene_meta)
+
+                self._repository.save(
+                    VoiceArtifact(
+                        scene_id=scene["index"],
+                        audio_path=output,
+                    )
+                )
+
+                # Per-scene TTS analytics log
+                if self._settings.tts_log_per_scene and self._analytics.enabled:
+                    scene_records = [
+                        r for r in self._analytics.all_records()
+                        if r.scene_id == str(scene["index"])
+                    ]
+                    if scene_records:
+                        r = scene_records[-1]
+                        logger.info(
+                            "Scene {:03d} | Provider: {} | Model: {} | Voice: {} | "
+                            "Characters: {} | Words: {} | Duration: {:.1f}s | "
+                            "Cache Hit: {} | Retries: {} | Latency: {:.2f}s | "
+                            "Estimated Credits: {:.1f} | Estimated Cost: ${:.4f}",
+                            scene["index"],
+                            r.provider,
+                            r.model,
+                            r.voice,
+                            r.characters,
+                            r.words,
+                            r.audio_duration,
+                            r.cache_hit,
+                            r.retry_count,
+                            r.latency_ms / 1000.0,
+                            r.estimated_credits,
+                            r.estimated_cost,
+                        )
+
+            # ── Subtitles — always regenerate if missing ─────────────────
+            if not timing_output.exists():
+                logger.debug("Subtitle regenerating scene {}", scene["index"])
+                self._regenerate_subtitles(scene, output, timing_output, language)
+            else:
+                logger.debug("Subtitle skip scene {} (already exists)", scene["index"])
+
             if _w:
                 _w.stage_progress(idx + 1)
-
-            # Per-scene TTS analytics log
-            if self._settings.tts_log_per_scene and self._analytics.enabled:
-                scene_records = [
-                    r for r in self._analytics.all_records()
-                    if r.scene_id == str(scene["index"])
-                ]
-                if scene_records:
-                    r = scene_records[-1]
-                    logger.info(
-                        "Scene {:03d} | Provider: {} | Model: {} | Voice: {} | "
-                        "Characters: {} | Words: {} | Duration: {:.1f}s | "
-                        "Cache Hit: {} | Retries: {} | Latency: {:.2f}s | "
-                        "Estimated Credits: {:.1f} | Estimated Cost: ${:.4f}",
-                        scene["index"],
-                        r.provider,
-                        r.model,
-                        r.voice,
-                        r.characters,
-                        r.words,
-                        r.audio_duration,
-                        r.cache_hit,
-                        r.retry_count,
-                        r.latency_ms / 1000.0,
-                        r.estimated_credits,
-                        r.estimated_cost,
-                    )
-
         # Write project-level diagnostics report
         TTSDebugWriter.write_project_summary(
             project_id=project_id,

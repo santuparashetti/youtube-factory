@@ -135,6 +135,59 @@ class TestSkipExistingAudio:
         assert records[0].cache_hit is True
 
 
+class TestSubtitleRegeneration:
+    def test_subtitles_regenerated_when_missing_even_if_tts_cached(self, project_dir):
+        audio_dir = project_dir / "workspace" / "jobs" / "test-proj" / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        (audio_dir / "scene-001.mp3").write_bytes(b"\xff\xfb" + b"\x00" * 2000)
+        # timing.json is missing
+
+        settings = _settings()
+        with patch("ytfactory.voice.pipeline._get_audio_duration", return_value=5.0):
+            pipeline, mock_provider = _run_pipeline(project_dir, settings)
+
+        mock_provider.generate_with_boundaries.assert_not_called()
+        assert (audio_dir / "scene-001.timing.json").exists()
+
+    def test_subtitles_skipped_when_already_exist(self, project_dir):
+        audio_dir = project_dir / "workspace" / "jobs" / "test-proj" / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        (audio_dir / "scene-001.mp3").write_bytes(b"\xff\xfb" + b"\x00" * 2000)
+        (audio_dir / "scene-001.timing.json").write_text("[{}]", encoding="utf-8")
+
+        settings = _settings()
+        pipeline, mock_provider = _run_pipeline(project_dir, settings)
+
+        mock_provider.generate_with_boundaries.assert_not_called()
+
+    def test_tts_and_subtitle_independent(self, project_dir):
+        audio_dir = project_dir / "workspace" / "jobs" / "test-proj" / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        # Case 1: TTS cached + subtitle missing → subtitle regenerated
+        (audio_dir / "scene-001.mp3").write_bytes(b"\xff\xfb" + b"\x00" * 2000)
+        settings = _settings()
+        with patch("ytfactory.voice.pipeline._get_audio_duration", return_value=5.0):
+            pipeline, mock_provider = _run_pipeline(project_dir, settings)
+        mock_provider.generate_with_boundaries.assert_not_called()
+        assert (audio_dir / "scene-001.timing.json").exists()
+
+        # Case 2: TTS cached + subtitle exists → both skipped
+        (audio_dir / "scene-001.timing.json").write_text("[{}]", encoding="utf-8")
+        mock_provider.reset_mock()
+        pipeline, mock_provider = _run_pipeline(project_dir, settings)
+        mock_provider.generate_with_boundaries.assert_not_called()
+        assert (audio_dir / "scene-001.timing.json").exists()
+
+        # Case 3: TTS generated + subtitle missing → both run
+        (audio_dir / "scene-001.mp3").unlink()
+        (audio_dir / "scene-001.timing.json").unlink()
+        mock_provider.reset_mock()
+        pipeline, mock_provider = _run_pipeline(project_dir, settings)
+        mock_provider.generate_with_boundaries.assert_called_once()
+        assert (audio_dir / "scene-001.timing.json").exists()
+
+
 class TestUnconfiguredPricingWarning:
     """Bug 3: Estimated Credits/Cost show 0.0 not because of a propagation
     bug — both the per-scene log and the summary read the exact same pricing

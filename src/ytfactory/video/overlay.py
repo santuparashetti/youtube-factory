@@ -56,6 +56,21 @@ OVERLAY_MAX_OPACITIES: dict[str, float] = {
 }
 
 
+def resolve_blend_and_opacity(category: str, clip: dict) -> tuple[str, float]:
+    """Single source of truth for a manifest clip's blend mode + opacity.
+
+    Screen for every mood category (never darkens), overlay for grain
+    (grainmerge darkens mid-tones); opacity clamped to the category's max
+    regardless of what the manifest clip itself specifies. Shared by
+    run_overlay_pass() and pipeline._apply_overlays() so the two overlay
+    render paths can't drift apart.
+    """
+    blend_mode = "overlay" if category == "grain" else "screen"
+    max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
+    opacity = min(float(clip.get("opacity", max_opacity)), max_opacity)
+    return blend_mode, opacity
+
+
 class OverlayCompositor:
     """Second-pass overlay compositing.
 
@@ -246,12 +261,7 @@ class OverlayCompositor:
             raise ValueError(f"No clips found for overlay category: {category}")
 
         clip = clips[scene_index % len(clips)]
-        # Task 2.11 Fix 2 — screen for mood overlays (never darkens), overlay
-        # blend for grain (grainmerge darkens mid-tones); opacity clamped to
-        # the category's max regardless of what the manifest clip specifies.
-        blend_mode = "overlay" if category == "grain" else "screen"
-        max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
-        opacity = min(float(clip.get("opacity", max_opacity)), max_opacity)
+        blend_mode, opacity = resolve_blend_and_opacity(category, clip)
         overlay_rel = clip["file"]
 
         overlay_base = self.assets_dir if self.assets_dir.is_absolute() else Path(os.getcwd()) / self.assets_dir
@@ -271,10 +281,16 @@ class OverlayCompositor:
             str(scene_input),
         ]
 
+        # Both blend inputs must share a pixel format — feeding blend a
+        # yuv420p base against an rgba overlay (base left unformatted) is
+        # what produces a magenta/pink cast, since FFmpeg's blend filter
+        # doesn't validate/convert mismatched formats between its inputs.
+        # Convert back to yuv420p after blending — libx264 can't encode rgba.
         filter_complex = (
+            f"[0:v]format=rgba[base]; "
             f"[1:v]scale={width}:{height},setsar=1,format=rgba,"
             f"colorchannelmixer=aa={opacity:.2f},trim=duration={dur:.4f}[ov]; "
-            f"[0:v][ov]blend=all_mode={blend_mode}:shortest=1[outv]"
+            f"[base][ov]blend=all_mode={blend_mode}:shortest=1,format=yuv420p[outv]"
         )
 
         args += [

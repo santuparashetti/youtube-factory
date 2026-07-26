@@ -274,7 +274,13 @@ def _settings(**overrides) -> MagicMock:
     s.skip_overlays = False
     s.overlay_manifest_path = "assets/overlays/overlay_manifest.json"
     s.overlay_assets_dir = "assets/overlays"
+    s.overlay_enabled = True
     s.overlay_grain_enabled = True
+    s.overlay_smoke_enabled = True
+    s.overlay_particles_enabled = True
+    s.overlay_god_rays_enabled = True
+    s.overlay_rain_enabled = True
+    s.overlay_fog_enabled = True
     s.video_width = 1280
     s.video_height = 720
     s.video_fps = 30
@@ -423,6 +429,280 @@ class TestApplyOverlays:
 
         mock_run.assert_not_called()
         assert out.is_file()
+
+
+class TestBaseStreamPixelFormat:
+    """Regression guard: the base stream must be normalized to a format
+    matching the overlay (rgba) before the first blend stage. Blending a
+    yuv420p base against an rgba overlay with the base left unformatted is
+    what produces a magenta/pink color cast."""
+
+    def test_base_stream_formatted_to_rgba_before_first_blend(self, tmp_path, monkeypatch):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        settings = _settings()
+
+        overlays_root = tmp_path / "assets" / "overlays" / "Particles"
+        overlays_root.mkdir(parents=True)
+        (overlays_root / "p.mp4").write_bytes(b"x")
+        monkeypatch.chdir(tmp_path)
+
+        fake_manifest = {
+            "particles": [{"file": "Particles/p.mp4", "blend_mode": "screen", "opacity": 0.1}],
+        }
+        captured_cmd = {}
+
+        def _fake_run(cmd, **kwargs):
+            captured_cmd["cmd"] = cmd
+            out.write_bytes(b"x")
+            return MagicMock(returncode=0)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run", side_effect=_fake_run):
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "particles"}], [5.0], 0.0
+            )
+
+        filter_str = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
+        assert "[0:v]format=rgba" in filter_str, (
+            f"base stream must be formatted to rgba before blending: {filter_str}"
+        )
+        # The first blend stage must consume the formatted base, not raw [0:v].
+        assert "[0:v][ov1]blend" not in filter_str
+
+
+class TestOverlayMasterAndCategorySwitches:
+    def _manifest_and_clip(self, tmp_path, category, filename="clip.mp4"):
+        clip_dir = tmp_path / "assets" / "overlays" / category
+        clip_dir.mkdir(parents=True, exist_ok=True)
+        (clip_dir / filename).write_bytes(b"x")
+        return {category: [{"file": f"{category}/{filename}", "blend_mode": "screen", "opacity": 0.1}]}
+
+    def test_master_switch_disabled_skips_all(self, tmp_path):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        settings = _settings(overlay_enabled=False)
+
+        with patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "particles"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_smoke_disabled_skips_smoke_scene(self, tmp_path, monkeypatch):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        fake_manifest = self._manifest_and_clip(tmp_path, "smoke")
+        settings = _settings(overlay_smoke_enabled=False)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "smoke"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_particles_disabled_skips_particle_scene(self, tmp_path, monkeypatch):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        fake_manifest = self._manifest_and_clip(tmp_path, "particles")
+        settings = _settings(overlay_particles_enabled=False)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "particles"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_fog_disabled_skips_fog_triggered_scene_but_not_smoke(self, tmp_path, monkeypatch):
+        """motion_type="fog" resolves to the "smoke" manifest category, but
+        must be gated by overlay_fog_enabled, not overlay_smoke_enabled."""
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        fake_manifest = self._manifest_and_clip(tmp_path, "smoke")
+        settings = _settings(overlay_fog_enabled=False, overlay_smoke_enabled=True)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "fog"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_rain_disabled_skips_rain_scene(self, tmp_path, monkeypatch):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        fake_manifest = self._manifest_and_clip(tmp_path, "rain")
+        settings = _settings(overlay_rain_enabled=False)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "rain"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_god_rays_disabled_skips_god_rays_scene(self, tmp_path, monkeypatch):
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        fake_manifest = self._manifest_and_clip(tmp_path, "god_rays")
+        settings = _settings(overlay_god_rays_enabled=False)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", fake_manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            _apply_overlays(
+                tmp, out, settings, [{"index": 1, "motion_type": "god_rays"}], [5.0], 0.0
+            )
+
+        mock_run.assert_not_called()
+        assert out.is_file()
+
+    def test_category_disabled_does_not_block_other_scenes(self, tmp_path, monkeypatch):
+        """Disabling one category must not skip a different, enabled category."""
+        tmp = tmp_path / "in.mp4"
+        tmp.write_bytes(b"x")
+        out = tmp_path / "out.mp4"
+        monkeypatch.chdir(tmp_path)
+        manifest = self._manifest_and_clip(tmp_path, "smoke")
+        manifest.update(self._manifest_and_clip(tmp_path, "particles"))
+        settings = _settings(overlay_smoke_enabled=False)
+
+        with patch.object(OverlayCompositor, "_load_manifest", lambda self: setattr(self, "manifest", manifest)), \
+             patch("ytfactory.video.pipeline.subprocess.run") as mock_run:
+            def _fake_run(cmd, **kwargs):
+                out.write_bytes(b"x")
+                return MagicMock(returncode=0)
+            mock_run.side_effect = _fake_run
+
+            _apply_overlays(
+                tmp, out, settings,
+                [
+                    {"index": 1, "motion_type": "smoke"},
+                    {"index": 2, "motion_type": "particles"},
+                ],
+                [5.0, 5.0],
+                0.0,
+            )
+
+        assert mock_run.called
+        cmd = mock_run.call_args.args[0]
+        cmd_str = " ".join(cmd)
+        assert "particles" in cmd_str.lower(), cmd_str
+        assert "smoke" not in cmd_str.lower(), cmd_str
+
+
+class TestOverlaySettingsDefaults:
+    """Assert against the field default, not a live Settings() instance —
+    OVERLAY_GRAIN_ENABLED is toggled operationally in the real .env, so
+    instantiating Settings() here would read that live value instead of
+    the code-level default (same flakiness class as the brand_config.yaml
+    issue in test_brand_card_cache_fix.py)."""
+
+    def test_all_overlay_flags_default_true(self):
+        from ytfactory.config.settings import Settings
+
+        for field in (
+            "overlay_enabled",
+            "overlay_grain_enabled",
+            "overlay_smoke_enabled",
+            "overlay_particles_enabled",
+            "overlay_god_rays_enabled",
+            "overlay_rain_enabled",
+            "overlay_fog_enabled",
+        ):
+            assert Settings.model_fields[field].default is True, field
+
+    def test_overlay_enabled_reads_from_env(self, monkeypatch):
+        from ytfactory.config.settings import Settings
+
+        monkeypatch.setenv("OVERLAY_SMOKE_ENABLED", "false")
+        assert Settings().overlay_smoke_enabled is False
+
+
+class TestResolveBlendAndOpacity:
+    """Single source of truth shared by run_overlay_pass() and
+    pipeline._apply_overlays() — both must resolve identically."""
+
+    def test_mood_category_uses_screen(self):
+        from ytfactory.video.overlay import resolve_blend_and_opacity
+
+        blend_mode, _ = resolve_blend_and_opacity("smoke", {"opacity": 0.05})
+        assert blend_mode == "screen"
+
+    def test_grain_uses_overlay(self):
+        from ytfactory.video.overlay import resolve_blend_and_opacity
+
+        blend_mode, _ = resolve_blend_and_opacity("grain", {"opacity": 0.01})
+        assert blend_mode == "overlay"
+
+    def test_opacity_clamped_to_category_max(self):
+        from ytfactory.video.overlay import resolve_blend_and_opacity
+
+        _, opacity = resolve_blend_and_opacity("particles", {"opacity": 0.9})
+        assert opacity == 0.10
+
+    def test_opacity_below_max_passes_through(self):
+        from ytfactory.video.overlay import resolve_blend_and_opacity
+
+        _, opacity = resolve_blend_and_opacity("rain", {"opacity": 0.05})
+        assert opacity == 0.05
+
+
+class TestRunOverlayPassFormatFix:
+    """run_overlay_pass() had the identical base-format-mismatch bug as
+    _apply_overlays() — fixed alongside it since it shares the helper."""
+
+    def test_base_stream_formatted_before_blend(self, tmp_path):
+        c = OverlayCompositor(manifest_path=None)
+        c.manifest = {
+            "particles": [{"file": "p.mp4", "blend_mode": "screen", "opacity": 0.1}]
+        }
+        c.assets_dir = tmp_path
+        (tmp_path / "p.mp4").write_bytes(b"x")
+
+        captured = {}
+
+        def _fake_run(args, **kwargs):
+            captured["args"] = args
+            return MagicMock(returncode=0)
+
+        with patch("ytfactory.video.overlay.subprocess.run", side_effect=_fake_run):
+            c.run_overlay_pass(
+                scene_input=tmp_path / "scene.mp4",
+                scene_output=tmp_path / "out.mp4",
+                duration_hint=5.0,
+                category="particles",
+                scene_index=0,
+                width=1280,
+                height=720,
+            )
+
+        filter_complex = captured["args"][captured["args"].index("-filter_complex") + 1]
+        assert "[0:v]format=rgba" in filter_complex
+        assert "format=yuv420p[outv]" in filter_complex
 
 
 class TestOverlayOpacityAndBrightness:

@@ -526,11 +526,27 @@ class Settings(SharedSettings):
     # configurable so a non-default manifest location's clips still resolve.
     overlay_assets_dir: str = "assets/overlays"
 
+    # Master switch — independent of skip_overlays (which exists for the
+    # same purpose under a different name; kept for backward compat). If
+    # false, the overlay-compositing pass is skipped entirely.
+    overlay_enabled: bool = True
+
     # Master switch for grain specifically (independent of skip_overlays,
     # which disables mood overlays too). Grain itself is also conditional —
     # see OverlayCompositor._should_apply_grain() — this flag is a hard
     # override that skips it regardless of scene composition.
     overlay_grain_enabled: bool = True
+
+    # Per-category switches, same pattern as overlay_grain_enabled. "fog"
+    # has no manifest category of its own (aliases to "smoke" — see
+    # _MOTION_ALIASES) so it only gates scenes whose overlay was selected
+    # via a fog-specific trigger (motion_type="fog" or a fog visual_prompt
+    # keyword); smoke-triggered scenes are gated by overlay_smoke_enabled.
+    overlay_smoke_enabled: bool = True
+    overlay_particles_enabled: bool = True
+    overlay_god_rays_enabled: bool = True
+    overlay_rain_enabled: bool = True
+    overlay_fog_enabled: bool = True
 
     # ------------------------------------------------------------------
     # Video Debugging

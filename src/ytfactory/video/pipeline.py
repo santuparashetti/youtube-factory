@@ -18,7 +18,7 @@ from ytfactory.scenes.repository.scene_repository import SceneRepository
 
 from .artifacts import video_directory
 from .ffmpeg import FFmpegRenderer
-from .overlay import OVERLAY_MAX_OPACITIES, OverlayCompositor
+from .overlay import OverlayCompositor, resolve_blend_and_opacity
 
 
 def _actual_audio_duration(audio: Path, timing_path: Path, fallback: float) -> float:
@@ -148,6 +148,11 @@ def _apply_overlays(
     Falls back to a plain rename when overlays are disabled, the manifest is
     missing, or no scene matches any category — never blocks the render.
     """
+    if not settings.overlay_enabled:
+        logger.info("Overlay: all overlays disabled (OVERLAY_ENABLED=false)")
+        tmp.rename(output_path)
+        return
+
     compositor = OverlayCompositor(
         manifest_path=settings.overlay_manifest_path,
         skip=settings.skip_overlays,
@@ -175,13 +180,42 @@ def _apply_overlays(
 
     cmd: list[str] = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp)]
     filter_chains: list[str] = []
-    current_label = "0:v"
+    # Both blend inputs must share a pixel format — feeding blend a yuv420p
+    # base (tmp is encoded yuv420p) against an rgba overlay (base left
+    # unformatted) is what produces a magenta/pink cast. Normalize once,
+    # up front, so every blend stage below operates on matching formats.
+    filter_chains.append("[0:v]format=rgba[base0]")
+    current_label = "base0"
     stage = 0
 
+    category_flags = {
+        "smoke": settings.overlay_smoke_enabled,
+        "particles": settings.overlay_particles_enabled,
+        "god_rays": settings.overlay_god_rays_enabled,
+        "rain": settings.overlay_rain_enabled,
+    }
+
     for i, scene in enumerate(scenes):
-        category, _motion_type = compositor.select_category(scene)
+        category, motion_type = compositor.select_category(scene)
         if not category:
             continue
+
+        # "fog" has no manifest category of its own (aliases to "smoke") —
+        # gate fog-triggered scenes by their own flag instead of smoke's.
+        is_fog_origin = motion_type in ("fog", "visual:fog")
+        category_enabled = (
+            settings.overlay_fog_enabled
+            if is_fog_origin
+            else category_flags.get(category, True)
+        )
+        if not category_enabled:
+            logger.info(
+                "Overlay: {} disabled by setting (scene {})",
+                "fog" if is_fog_origin else category,
+                scene.get("index", i),
+            )
+            continue
+
         clips = compositor.manifest.get(category, [])
         if not clips:
             continue
@@ -198,12 +232,7 @@ def _apply_overlays(
 
         stage += 1
         start, end = windows[i]
-        # Task 2.11 Fix 2 — mood overlays must never darken the base video;
-        # screen blend only adds light, so it's enforced regardless of the
-        # manifest value. Opacity is clamped to the category's max.
-        blend_mode = "screen"
-        max_opacity = OVERLAY_MAX_OPACITIES.get(category, 0.12)
-        opacity = min(float(clip.get("opacity", max_opacity)), max_opacity)
+        blend_mode, opacity = resolve_blend_and_opacity(category, clip)
         ov_in = f"{stage}:v"
         ov_label = f"ov{stage}"
         out_label = f"s{stage}"
@@ -237,11 +266,7 @@ def _apply_overlays(
             logger.warning("Grain overlay clip missing: {} — skipping", clip_path)
         else:
             stage += 1
-            # Task 2.11 Fix 2 — grainmerge (addition minus 128) darkens
-            # mid-tones; overlay blend preserves scene brightness while still
-            # adding texture. Opacity clamped to the grain max.
-            blend_mode = "overlay"
-            opacity = min(float(clip.get("opacity", OVERLAY_MAX_OPACITIES["grain"])), OVERLAY_MAX_OPACITIES["grain"])
+            blend_mode, opacity = resolve_blend_and_opacity("grain", clip)
             ov_in = f"{stage}:v"
             ov_label = f"ov{stage}"
             out_label = f"s{stage}"
