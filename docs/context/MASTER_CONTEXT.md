@@ -546,7 +546,8 @@ New `src/video_core/visual_intelligence/` package:
 LangGraph graph in `src/ytfactory/agents/`. Entry: `run_pipeline()` in `agents/runner.py`.  
 `--resume --project <id>` skips the LangGraph graph entirely → routes to `BuildPipeline.run_incremental()`.
 
-Nodes: START → research_agent / script_enhancer → script_writer → human_review_script → scene_planner → human_review_scenes → generate_scene_assets (per-scene parallel) → video_renderer → video_concatenator → cta → quality_review → remediation → publish → END.
+Nodes (per `agents/graph.py`, verified against actual `add_edge`/`add_conditional_edges` calls): START →(`_route_entry`, conditional on `--script`)→ `research_agent` **or** `script_enhancer` → `script_writer` → `human_review_script` → `script_enhancer` → `scene_planner` → `pre_render_gate` → `human_review_scenes` →(`_dispatch_scenes`, fan-out)→ `generate_scene_assets` (per-scene parallel) →(`_route_after_assets`)→ `video_renderer` → `video_concatenator` → `cta` → `quality_review` →(`_route_after_review`)→ `remediation` or `publish` →(`_route_after_remediation`)→ `publish` → END.
+Note: `script_enhancer` is reached twice in the entry-conditional branch — once directly from START when a script was pre-supplied, once after `human_review_script` on the full-research path — it is not a second alternative to `research_agent` at the same position.
 
 **Interactive wizard:** `uv run ytfactory` (no subcommand) launches `src/ytfactory/cli/wizard.py`. Must be run from repo root or `.env` won't load — Settings defaults fall back to `llm_provider="anthropic"` which fails with an empty key.
 
@@ -595,27 +596,29 @@ src/
                          # domain/project.py, config/, everything else
 ```
 
-**Layering rule:** `video_core` must not import from `ytfactory`. Enforced by `scripts/check_layering.py`. Known open Bucket-C deps (Phase 1): `ytfactory.config.settings`, `ytfactory.shared.constants`.  
+**Layering rule:** `video_core` must not import from `ytfactory`. Enforced by `scripts/check_layering.py`. `ytfactory.config.settings` was resolved by Phase 1. **One remaining Bucket-C exception:** `ytfactory.shared.constants` (`WORKSPACE_DIR`) — deferred to Phase 2.  
 **`video_core.cinematic`** — `MotionPlanner`, `TransitionPlanner`, `build_zoompan_filter` are clean `video_core` imports; any factory can use them directly with no shim (AS-002 resolved).
 
 ---
 
-## Current Provider Stack (`.env` as of 2026-07-21)
+## Current Provider Stack (live `.env`, verified directly — as of 2026-07-26)
 
 | Provider type | Setting | Current value |
 |---|---|---|
-| LLM | `LLM_PROVIDER` | `gemini` → `OpenAICompatibleProvider` |
-| LLM model | `ANTHROPIC_MODEL` | `claude-haiku-4-5` via LiteLLM proxy |
+| LLM | `LLM_PROVIDER` | `anthropic` → `OpenAICompatibleProvider`, routed via `ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1` (OpenRouter proxy, not the official Anthropic API) |
+| LLM model | `ANTHROPIC_MODEL` | `deepseek/deepseek-v3.2` (confirmed both in `.env` and in this session's live pytest logs) |
 | Search | `SEARCH_PROVIDER` | `tavily` |
 | Image | `IMAGE_PROVIDER` | `huggingface` (multi-tier: FLUX.1-schnell / Qwen-Image / FLUX.1-dev via `IMAGE_MODEL_TIER{1,2,3}_ID`) |
-| TTS | `TTS_PROVIDER` | `kokoro` (KokoroProvider — local neural TTS) |
-| TTS (premium) | `CARTESIA_MODEL` | `sonic-3.5` via CartesiaTTSProvider |
-| Vision | `VISION_REVIEW_PROVIDER` | `local` (Qwen2.5-VL-3B via llama.cpp) |
-| WhisperX | `WHISPERX_ENABLED` | `false` |
+| TTS | `TTS_PROVIDER` | `cartesia` (CartesiaTTSProvider — premium cloud TTS; **not** Kokoro) |
+| TTS model/voice | `CARTESIA_MODEL` / `CARTESIA_VOICE_ID` | `sonic-3.5` / Nolan (`65209f8e-6140-4a20-b819-3cc2e21da19b`), speed `0.88`, emotion `contemplative`, sample rate `48000`, timeout `90`, max_chars `2500` |
+| Vision | `VISION_REVIEW_PROVIDER` | `huggingface` (`HF_VISION_MODEL=Qwen/Qwen2.5-VL-32B-Instruct`, `HF_VISION_PROVIDER=auto`) — **not** the `local` llama.cpp path; `IMAGE_REVIEW_ENABLED=false` (gate is currently off) |
+| WhisperX | `WHISPERX_ENABLED` | `false` (`WHISPERX_MODEL=base` reserved, unused while disabled) |
 | WhisperX device | `WHISPERX_DEVICE` | `cpu` |
 | Resolution | `IMAGE_WIDTH/HEIGHT` | `1280×720` |
-| BGM | `BGM_ENABLED` | `false` |
-| Render profile | `RENDER_PROFILE` | set per wizard run |
+| BGM | (not set in `.env` → falls back to `Settings` default `false`) | ducking tuned via `BGM_VOLUME=0.20`, `BGM_DUCK_FLOOR=0.07`, `BGM_DUCK_THRESHOLD=0.025`, `BGM_DUCK_RATIO=3.0`, `BGM_NARRATION_LEVEL_LUFS=-18.0` when enabled |
+| Render profile | `RENDER_PROFILE` | `cinematic` |
+
+Local/mock vision providers (`local` + `qwen2_5_vl_3b`/`minicpm_v2_6`, or `mock`) remain valid, implemented alternatives — they are simply not what the live `.env` currently selects.
 
 **Provider factory pattern:** business logic calls `get_llm_provider(settings)` / `get_image_provider(settings)` / `get_tts_provider(settings)` — never imports a concrete provider directly.
 
@@ -637,7 +640,7 @@ src/
 Multi-layer quality gate in `src/ytfactory/review/`. Runs after `ytfactory render`.
 
 - **Layer 1 — Stage checks** (`review/stages/`): asset_integrity, timeline, content, production_quality
-- **Layer 2 — Validation rules** (`review/validation/`): 9 validators (script, narration, subtitle, image, human, motion, audio, rendering, story). Each rule: structured `ValidationResult` with rule ID, severity, evidence, confidence, `responsible_engine`.
+- **Layer 2 — Validation rules** (`review/validation/`): originally 9 validators (script, narration, subtitle, image, human, motion, audio, rendering, story); grew to **12** with the addition of bgm, vision_review, cta (see §14, §"Key Invariants" below — `ValidationRunner runs 12 validators` is the current, final count). Each rule: structured `ValidationResult` with rule ID, severity, evidence, confidence, `responsible_engine`.
 - **Layer 3 — Root Cause Analysis** (`review/rca/`): groups failures by engine, builds remediation chains, detects recurring patterns. Writes 4 files.
 - **Layer 4 — Quality Scoring** (`review/scoring/`): 8 category scorers (point-budget model), weighted average → 0–100 score, letter grade A+→F, PASS/FAIL. Writes 4 files.
 - **Layer 5 — Engine Feedback Loop** (`review/efl/`): 12 engine targets, recurring issue escalation. Writes 5 files including cross-run `recurring-patterns.json`.
@@ -1051,9 +1054,10 @@ src/video_core/models/
 ```
 
 #### Model Registry (`config/models-registry.yaml`)
-Three entries: `whisperx`, `silero_vad`, `minicpm_v2_6`. All have `auto_download: false` by default.
+**Current (final) state: four entries** — `whisperx`, `silero_vad`, `qwen2_5_vl_3b`, `minicpm_v2_6`. All have `auto_download: false` by default.
 - Lazy models (`whisperx`, `silero_vad`): no `hf_repo` — skip download entirely; return VERIFIED immediately
-- `minicpm_v2_6`: `hf_repo: "openbmb/MiniCPM-V-2_6"`, `min_disk_gb: 10`, requires torch/transformers/pillow
+- `qwen2_5_vl_3b` (the **active default** vision model, see §14 Settings and Key Invariants below): `hf_repo: "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF"`, `runtime: llama_cpp`
+- `minicpm_v2_6` (kept as an A/B alternative, not the default): `hf_repo: "openbmb/MiniCPM-V-2_6"`, `min_disk_gb: 10`, requires torch/transformers/pillow
 
 #### `LocalAIModelManager.provision()` logic
 1. Check registry entry exists and is enabled
@@ -1108,7 +1112,8 @@ Registry parses `runtime`, `capabilities`, `bundle.artifacts`, `bundle.warm_infe
 
 #### `config/models-registry.yaml` additions
 - `whisperx`, `silero_vad`: `runtime: lazy`, `capabilities: []`
-- `minicpm_v2_6`: `runtime: transformers`, `capabilities: [image_review, structured_json]`, `bundle.artifacts.text_model: {file: "."}`
+- `qwen2_5_vl_3b`: `runtime: llama_cpp`, active default vision model (see §14)
+- `minicpm_v2_6`: `runtime: transformers`, `capabilities: [image_review, structured_json]`, `bundle.artifacts.text_model: {file: "."}` — kept as A/B alternative, not the default
 
 **Test count:** +72 new tests in `tests/test_model_bundle.py` → **1929 total**
 
@@ -1165,9 +1170,9 @@ Reads `images/image-quality-summary.json` — never calls any model. Four rules:
 
 #### Settings
 ```
-IMAGE_REVIEW_ENABLED=true           # master switch (enabled by default)
-VISION_REVIEW_PROVIDER=local        # "local" | "mock"
-VISION_REVIEW_LOCAL_MODEL=qwen2_5_vl_3b
+IMAGE_REVIEW_ENABLED=true           # Settings class default (code); live .env sets it to false — gate is OFF in current practice
+VISION_REVIEW_PROVIDER=local        # "local" | "mock" | "gemini" | "huggingface"; live .env uses "huggingface" (HF_VISION_MODEL=Qwen/Qwen2.5-VL-32B-Instruct)
+VISION_REVIEW_LOCAL_MODEL=qwen2_5_vl_3b   # active default when VISION_REVIEW_PROVIDER=local
 IMAGE_REVIEW_MIN_SCORE=90
 IMAGE_REVIEW_CONFIDENCE=80
 IMAGE_REVIEW_MAX_ATTEMPTS=3
@@ -1176,8 +1181,8 @@ IMAGE_REVIEW_DEBUG=false
 ```
 
 #### Key Invariants
-- `image_review_enabled=true` (default) → `_build_review_engine()` creates vision engine at runtime
-- Default local vision model is `qwen2_5_vl_3b` via **config only** — never hardcoded in business logic
+- `image_review_enabled=true` is the `Settings` class **code** default → `_build_review_engine()` creates vision engine at runtime; the live `.env` explicitly overrides this to `false`, so the gate does not run in current practice — check the real `.env` before assuming it's active
+- Default local vision model is `qwen2_5_vl_3b` via **config only** — never hardcoded in business logic (this only applies when `VISION_REVIEW_PROVIDER=local`; the live `.env` instead uses `VISION_REVIEW_PROVIDER=huggingface`)
 - `_regenerate()` passes `seed=None` → new random seed each attempt
 - ValidationRunner now runs 12 validators (was 10) — added VisionReviewValidator and CTAValidator
 - Test count: 20 new (test_vision_provider.py) + 26 new (test_image_review_engine.py) = 46 new tests
@@ -1351,7 +1356,7 @@ patch("ytfactory.config.settings.Settings", ...)   # correct
 - `pollinations.py`, `huggingface.py`: Pillow resampling compatibility change (`Image.Resampling.LANCZOS` → `Image.LANCZOS`).
 - `huggingface_vision_provider.py`: Vision cache key now incorporates prompt_text to avoid stale revocation.
 - `build/pipeline.py`: Scene import path fixed from `ytfactory.retention.models` to `ytfactory.scenes.models`.
-- `SharedSettings`: Cartesia settings aligned to `.env` (`speed=0.88`, `timeout=90`, `sample_rate=48000`, `emotion=contemplative`, `max_chars=2500`).
+- `SharedSettings`: Cartesia settings aligned to `.env` (`speed=0.88`, `timeout=90`, `sample_rate=48000`, `emotion=contemplative`, `max_chars=2000`). **Note:** `.env.example` itself still lists the pre-alignment placeholder values (`speed=0.84`, `timeout=60`, `sample_rate=44100`, `emotion=calm`, `max_chars=2000`) — the Python `SharedSettings` class defaults above are the values actually in effect unless a real `.env` overrides them.
 - `brand_config.yaml`: Opening disabled.
 
 For VoicePipeline tests requiring CWD to resolve `workspace/`:
