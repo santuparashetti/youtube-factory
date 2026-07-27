@@ -511,6 +511,17 @@ class Settings(SharedSettings):
     text_overlay_duration_enabled: bool = True
 
     # ------------------------------------------------------------------
+    # Subtitle Burn-in
+    # ------------------------------------------------------------------
+
+    # When False, .ass/.srt files are still generated in subtitles/ (Phase 1
+    # unaffected) but never fed into the render filter chain — video renders
+    # clean with no caption text, .srt uploaded to YouTube separately.
+    # Independent of the brand_card exclusion, which always skips burn-in
+    # regardless of this setting.
+    subtitle_burn_enabled: bool = True
+
+    # ------------------------------------------------------------------
     # Motion Overlay Compositing
     # ------------------------------------------------------------------
 

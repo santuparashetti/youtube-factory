@@ -261,18 +261,26 @@ class FFmpegRenderer:
             audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
             ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
             srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
-            # Brand card is a voice-only static card — no caption burn-in.
-            # Phase 1 still writes the .ass/.srt file for this scene (untouched);
-            # we just never feed it into the subtitle filter here.
+            # Brand card is a voice-only static card — no caption burn-in,
+            # regardless of subtitle_burn_enabled. SUBTITLE_BURN_ENABLED=false
+            # suppresses burn-in for every other scene too. Phase 1 still
+            # writes the .ass/.srt file either way — only the render-time
+            # filter is skipped.
             subtitle: Path | None = (
                 None
                 if scene.get("scene_type") == "brand_card"
+                or not self.settings.subtitle_burn_enabled
                 else ass_sub
                 if ass_sub.exists()
                 else srt_sub
                 if srt_sub.exists()
                 else None
             )
+            if not self.settings.subtitle_burn_enabled and scene.get("scene_type") != "brand_card":
+                logger.info(
+                    "Scene {:03d} | subtitle burn skipped (SUBTITLE_BURN_ENABLED=false)",
+                    index,
+                )
 
             vid_inp = inp
             aud_inp = inp + 1
@@ -471,8 +479,18 @@ class FFmpegRenderer:
         # 2. Visual effects — inserted before subtitle so text stays clean
         effect_parts = self._effects_filters(effect_spec)
 
-        # 3. Subtitle burn-in — brand card is voice-only, no captions
-        sub_parts = [] if scene_type == "brand_card" else [f"subtitles='{subtitle}'"]
+        # 3. Subtitle burn-in — brand card is voice-only, no captions;
+        # SUBTITLE_BURN_ENABLED=false suppresses it for every other scene too.
+        if scene_type == "brand_card":
+            sub_parts: list[str] = []
+        elif not self.settings.subtitle_burn_enabled:
+            logger.info(
+                "Scene | subtitle burn skipped (SUBTITLE_BURN_ENABLED=false): {}",
+                output,
+            )
+            sub_parts = []
+        else:
+            sub_parts = [f"subtitles='{subtitle}'"]
 
         # 4. Fade transitions — after subtitle for cohesive fade
         fade_parts = self._fade_filters(
