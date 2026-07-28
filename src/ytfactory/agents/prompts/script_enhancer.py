@@ -6,10 +6,30 @@ Public API:
   build_pass2_prompt()          — ADR-0011 Pass 2: viewer retention optimization + Narrative Score
 """
 
+import functools
+from pathlib import Path
+
 from ytfactory.agents.prompts.script_writer import (
     DURATION_TOLERANCE_MINUTES,
     NARRATION_WPM,
 )
+
+# The Atma Theory channel framework — the single source of truth for mission,
+# voice, structure, and brand identity. Loaded at runtime (not inlined) so the
+# framework can be edited without touching this module. Pass 1 injects it in
+# full, ahead of any script content; Pass 2/3 do not receive it (see
+# build_pass2_prompt / build_duration_correction_prompt below).
+_ATMA_THEORY_FRAMEWORK_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "script_enhancer"
+    / "prompts"
+    / "ATMA_THEORY_SCRIPT_WRITER.md"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_atma_theory_framework() -> str:
+    return _ATMA_THEORY_FRAMEWORK_PATH.read_text(encoding="utf-8").strip()
 
 _STYLE_VOICES: dict[str, str] = {
     "spiritual": """\
@@ -335,7 +355,7 @@ If the input script already contains any brand blocks defined in brand_config.ya
 preserve them EXACTLY as written — do not paraphrase, reorder, merge, split, or
 rewrite them:
 
-  - "This is Atma Theory." (channel signature)
+  - "This is the Atma Theory." (channel signature)
   - The CTA line from brand_config.yaml
   - "Clear mind.\nMeaningful life." (signature)
 
@@ -346,6 +366,22 @@ topic_transition, closing_brand, cta, closing) are the ONLY new brand material
 this pass may add.
 """
 
+# Reconciled against the injected Atma Theory framework across two rounds:
+# - Old Rule 9 ("Reward curiosity ... no dangling hooks") and part of old
+#   Rule 7 (repeated-structure avoidance) were removed — the framework's
+#   VIEWER RETENTION section now owns the hook's open loop and the two-example
+#   structural-variety cap.
+# - Old Rule 3 ("One continuous journey — end every section with a bridge
+#   line") was removed — the framework's NARRATIVE MOMENTUM section now owns
+#   "always feel like a journey," including the specific story→explanation→
+#   story anti-pattern this rule never named.
+# - Continuous curiosity's fixed ~30-60s cadence was dropped — the framework's
+#   STORYTELLING RULES now explicitly forbid fixed-interval curiosity
+#   ("never from repeated questions, fixed intervals, or artificial
+#   suspense"); the question-type guidance (what/why/what's next/etc.) is
+#   kept since the framework doesn't enumerate question types.
+# Remaining rules operate at a level the framework doesn't cover (sentence-
+# level rhythm, section arc, etc.) and stay in place.
 _STRUCTURAL_TRANSFORMATION_RULES = """\
 ──────────────────────────────────────────────────────────────
 STRUCTURAL TRANSFORMATION RULES (apply to delivery only — never to content)
@@ -357,67 +393,58 @@ content without introducing new arguments, facts, or conclusions.
      not an abstract claim. Structure: Observation → Story → Conflict → Reflection → Insight
   2. Earn every insight — delay the conclusion until Question → Curiosity →
      Story → Emotion → Reflection → Realization has played out
-  3. One continuous journey — end every section with a bridge line into the next topic
-  4. Emotional escalation — sections should generally intensify:
+  3. Emotional escalation — sections should generally intensify:
      Personal → Nature → History → Civilization → Universal Truth →
      Personal Transformation → Challenge to Viewer. Flag (do not silently fix)
      any place that would require changing content order to break continuity
-  5. One dominant visual symbol — identify the strongest visual metaphor
+  4. One dominant visual symbol — identify the strongest visual metaphor
      introduced early (grass, river, fire, mountain, seed, light, tree, etc.)
      and re-touch it at intervals; the ending should return to it explicitly
-  6. Visual-first phrasing — replace abstract statements with an image the viewer
+  5. Visual-first phrasing — replace abstract statements with an image the viewer
      can picture, wherever this does not require inventing new facts
-  7. Rhythm variation — avoid repeated "Not X, not Y, but Z" constructions or
-     other repeated syntactic patterns; alternate long cinematic sentences with
-     short ones, statements with questions
-  8. Continuous curiosity — at minimum every ~30–60 seconds of runtime, raise
-     or resolve a question ("what happened," "why," "what changed," "what's next,"
-     "how is this connected")
-  9. Reward curiosity — every open question introduced must be resolved later
-     in the script — no dangling hooks
-  10. Memorable lines — preserve or lightly sharpen naturally-occurring quotable
-      lines; do not manufacture new inspirational quotes not implied by the source
-  11. Show scale — where examples are given, make visible any implied progression:
-      individual → family → community → history → civilization → humanity → self
-  12. Humanize historical figures — for any historical figure already in the script,
+  6. Rhythm variation — alternate long cinematic sentences with short ones,
+     statements with questions
+  7. Continuous curiosity — raise or resolve a question as ideas naturally
+     unfold ("what happened," "why," "what changed," "what's next," "how is
+     this connected"). Let curiosity emerge from the material itself — never
+     force it onto a fixed schedule.
+  8. Memorable lines — preserve or lightly sharpen naturally-occurring quotable
+     lines; do not manufacture new inspirational quotes not implied by the source
+  9. Show scale — where examples are given, make visible any implied progression:
+     individual → family → community → history → civilization → humanity → self
+  10. Humanize historical figures — for any historical figure already in the script,
       emphasize struggle/sacrifice/uncertainty/courage/transformation using only
       facts present in the draft — never invented specifics
-  13. Invisible transitions — replace hard section breaks with bridging phrases
+  11. Invisible transitions — replace hard section breaks with bridging phrases
       ("This same truth appeared again...", "But centuries later...")
-  14. Spoken-performance check — every rewritten sentence readable aloud in one
+  12. Spoken-performance check — every rewritten sentence readable aloud in one
       breath at a natural pace; flag anything that reads well but sounds stilted spoken
-  15. Restraint — no motivational-speaker tone, no exaggeration, no overdramatization;
+  13. Restraint — no motivational-speaker tone, no exaggeration, no overdramatization;
       calm documentary confidence throughout
 """
 
-_SELF_REVIEW_CHECKLIST = """\
-──────────────────────────────────────────────────────────────
-SELF-REVIEW CHECKLIST (evaluate before returning — this is a leading indicator
-for downstream Retention & Quality Standards scoring)
-──────────────────────────────────────────────────────────────
-Confirm ALL of the following before returning:
-- Opening creates immediate curiosity
-- Every section flows into the next with no visible seam
-- Emotional intensity generally increases section over section
-- One dominant visual metaphor unifies the piece and recurs
-- Sentence rhythm is varied, not repetitive
-- Something genuinely new lands roughly every 30–60 seconds
-- Abstract ideas are shown as scenes wherever possible
-- The ending reconnects to the opening image/idea
-- Philosophy, historical accuracy, stories, and author's voice are all unchanged
-- Overall feel is premium documentary, not lecture
-
-Refine until each criterion is satisfied. A script that fails this internal
-check will score poorly at quality_review downstream.
-"""
+# _SELF_REVIEW_CHECKLIST was removed: it was dead code (passed as a
+# self_review_checklist kwarg to _PASS2_TEMPLATE.format(), which has no
+# matching {self_review_checklist} placeholder — the checklist Pass 2 actually
+# sends is the one hardcoded inline in _PASS2_TEMPLATE below, untouched here).
+# Its content is now owned by the framework's FINAL QUALITY TEST section,
+# which Pass 1 receives in full.
 
 _PASS1_TEMPLATE = """\
+═══════════════════════════════════════════════════════════════
+ATMA THEORY SCRIPT WRITER — CHANNEL FRAMEWORK
+(Read this in full. It is the authoritative source for mission, voice, structure,
+and brand identity. No script content appears until after this framework ends.)
+═══════════════════════════════════════════════════════════════
+{framework}
+═══════════════════════════════════════════════════════════════
+END OF FRAMEWORK
+═══════════════════════════════════════════════════════════════
+
 You are a faithful documentary editor. Your only role in this pass is to faithfully render \
 the original discourse as a clean, documentary-quality narration that loses nothing.
 
 TOPIC: {topic}
-
-{voice_guide}
 
 {architecture_context}
 
@@ -458,7 +485,7 @@ WHAT PASS 1 MUST NOT DO:
 
 {structural_transformation_rules}
 
-REGISTER-SHIFT BRIDGES (expands Rule 13: Invisible transitions):
+REGISTER-SHIFT BRIDGES (expands Rule 11: Invisible transitions):
 When a section shifts from abstract metaphor/personification to direct audience
 address ("you"), or from any register to a clearly different one, do NOT insert a
 hard cut. Insert exactly one bridge line that carries the listener across:
@@ -489,15 +516,15 @@ Your handling:
 {voiceover_rules}
 
 ───────────────────────────────────────────────────────────────
+ORIGINAL DISCOURSE (render faithfully):
+───────────────────────────────────────────────────────────────
+{script}
+
+───────────────────────────────────────────────────────────────
 OUTPUT FORMAT
 ───────────────────────────────────────────────────────────────
 Return ONLY the narration text. No title. No "Here is the script:". No explanations. No section labels.
-Separate major narrative sections with ONE blank line. The text will be read aloud word-for-word.
-
-───────────────────────────────────────────────────────────────
-ORIGINAL DISCOURSE (render faithfully):
-───────────────────────────────────────────────────────────────
-{script}\
+Separate major narrative sections with ONE blank line. The text will be read aloud word-for-word.\
 """
 
 _PASS2_TEMPLATE = """\
@@ -786,9 +813,10 @@ def build_pass1_prompt(
         direction_verb = "add"
         strategy_section = _EXPAND_STRATEGY
 
-    voice_guide_text = _STYLE_VOICES.get((style or "").lower().strip(), "")
-    voice_guide = f"STYLE GUIDE:\n{voice_guide_text}" if voice_guide_text else ""
-
+    # Note: no per-style voice_guide here — the Atma Theory framework (injected
+    # below as `framework`) is the single source of truth for voice, tone, and
+    # structure in Pass 1. The `style` param is retained for signature parity
+    # with build_pass2_prompt but is not applied to Pass 1.
     architecture_context = (
         _format_architecture_summary(architecture_analysis)
         if architecture_analysis
@@ -801,6 +829,7 @@ def build_pass1_prompt(
     )
 
     return _PASS1_TEMPLATE.format(
+        framework=_load_atma_theory_framework(),
         topic=topic,
         target_minutes=target_minutes,
         min_m=min_m,
@@ -812,7 +841,6 @@ def build_pass1_prompt(
         raw_est=raw_est,
         direction_verb=direction_verb,
         word_gap=int(word_gap),
-        voice_guide=voice_guide,
         scripture_list=_format_scripture_list(placeholders or {}),
         religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
         brand_block_preservation=_BRAND_BLOCK_PRESERVATION,
@@ -883,7 +911,6 @@ def build_pass2_prompt(
         scripture_list=_format_scripture_list(placeholders or {}),
         religion_agnostic_rules=_RELIGION_AGNOSTIC_RULES,
         brand_block_preservation=_BRAND_BLOCK_PRESERVATION,
-        self_review_checklist=_SELF_REVIEW_CHECKLIST,
         welcome_block=welcome_block,
         closing=closing or get_closing(),
         topic_transition=topic_transition or get_transition(),

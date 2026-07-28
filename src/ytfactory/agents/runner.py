@@ -25,6 +25,7 @@ def run_pipeline(
     language: str = "en",
     auto: bool = False,
     script_path: str | None = None,
+    source_url: str | None = None,
     style: str | None = None,
     no_images: bool = False,
     target_minutes: int = 8,
@@ -44,6 +45,10 @@ def run_pipeline(
         auto:        If True, skip all human-review gates.
         script_path: Path to a pre-written script file. When provided, the
                      research and script-writer stages are skipped entirely.
+        source_url:  A YouTube URL. When provided, the ingestion chain
+                     (acquire_audio → transcribe → translate → human review)
+                     produces the base script instead of a script file or
+                     AI research. Mutually exclusive with script_path.
         style:       Visual style hint — "spiritual", "documentary", etc.
         no_images:   Skip image generation entirely. Use IMAGE_PROMPTS.md to
                      generate images manually, then re-run for video.
@@ -75,6 +80,9 @@ def run_pipeline(
     # ── Two-phase mode ─────────────────────────────────────────────────────
     if pipeline_mode == "resume" and project_id is None:
         raise ValueError("--phase=resume requires --project <id>")
+
+    if script_path and source_url:
+        raise ValueError("script_path and source_url are mutually exclusive — pick one source")
 
     start_time = time.perf_counter()
 
@@ -117,6 +125,13 @@ def run_pipeline(
         if style:
             console.print(f"[green]✓[/green] Style: [bold]{style}[/bold]")
 
+    if source_url:
+        console.print(f"[green]✓[/green] YouTube source: [bold]{source_url}[/bold]")
+        console.print(
+            "  [dim]Ingestion chain will run: acquire audio → transcribe → "
+            "translate → review[/dim]"
+        )
+
     if no_images or pipeline_mode == "prep_only":
         console.print(
             "[yellow]⚡ Image generation skipped[/yellow]: "
@@ -140,6 +155,7 @@ def run_pipeline(
         "skip_images": skip_images,
         "skip_thumbnail": skip_thumbnail,
         "script_md": script_md,
+        "source_url": source_url,
         "scene_plan": [],
         "image_paths": {},
         "audio_paths": {},

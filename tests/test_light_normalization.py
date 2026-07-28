@@ -333,18 +333,23 @@ class TestRenameBackwardCompat:
         assert ScriptEnhancerPipeline is DocumentaryScriptEnhancerPipeline
 
     def test_build_pipeline_has_backward_compat_attribute(self):
-        with patch("ytfactory.build.pipeline.Settings"):
-            with patch("ytfactory.build.pipeline.LightNormalizationPipeline"):
-                with patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"):
-                    with patch("ytfactory.build.pipeline.ScenePipeline"):
-                        with patch("ytfactory.build.pipeline.ImagePipeline"):
-                            with patch("ytfactory.build.pipeline.VoicePipeline"):
-                                with patch("ytfactory.build.pipeline.CaptionPipeline"):
-                                    with patch("ytfactory.build.pipeline.VideoPipeline"):
-                                        with patch("ytfactory.build.pipeline.CTAPipeline"):
-                                            with patch("ytfactory.build.pipeline.ReviewPipeline"):
-                                                with patch("ytfactory.build.pipeline.PublishPipeline"):
-                                                    from ytfactory.build.pipeline import BuildPipeline
-                                                    bp = BuildPipeline()
-                                                    # Both names should resolve to the same object
-                                                    assert bp.script_enhancer is bp.documentary_script_enhancer
+        with (
+            patch("ytfactory.build.pipeline.Settings"),
+            patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
+            patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
+            patch("ytfactory.build.pipeline.StructuralRetentionPipeline"),
+            patch("ytfactory.build.pipeline.EditorialQAPipeline"),
+            patch("ytfactory.build.pipeline.ComposerPipeline"),
+            patch("ytfactory.build.pipeline.ScenePipeline"),
+            patch("ytfactory.build.pipeline.ImagePipeline"),
+            patch("ytfactory.build.pipeline.VoicePipeline"),
+            patch("ytfactory.build.pipeline.CaptionPipeline"),
+            patch("ytfactory.build.pipeline.VideoPipeline"),
+            patch("ytfactory.build.pipeline.CTAPipeline"),
+            patch("ytfactory.build.pipeline.ReviewPipeline"),
+            patch("ytfactory.build.pipeline.PublishPipeline"),
+        ):
+            from ytfactory.build.pipeline import BuildPipeline
+            bp = BuildPipeline()
+            # Both names should resolve to the same object
+            assert bp.script_enhancer is bp.documentary_script_enhancer

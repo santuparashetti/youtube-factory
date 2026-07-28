@@ -15,7 +15,7 @@ _CONFIG_PATH = "config/brand_config.yaml"
 # -- Default values (backward-compatible Atma Theory branding) -----------------
 
 _DEFAULT_OPENING = "Welcome to Atma Theory... where ancient wisdom meets modern life."
-_DEFAULT_CLOSING = "This is Atma Theory."
+_DEFAULT_CLOSING = "This is the Atma Theory."
 _DEFAULT_CTA = (
     "If this reflection stayed with you, consider joining us on this journey."
 )

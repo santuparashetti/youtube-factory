@@ -10,6 +10,7 @@ from ytfactory.captions.cli import generate_captions
 from ytfactory.cta.cli import overlay_cta
 from ytfactory.create.cli import create
 from ytfactory.doctor.cli import doctor
+from ytfactory.editorial_qa.cli import editorial_qa, qa_app
 from ytfactory.images.cli import generate_images
 from ytfactory.import_script.cli import import_script
 from ytfactory.light_normalization.cli import normalize
@@ -19,6 +20,8 @@ from ytfactory.publish.cli import publish
 from ytfactory.review.remediation.cli import remediate
 from ytfactory.scene.cli import scene_app
 from ytfactory.scenes.cli import plan_scenes
+from ytfactory.structural_retention.cli import structural_retention
+from ytfactory.composer.cli import compose
 from ytfactory.video.cli import compare_video, render
 from ytfactory.voice.cli import generate_voice
 
@@ -292,6 +295,9 @@ app.command(name="create")(create)
 app.command(name="research")(research)
 app.command(name="import-script")(import_script)
 app.command(name="normalize")(normalize)
+app.command(name="compose")(compose)
+app.command(name="structural-retention")(structural_retention)
+app.command(name="editorial-qa")(editorial_qa)
 app.command(name="plan-scenes")(plan_scenes)
 app.command(name="generate-images")(generate_images)
 app.command(name="generate-voice")(generate_voice)
@@ -305,6 +311,7 @@ app.command(name="publish")(publish)
 app.command(name="build")(build)
 app.add_typer(scene_app, name="scene")
 app.add_typer(benchmark_app, name="benchmark")
+app.add_typer(qa_app, name="qa-promotions")
 
 
 @app.command(name="mix-bgm")
@@ -432,6 +439,13 @@ def run(
         "-s",
         help="Path to a pre-written script file. Skips research and script-writer stages.",
     ),
+    youtube_url: Optional[str] = typer.Option(
+        None,
+        "--youtube-url",
+        help="YouTube URL as the source instead of --script or AI research. Runs "
+        "acquire-audio -> transcribe -> translate -> review before script_enhancer. "
+        "Mutually exclusive with --script.",
+    ),
     style: Optional[str] = typer.Option(
         None,
         "--style",
@@ -495,6 +509,8 @@ def run(
     Research → Script → Scenes → Images + Voice (parallel) → Video → final.mp4
 
     Pass --script to skip research and use your own script directly.
+    Pass --youtube-url to ingest a source video instead (audio -> transcript ->
+    translated base script -> review), skipping research and --script both.
     Pass --no-images to skip image generation; place images manually then re-run.
     Pass --resume with --project for incremental builds — only changed stages re-run.
 
@@ -567,6 +583,7 @@ def run(
         language=language,
         auto=auto,
         script_path=script,
+        source_url=youtube_url,
         style=style,
         no_images=no_images,
         target_minutes=target_minutes,

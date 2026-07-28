@@ -113,9 +113,24 @@ class TwoPhasePipeline:
 
     # ── Phase 1 ────────────────────────────────────────────────────────────────
 
-    def run_prep_only(self, project_id: str) -> None:
-        """Run Phase 1: all stages except image generation, then halt."""
+    def run_prep_only(
+        self,
+        project_id: str,
+        *,
+        style: str | None = None,
+        target_minutes: int = 7,
+        auto: bool = False,
+    ) -> None:
+        """Run Phase 1: all stages except image generation, then halt.
+
+        Resume-skip: if a finalized script.md already exists for this
+        project, the enhancer / structural pass / QA regeneration are
+        skipped entirely and Phase 1 resumes at the review checkpoint (which
+        itself hash-guards script.md — unchanged means QA is still valid;
+        hand-edited means QA re-runs on the edit before continuing).
+        """
         from ytfactory.build.pipeline import BuildPipeline
+        from ytfactory.editorial_qa.review_gate import FinalScriptReviewGate
 
         project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
         writer = _PhaseStatusWriter(project_id, project_dir / "pipeline-status.json")
@@ -124,15 +139,22 @@ class TwoPhasePipeline:
         console.print(f"[cyan]Project:[/cyan] [bold]{project_id}[/bold]\n")
 
         pipeline = BuildPipeline()
+        script_file = project_dir / "script" / "script.md"
 
         with _activate_writer(writer):
-            # script enhancement
-            project = ProjectRepository().load(project_id)
-            pipeline.light_normalization.run(project_id)
-            pipeline.documentary_script_enhancer.run(
-                project_id,
-                topic=project.title,
-            )
+            if script_file.exists():
+                console.print(
+                    "[dim]Finalized script.md already exists — skipping composer / "
+                    "QA regeneration, resuming at review.[/dim]"
+                )
+            else:
+                ProjectRepository().load(project_id)
+                pipeline.light_normalization.run(project_id)
+                pipeline.composer.run(project_id)
+                pipeline.editorial_qa.run(project_id)
+
+            script_text = script_file.read_text(encoding="utf-8")
+            FinalScriptReviewGate(self._settings).run(project_id, script_text, auto_mode=auto)
 
             # scene planning + pre-render gate
             pipeline.scenes.run(project_id)

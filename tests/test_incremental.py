@@ -529,6 +529,9 @@ class TestBuildPipelineIncrementalScript:
             patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
             patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
             patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),  # backward compat alias
+            patch("ytfactory.build.pipeline.StructuralRetentionPipeline"),
+            patch("ytfactory.build.pipeline.EditorialQAPipeline"),
+            patch("ytfactory.build.pipeline.ComposerPipeline"),
             patch("ytfactory.build.pipeline.ScenePipeline"),
             patch("ytfactory.build.pipeline.ImagePipeline"),
             patch("ytfactory.build.pipeline.VoicePipeline"),
@@ -551,6 +554,9 @@ class TestBuildPipelineIncrementalScript:
         bp.light_normalization = MagicMock()
         bp.documentary_script_enhancer = MagicMock()
         bp.script_enhancer = bp.documentary_script_enhancer  # keep backward-compat alias
+        bp.structural_retention = MagicMock()
+        bp.editorial_qa = MagicMock()
+        bp.composer = MagicMock()
         bp.scenes = MagicMock()
         bp.images = MagicMock()
         bp.voice = MagicMock()
@@ -580,7 +586,7 @@ class TestBuildPipelineIncrementalScript:
         bp.run_incremental(project_id)
 
         bp.light_normalization.run.assert_called_once_with(project_id)
-        bp.documentary_script_enhancer.run.assert_called_once_with(project_id, topic="My Topic")
+        bp.composer.run.assert_called_once_with(project_id)
 
     def test_script_stage_skipped_when_clean(self, tmp_path, monkeypatch):
         project_id = "proj-002"
@@ -602,4 +608,4 @@ class TestBuildPipelineIncrementalScript:
         bp.run_incremental(project_id)
 
         bp.light_normalization.run.assert_not_called()
-        bp.documentary_script_enhancer.run.assert_not_called()
+        bp.composer.run.assert_not_called()

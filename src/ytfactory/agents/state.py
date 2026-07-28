@@ -30,6 +30,11 @@ class VideoState(TypedDict, total=False):
     enhancement_instructions: Optional[str]
     scene_plan: list[dict]  # validated JSON list from scene planner
 
+    # ── YouTube ingestion (alternate Phase 1 source: URL instead of a script
+    # file or AI research). When set, routes START → acquire_audio instead of
+    # research_agent / script_enhancer. See agents/nodes/youtube_ingest.py.
+    source_url: Optional[str]
+
     # ── Per-scene current pointer (set by Send during parallel fan-out) ───
     current_scene: Optional[dict]
 

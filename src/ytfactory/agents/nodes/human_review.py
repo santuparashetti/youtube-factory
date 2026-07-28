@@ -9,6 +9,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ytfactory.agents.state import VideoState
+from ytfactory.config.settings import Settings
+from ytfactory.editorial_qa.review_gate import FinalScriptReviewGate
 
 console = Console()
 
@@ -28,6 +30,50 @@ def human_review_script_node(state: VideoState) -> dict:
         Panel(
             f"[bold]Script Review[/bold]\n"
             f"Words: {word_count} (~{word_count // 130} min)",
+            title="Human Review Gate",
+            border_style="yellow",
+        )
+    )
+    console.print(
+        Markdown(
+            script[:3000]
+            + ("\n\n*[...truncated for review]*" if len(script) > 3000 else "")
+        )
+    )
+    console.print()
+
+    action = (
+        typer.prompt(
+            "Action? [a]pprove / [s]kip and continue / [q]uit",
+            default="a",
+        )
+        .strip()
+        .lower()
+    )
+
+    if action.startswith("q"):
+        raise typer.Abort()
+
+    return {}
+
+
+def human_review_base_script_node(state: VideoState) -> dict:
+    """
+    Gate: show the translated base script (from YouTube ingestion) and let
+    the user approve, skip, or edit before script_enhancer runs.
+    Only reached via the source_url entry route. In auto_mode this is a
+    no-op pass-through, same as the other review gates.
+    """
+    if state.get("auto_mode", False):
+        return {}
+
+    script = state.get("script_md", "")
+    word_count = len(script.split())
+
+    console.print(
+        Panel(
+            f"[bold]Base Script Review[/bold] (translated from source discourse)\n"
+            f"Words: {word_count}",
             title="Human Review Gate",
             border_style="yellow",
         )
@@ -100,4 +146,27 @@ def human_review_scenes_node(state: VideoState) -> dict:
     if action.startswith("q"):
         raise typer.Abort()
 
+    return {}
+
+
+def human_review_final_script_node(state: VideoState) -> dict:
+    """
+    Gate: present the finalized script (post Editorial QA) alongside its QA
+    report, between structural retention / editorial_qa and scene_planner.
+
+    Named "final_script" (not "script") to avoid colliding with
+    human_review_script_node above, which reviews the pre-enhancement draft —
+    a different checkpoint entirely.
+
+    Delegates to FinalScriptReviewGate, which hash-guards script.md: unchanged
+    since the last review -> skip straight through (QA already valid);
+    changed (hand-edited during the pause) -> re-run Editorial QA on the edit
+    first (report-only), then present the new report. Never rewrites the
+    script itself.
+    """
+    FinalScriptReviewGate(Settings()).run(
+        state["project_id"],
+        state.get("script_md", ""),
+        auto_mode=state.get("auto_mode", False),
+    )
     return {}

@@ -34,6 +34,7 @@ def build(
     force_scene: Optional[int] = typer.Option(None, "--force-scene", help="Force-regenerate one specific scene"),
     debug_incremental: bool = typer.Option(False, "--debug-incremental", help="Print per-asset change debug output"),
     phase: Optional[str] = typer.Option(None, "--phase", help="Two-phase mode: prep_only (Phase 1) or resume (Phase 2)"),
+    auto: bool = typer.Option(False, "--auto", help="Skip human-review gates, including the Phase 1 final-script review checkpoint"),
 ):
     """Build the complete video production pipeline end-to-end.
 
@@ -86,6 +87,7 @@ def build(
             project_id,
             style=style,
             target_minutes=target_minutes,
+            auto=auto,
         )
         console.print("[bold green]✓ Phase 1 prep complete[/bold green]")
         return

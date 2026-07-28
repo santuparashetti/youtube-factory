@@ -9,7 +9,7 @@ opening:
 closing:
   enabled: false
   template: |
-    This is Atma Theory.
+    This is the Atma Theory.
 
 cta:
   enabled: false

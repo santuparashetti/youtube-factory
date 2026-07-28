@@ -187,6 +187,9 @@ class TestBuildPipelineTwoPhase:
             patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
             patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
             patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),
+            patch("ytfactory.build.pipeline.StructuralRetentionPipeline"),
+            patch("ytfactory.build.pipeline.EditorialQAPipeline"),
+            patch("ytfactory.build.pipeline.ComposerPipeline"),
             patch("ytfactory.build.pipeline.ScenePipeline"),
             patch("ytfactory.build.pipeline.ImagePipeline"),
             patch("ytfactory.build.pipeline.VoicePipeline"),
@@ -209,6 +212,9 @@ class TestBuildPipelineTwoPhase:
         bp.light_normalization = MagicMock()
         bp.documentary_script_enhancer = MagicMock()
         bp.script_enhancer = bp.documentary_script_enhancer
+        bp.structural_retention = MagicMock()
+        bp.editorial_qa = MagicMock()
+        bp.composer = MagicMock()
         bp.scenes = MagicMock()
         bp.images = MagicMock()
         bp.voice = MagicMock()
@@ -239,7 +245,7 @@ class TestBuildPipelineTwoPhase:
         bp.run_prep_only(project_id, style="spiritual", target_minutes=8)
 
         two_phase_mock.run_prep_only.assert_called_once_with(
-            project_id=project_id, style="spiritual", target_minutes=8
+            project_id=project_id, style="spiritual", target_minutes=8, auto=False
         )
 
     def test_run_resume_delegates(self, tmp_path, monkeypatch):
@@ -415,3 +421,67 @@ class TestRunnerPipelineMode:
             )
 
         mock_graph.invoke.assert_not_called()
+
+
+# ── Phase 1 resume-skip: existing script.md skips regeneration ──────────────
+
+
+class TestPhase1ResumeSkip:
+    """If a finalized script.md already exists, TwoPhasePipeline.run_prep_only
+    skips composer / QA regeneration and resumes straight at the review
+    checkpoint (which itself hash-guards for hand-edits)."""
+
+    def _run(self, tmp_path, monkeypatch, script_exists: bool):
+        from ytfactory.two_phase.pipeline import TwoPhasePipeline
+
+        project_id = "proj-resume"
+        project_dir = _make_project_dir(tmp_path, project_id)
+        _make_scene_plan(project_dir, n=2)
+        (project_dir / "script").mkdir(parents=True, exist_ok=True)
+        if script_exists:
+            (project_dir / "script" / "script.md").write_text(
+                "Existing finalized script.", encoding="utf-8"
+            )
+
+        monkeypatch.setattr("ytfactory.two_phase.pipeline.WORKSPACE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            "ytfactory.two_phase.pipeline.ProjectRepository",
+            lambda: type("R", (), {"load": lambda self, pid: type("P", (), {"title": "T"})()})(),
+        )
+
+        mock_bp = MagicMock()
+
+        def _fake_compose(*args, **kwargs):
+            (project_dir / "script" / "script.md").write_text(
+                "Freshly generated script.", encoding="utf-8"
+            )
+
+        mock_bp.composer.run.side_effect = _fake_compose
+        monkeypatch.setattr("ytfactory.build.pipeline.BuildPipeline", lambda: mock_bp)
+
+        mock_gate = MagicMock()
+        mock_gate.run.side_effect = lambda pid, text, auto_mode=False: text
+        monkeypatch.setattr(
+            "ytfactory.editorial_qa.review_gate.FinalScriptReviewGate",
+            lambda settings: mock_gate,
+        )
+
+        tp = TwoPhasePipeline()
+        tp.run_prep_only(project_id, auto=True)
+        return mock_bp, mock_gate
+
+    def test_existing_script_skips_regeneration(self, tmp_path, monkeypatch):
+        mock_bp, mock_gate = self._run(tmp_path, monkeypatch, script_exists=True)
+        mock_bp.light_normalization.run.assert_not_called()
+        mock_bp.composer.run.assert_not_called()
+        mock_bp.editorial_qa.run.assert_not_called()
+        mock_gate.run.assert_called_once()
+        assert mock_gate.run.call_args.args[1] == "Existing finalized script."
+
+    def test_missing_script_runs_full_generation(self, tmp_path, monkeypatch):
+        mock_bp, mock_gate = self._run(tmp_path, monkeypatch, script_exists=False)
+        mock_bp.light_normalization.run.assert_called_once()
+        mock_bp.composer.run.assert_called_once()
+        mock_bp.editorial_qa.run.assert_called_once()
+        mock_gate.run.assert_called_once()
+        assert mock_gate.run.call_args.args[1] == "Freshly generated script."

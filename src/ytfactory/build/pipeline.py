@@ -25,6 +25,9 @@ from ytfactory.script_enhancer.pipeline import (
     DocumentaryScriptEnhancerPipeline,
     DocumentaryScriptEnhancerPipeline as ScriptEnhancerPipeline,  # noqa: F401 — backward compat for tests
 )
+from ytfactory.structural_retention.pipeline import StructuralRetentionPipeline
+from ytfactory.editorial_qa.pipeline import EditorialQAPipeline
+from ytfactory.composer.pipeline import ComposerPipeline
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.two_phase.pipeline import TwoPhasePipeline
 from ytfactory.video.pipeline import VideoPipeline
@@ -41,8 +44,14 @@ class BuildPipeline:
         settings = Settings()
 
         self.light_normalization = LightNormalizationPipeline(settings)
+        self.composer = ComposerPipeline(settings)
+        # Archived, not deleted — no longer called in the active run()/
+        # run_incremental() paths below. Kept importable/constructible for
+        # manual use (CLI) until the composer is proven.
         self.documentary_script_enhancer = DocumentaryScriptEnhancerPipeline(settings)
         self.script_enhancer = self.documentary_script_enhancer  # backward compat alias
+        self.structural_retention = StructuralRetentionPipeline(settings)
+        self.editorial_qa = EditorialQAPipeline(settings)
         self.scenes = ScenePipeline(settings)
         self.images = ImagePipeline(settings)
         self.voice = VoicePipeline(settings)
@@ -70,14 +79,10 @@ class BuildPipeline:
         with activate_writer(writer):
             try:
                 if not skip_script:
-                    project = ProjectRepository().load(project_id)
+                    ProjectRepository().load(project_id)
                     self.light_normalization.run(project_id)
-                    self.documentary_script_enhancer.run(
-                        project_id,
-                        topic=project.title,
-                        style=style,
-                        target_minutes=target_minutes,
-                    )
+                    self.composer.run(project_id)
+                    self.editorial_qa.run(project_id)
                 if not skip_scenes:
                     self.scenes.run(project_id)
                     self._run_pre_render_gate(project_id)
@@ -270,9 +275,10 @@ class BuildPipeline:
         with activate_writer(writer):
             # normalize + enhance — skipped when script.md is unchanged
             if _should_run("script"):
-                project = ProjectRepository().load(project_id)
+                ProjectRepository().load(project_id)
                 self.light_normalization.run(project_id)
-                self.documentary_script_enhancer.run(project_id, topic=project.title)
+                self.composer.run(project_id)
+                self.editorial_qa.run(project_id)
                 engine.record_stage_outputs("script")
 
             # scenes — always skipped if scene-plan.json exists and unchanged
@@ -346,12 +352,14 @@ class BuildPipeline:
         project_id: str,
         style: str | None = None,
         target_minutes: int = 7,
+        auto: bool = False,
     ) -> None:
         """Run Phase 1 of the two-phase pipeline (prep only, no image generation)."""
         TwoPhasePipeline().run_prep_only(
             project_id=project_id,
             style=style,
             target_minutes=target_minutes,
+            auto=auto,
         )
 
     def run_resume(self, project_id: str, overlay: bool = True) -> None:

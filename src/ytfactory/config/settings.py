@@ -406,12 +406,21 @@ class Settings(SharedSettings):
     # CaptionPipeline prefers alignment.json for subtitle timing when present.
     whisperx_enabled: bool = True
 
-    # Reserved for future Whisper-based transcription support.
-    # Reviewed 2026-07-12: zero call sites — dead field, kept for cleanup pass.
-    whisperx_model: str = "base"
+    # Model size for WhisperX ASR transcription (youtube_ingest.TranscriptionPipeline).
+    # Not used by forced alignment above (that path is model-free, phoneme-based).
+    # "large-v3" for real transcription accuracy on non-English source audio.
+    whisperx_model: str = "large-v3"
 
     # Device for WhisperX inference: "cpu" or "cuda".
     whisperx_device: str = "cpu"
+
+    # ------------------------------------------------------------------
+    # YouTube Ingestion (Phase 1 alternate source: URL instead of a script file)
+    # ------------------------------------------------------------------
+
+    # Source language of the discourse audio (ISO 639-1) — passed to WhisperX
+    # transcription. Kannada discourses are the primary use case.
+    youtube_ingest_language: str = "kn"
 
     # ------------------------------------------------------------------
     # Subtitle Segmentation
@@ -520,6 +529,47 @@ class Settings(SharedSettings):
     # Independent of the brand_card exclusion, which always skips burn-in
     # regardless of this setting.
     subtitle_burn_enabled: bool = True
+
+    # ------------------------------------------------------------------
+    # Structural Retention Pass
+    # ------------------------------------------------------------------
+
+    # Master switch. Runs after the enhancer passes (Pass 1, Pass 2 if
+    # enabled), before scene_planner. When False, script.md passes through
+    # unchanged — no LLM calls, no file writes.
+    structural_pass_enabled: bool = True
+
+    # Meaning-only faithfulness check after restructuring. Non-blocking by
+    # design (see STRUCTURAL_RETENTION_PASS_SPEC.md) — violations are
+    # flagged to structural-retention-report.json and logs, never
+    # auto-reverted. When False, the check is skipped entirely (one fewer
+    # LLM call); report still writes with empty faithfulness_flags.
+    structural_pass_faithfulness_check: bool = True
+
+    # ------------------------------------------------------------------
+    # Editorial QA Stage (see EDITORIAL_QA_STAGE_SPEC.md)
+    # ------------------------------------------------------------------
+    # Flags only — never gates, blocks, rejects, or reverts. By design there
+    # is no "reject"/"block" config anywhere in this stage.
+
+    # Master switch. Runs after the Structural Retention Pass. When False,
+    # no reviewer LLM call, no ledger append, no promoter evaluation.
+    editorial_qa_enabled: bool = True
+
+    # Pattern Promoter: a check must FLAG in >= N of the last M ledger
+    # entries before it's proposed as a generation-prompt change. A single
+    # or occasional flag never promotes.
+    qa_promote_n: int = 4
+    qa_promote_m: int = 5
+
+    # Runs to wait before re-proposing the same check after a human dismisses
+    # it, unless that check's flag-rate has risen since the dismissal.
+    qa_promote_cooldown_runs: int = 5
+
+    # callback_to_opening is report-only until this is enabled — its flags
+    # are recorded in the ledger but excluded from Pattern Promoter
+    # consideration until the human opts it in as a house-style requirement.
+    qa_callback_required: bool = False
 
     # ------------------------------------------------------------------
     # Motion Overlay Compositing

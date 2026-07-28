@@ -49,7 +49,7 @@ def get_closing() -> str:
 
 
 def get_closing_brand() -> str:
-    """Return the channel's brand assertion placed before the CTA ('This is Atma Theory.')."""
+    """Return the channel's brand assertion placed before the CTA ('This is the Atma Theory.')."""
     return get_brand_config().closing.text()
 
 

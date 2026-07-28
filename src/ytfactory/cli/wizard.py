@@ -199,21 +199,35 @@ def _flow_new_project(defaults: dict) -> None:
         return
 
     use_script = questionary.confirm(
-        "Do you have a pre-written script?", default=False
+        "Do you have a pre-written source?", default=False
     ).ask()
 
     script_path: str | None = None
+    source_url: str | None = None
     if use_script:
-        script_path = questionary.text(
-            "Script file path:",
-            instruction="(.md, .txt, .pdf, .docx)",
+        source_choice = questionary.select(
+            "Source:",
+            choices=["Existing base script (file path)", "YouTube URL"],
         ).ask()
-        if not script_path:
+        if not source_choice:
             return
-        script_path = script_path.strip()
-        if not Path(script_path).exists():
-            console.print(f"[red]File not found: {script_path}[/red]")
-            return
+
+        if source_choice == "YouTube URL":
+            source_url = questionary.text("YouTube URL:").ask()
+            if not source_url:
+                return
+            source_url = source_url.strip()
+        else:
+            script_path = questionary.text(
+                "Script file path:",
+                instruction="(.md, .txt, .pdf, .docx)",
+            ).ask()
+            if not script_path:
+                return
+            script_path = script_path.strip()
+            if not Path(script_path).exists():
+                console.print(f"[red]File not found: {script_path}[/red]")
+                return
 
     style = _ask_style()
     target_mins = _ask_target_minutes()
@@ -226,7 +240,8 @@ def _flow_new_project(defaults: dict) -> None:
     if not _confirm_launch(
         {
             "Title": title,
-            "Script": script_path or "AI-generated",
+            "Script": script_path or ("YouTube ingest" if source_url else "AI-generated"),
+            **({"YouTube URL": source_url} if source_url else {}),
             "Style": style or "none",
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
             "Language": lang_label,
@@ -244,6 +259,7 @@ def _flow_new_project(defaults: dict) -> None:
         language=language,
         auto=bool(auto),
         script_path=script_path,
+        source_url=source_url,
         style=style,
         target_minutes=target_mins,
         pipeline_mode="prep_only",

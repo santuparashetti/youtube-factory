@@ -11,7 +11,87 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 2923 passing, 1 skipped, 1 pre-existing unrelated failure (as of 2026-07-26)
+**Test count:** 3088 passing, 1 skipped, 6 pre-existing unrelated failures (subtitle-burn/CLI, predate this work; as of 2026-07-28)
+
+## 2026-07-28 — Composer replaces enhancer + Structural Retention Pass (whole-cloth rearchitecture)
+**Why:** Individual structural moves (open loop, parallel-example cut, shadow beat, climax breath)
+could all fire correctly and Editorial QA could pass clean, yet the composed script read worse —
+reordering already-finished prose fragmented coherence and lost the piece's soul. No stage held the
+whole script as one coherent thing while writing it; the transform model (edit → restructure →
+check) is architecturally incapable of that. Fix: compose at the source in one continuous act, not
+operate on prose after the fact.
+
+**Architecture:** Script generation moved from `DocumentaryScriptEnhancerPipeline` (Pass 1/2/3,
+mode-selection shorten/polish/expand, 80% coverage floor, no-reorder ban) + Structural Retention
+Pass (5 post-hoc moves) → single whole-cloth `ComposerPipeline`. New flow: base script → `composer`
+→ `editorial_qa` → `human_review_final_script` → `scene_planner`. Old enhancer
+(`script_enhancer/pipeline.py`) and Structural Retention Pass (`structural_retention/`) **archived,
+not deleted** — importable, CLI commands and full test suites retained, but unwired from
+`agents/graph.py`, `build/pipeline.py`, `two_phase/pipeline.py`.
+
+**Composer** (`composer/pipeline.py::ComposerPipeline`): one LLM call, temp 0.6. System prompt = full
+`ATMA_THEORY_COMPOSER.md` (`agents/prompts/composer.py::build_composer_system_prompt`, `lru_cache`);
+user content = base script. Structural principles are now composition directives inside the
+framework text, not post-hoc moves on finished prose. No mode selection, no coverage floor, no
+reorder ban — removed, they belong to the retired transform model. Length targets 7-9 min via the
+framework's LENGTH section (understanding, not a word-count gate) — `TARGET_MIN_MINUTES=7` /
+`TARGET_MAX_MINUTES=9`. `build_recompose_directive()` written but dormant/unwired — whole-piece
+recompose fallback for out-of-range output, to be wired only if real usage proves it's needed
+(single-call eagle output has landed in-range on every real run so far). Scripture protection
+carried over unchanged from the retired pipeline.
+
+**Editorial QA** (`editorial_qa/`) kept, mechanism unchanged, now positioned as final reader directly
+after `composer` (was after Structural Retention Pass). 6 evidence-bearing checks
+(`pipeline.py::CHECK_NAMES`); a verdict with no cited evidence is `invalid`, never counted as a flag
+(`_validate_evidence`) — same naming-requirement lesson as the Structural Retention Pass's
+rationalization-bug fix. Flags only — never gates/blocks/rewrites (`EDITORIAL_QA_STAGE_SPEC.md`).
+Ledger (`ledger.py::QALedger`, append-only JSONL at `workspace/editorial_qa/ledger.jsonl`,
+cross-project) + pattern promoter (`promoter.py::PatternPromoter`, proposes a generation-prompt
+change only at ≥N-of-M flag rate, human approve/dismiss via `ytfactory qa-promotions`, never
+auto-applies). Phase 2 scoped auto-fixer documented in spec but NOT built — gated on ~15-20 real
+scripts of ledger data.
+
+**Review checkpoint:** `human_review_final_script_node` (`agents/nodes/human_review.py`) +
+`FinalScriptReviewGate`/`checkpoint.py` (`editorial_qa/`) — SHA-256 hash-guard on `script.md`.
+Unchanged since last review → skip straight through; hand-edited during the pause → re-runs
+Editorial QA on the edit before continuing (report-only). Wired into the LangGraph path and
+`TwoPhasePipeline.run_prep_only()` (Phase 1 resume-skip: existing finalized `script.md` skips
+composer+QA regeneration entirely).
+
+**QA score fix:** the reviewer LLM (deepseek-v3.2) reliably inverted the sign on `editorial_score`
+(real production bug: `-9.2`; reproduced `-1.0`/`-9.5` even after prompt strengthening). Replaced
+with `pipeline.py::_derive_editorial_score` — deterministic, code-only: start at 10.0,
+`-FLAGGED_PENALTY` (1.5) per flagged check, `-INVALID_PENALTY` (2.0) per invalid check, clamp to
+`[0, 10]`. Model no longer asked for this field at all (removed from `agents/prompts/editorial_qa.py`
+schema). Range assertion kept in `pipeline.py` and `ledger.py::QALedger.append()` as free insurance
+— should never fire now that the value is our own arithmetic. Backfilled the 2 real ledger entries +
+their `qa/editorial-qa-report.json` files to the new formula.
+
+**Brand signature:** closing line changed to `"This is the Atma Theory."` (was `"This is Atma
+Theory."`). Source of truth is `config/brand_config.yaml`'s `closing.template` +
+`branding/config.py::_DEFAULT_CLOSING` fallback — matched via
+`agents/prompts/branding.py::CLOSING_VARIATIONS` inside
+`scene_planner.py::_mark_asset_scenes()`/`_is_closing_scene()`, **not** a hardcoded string in
+scene_planner itself. Matching verified working end-to-end with a temporarily-enabled test config.
+Note: `closing`/`cta`/`signature` are currently `enabled: false` in committed `brand_config.yaml`,
+so brand-card placement is presently inactive regardless — unrelated pre-existing state, not touched.
+
+**Validated (eagle script, real LLM runs, not fixtures):** composer output is tighter (958-1089
+words vs. 1325 for the surgical enhancer+structural-pass version) and more coherent — one continuous
+voice, no assembled seams. Editorial judgment improved on at least one real case: composer kept a
+story (Vinoba Bhave's chapati parable) the surgical structural pass had cut, correctly judging it a
+different narrative shape (mastery-of-small-things vs. impossible-and-prevailed) rather than a 3rd
+redundant instance. Re-composition produces a materially different draft each run (non-memorized)
+and Editorial QA flags differ run-to-run — genuine re-evaluation, not a cached template.
+
+**Superseded:** `## 2026-07-17 — ADR-0011 Two-Pass Cinematic Script Enhancer` (below) and the
+`script_enhancer` node in `## Two Execution Paths`'s graph description no longer describe the active
+script-generation path — see this entry. Left in place for history;
+`DocumentaryScriptEnhancerPipeline` itself is archived, not deleted.
+
++~120 tests (`test_composer.py`, `test_editorial_qa.py`, `test_final_script_review_gate.py`, plus
+wiring updates to `test_two_phase_pipeline.py`, `test_incremental.py`, `test_light_normalization.py`,
+`test_youtube_ingest.py`). Test count → 3088 passing, 1 skipped, 6 pre-existing unrelated failures.
 
 ## 2026-07-26 — Brand card: forced static motion + no subtitle burn-in
 Two related brand-card-only fixes, requested and verified separately.
@@ -577,6 +657,10 @@ New `src/video_core/visual_intelligence/` package:
 - Validation: term-list check for tradition names, named texts, Sanskrit-term detection
 
 ## 2026-07-17 — ADR-0011 Two-Pass Cinematic Script Enhancer
+**⚠ SUPERSEDED 2026-07-28** — `DocumentaryScriptEnhancerPipeline` is archived (not deleted) and no
+longer wired into any active pipeline path. Replaced by the whole-cloth `ComposerPipeline`; see
+`## 2026-07-28 — Composer replaces enhancer + Structural Retention Pass` above. Kept below for
+history only — do not treat as the current script-generation mechanism.
 (`docs/script/ADR-0011-documentary-script-enhancer-upgrade.md`)
 - `DocumentaryScriptEnhancerPipeline` renamed from `ScriptEnhancerPipeline` (backward-compatible alias preserved)
 - **Pass 1 (temp=0.4): Faithful Enhancement** — fidelity gate before retention optimization. Goals: preserve philosophy, emotional intent, stories, analogies, historical references, humor, speaker personality; improve clarity and flow. Must NOT optimize for engagement at cost of fidelity.
@@ -619,8 +703,17 @@ New `src/video_core/visual_intelligence/` package:
 LangGraph graph in `src/ytfactory/agents/`. Entry: `run_pipeline()` in `agents/runner.py`.  
 `--resume --project <id>` skips the LangGraph graph entirely → routes to `BuildPipeline.run_incremental()`.
 
-Nodes (per `agents/graph.py`, verified against actual `add_edge`/`add_conditional_edges` calls): START →(`_route_entry`, conditional on `--script`)→ `research_agent` **or** `script_enhancer` → `script_writer` → `human_review_script` → `script_enhancer` → `scene_planner` → `pre_render_gate` → `human_review_scenes` →(`_dispatch_scenes`, fan-out)→ `generate_scene_assets` (per-scene parallel) →(`_route_after_assets`)→ `video_renderer` → `video_concatenator` → `cta` → `quality_review` →(`_route_after_review`)→ `remediation` or `publish` →(`_route_after_remediation`)→ `publish` → END.
-Note: `script_enhancer` is reached twice in the entry-conditional branch — once directly from START when a script was pre-supplied, once after `human_review_script` on the full-research path — it is not a second alternative to `research_agent` at the same position.
+**⚠ Updated 2026-07-28** — `script_enhancer`/`structural_retention` nodes removed from the active
+graph (archived; see `## 2026-07-28 — Composer replaces enhancer...` above). Current nodes (per
+`agents/graph.py`, verified against actual `add_edge`/`add_conditional_edges` calls): START
+→(`_route_entry`: source_url → path → neither)→ `acquire_audio` **or** `composer` **or**
+`research_agent`. YouTube-URL path: `acquire_audio` → `transcribe` → `translate` →
+`human_review_base_script` → `composer`. Research path: `research_agent` → `script_writer` →
+`human_review_script` → `composer`. All three converge at `composer` → `editorial_qa` →
+`human_review_final_script` → `scene_planner` → `pre_render_gate` → `human_review_scenes`
+→(`_dispatch_scenes`, fan-out)→ `generate_scene_assets` (per-scene parallel)
+→(`_route_after_assets`)→ `video_renderer` → `video_concatenator` → `cta` → `quality_review`
+→(`_route_after_review`)→ `remediation` or `publish` →(`_route_after_remediation`)→ `publish` → END.
 
 **Interactive wizard:** `uv run ytfactory` (no subcommand) launches `src/ytfactory/cli/wizard.py`. Must be run from repo root or `.env` won't load — Settings defaults fall back to `llm_provider="anthropic"` which fails with an empty key.
 

@@ -1,0 +1,140 @@
+ATMA THEORY — FULL PIPELINE PLAYBOOK
+=====================================
+Detailed per-stage rules, structure, and checklists. The Instructions field
+holds the shared core; this file holds the depth. Run the stage requested.
+
+
+=====================================================
+STAGE 1 — TRANSLATION / BASE SCRIPT
+=====================================================
+Input: Kannada discourse transcribed to text. Output: clean English base script.
+This is RAW MATERIAL for later stages, NOT the final narration.
+
+DIVISION OF LABOR — do ONLY translation, NOT styling:
+  ALLOWED: faithful complete translation; natural readable English (not literal
+    word order); convert spoken phrasing to clean prose; remove pure scaffolding
+    (greetings, blessings, audience address, "today I want to tell you," "the
+    question is," filler, a sentence repeated for emphasis — keep the strongest).
+  FORBIDDEN: hooks, suspense, "imagine..." framing, cutting stories, reordering
+    for drama, modern parallels, commentary, editorializing.
+  Keep every philosophical insight, story, example, metaphor. Completeness lives
+    here — later stages decide what to keep. Keep names/places/cultural refs.
+  OUTPUT: continuous prose, natural paragraphs. No headings/notes. Base script only.
+
+
+=====================================================
+STAGE 2 — SCRIPT ENHANCEMENT (the documentary arc)
+=====================================================
+Input: base script. Output: cinematic documentary narration, 7-9 min
+(~1,050-1,350 words). Extract the best ~40-50% of a 15-20 min discourse.
+Quality over completeness; every sentence earns its place.
+
+THE NARRATIVE ARC (in order):
+  1. HOOK (first 20-30s) — paradox, uncomfortable truth, powerful observation, or
+     profound question. Plant ONE question the viewer can't yet answer; do NOT
+     answer it here (this is the OPEN LOOP, paid off near the end).
+  2. THE HUMAN PROBLEM — universal struggle; viewer thinks "this is me." Ground in
+     concrete modern moments (hesitation before speaking, a dream set aside,
+     silent comparison). Only recognitions the discourse supports. No pure abstraction.
+  3. THE JOURNEY — explore gradually; don't reveal the core insight too early.
+  4. THE REVELATION — the deepest insight; why it changes how we see ourselves.
+  5. MODERN LIFE — connect to modern life ONLY where the discourse supports it.
+     Never-forced themes: fear, identity, relationships, career, success, money,
+     comparison, social media, purpose, loneliness, anxiety, attachment, ego, time, death.
+  6. THE CLIMAX — first, one SHADOW BEAT (honest moment of weight; the climax must
+     rise against something real). Then build to one unforgettable realization.
+     Inevitable: "I knew this was coming... yet I couldn't have predicted it."
+  7. THE ENDING — strongest paragraph; leaves the viewer reflecting. One quiet line
+     breathes between the peak and the sign-off. Close with the two fixed brand lines.
+
+EMOTIONAL ARC (underneath the structure):
+  Curiosity → Recognition → Reflection → Discovery → Empowerment → Quiet inner peace.
+  Don't hold one intensity throughout. Let it breathe; each section the next step.
+
+
+=====================================================
+STAGE 3 — STRUCTURAL RETENTION (reshape for retention)
+=====================================================
+Reshape the script so it holds a YouTube viewer. Governing rule: RESHAPE STRUCTURE
+FREELY, NEVER CHANGE MEANING. Reordering and cutting are NOT meaning changes.
+
+THE FIVE MOVES:
+  1. OPEN LOOP — one question planted early, answer deferred to near the end. If the
+     draft answers a compelling question immediately, move the answer later.
+  2. BREAK PARALLEL EXAMPLES — max TWO same-shape examples back to back. If three+
+     stories share one structure ("told it was impossible → did it anyway"), cut the
+     weakest or separate them with a register shift (direct address / modern moment / stillness).
+  3. SHADOW BEAT — one honest moment of weight before the climax.
+  4. DEPTH OVER COVERAGE — two stories carrying the same truth: keep the strongest, cut the other.
+  5. CLIMAX BREATH — one quiet line between the emotional peak and the brand sign-off.
+
+FIDELITY CHECK (meaning-only):
+  ALLOWED (not violations): reorder ideas/stories; cut a story entirely; move where a
+    question is answered; add short connective/transitional/shadow-beat lines.
+  VIOLATIONS: inventing philosophy or a teaching not in the source; changing the
+    meaning of a retained insight/story/metaphor; altering the fixed brand lines.
+
+
+=====================================================
+STAGE 4 — NARRATION PREP (TTS-readiness)
+=====================================================
+Make the final script ready to be read aloud by a documentary narrator voice.
+  - Every sentence must read naturally spoken; no tongue-twisters or awkward clauses.
+  - No visual-only artifacts (no stray symbols, markdown, brackets, numerals that
+    should be words — write "nineteen" not "19" where spoken).
+  - Punctuation should guide natural pauses and breath.
+  - Keep the fixed closing brand lines intact.
+  - Output is plain narration text, nothing else.
+
+
+=====================================================
+STAGE 5 — IMAGE PROMPTS (per-scene visuals)
+=====================================================
+Generate cinematic visual prompts, one per scene, that match the narration's mood.
+  - Evoke: nature, light, shadow, mountains, oceans, rivers, empty roads, books,
+    ordinary human life, moments of silence, reflection.
+  - Cinematic, specific, atmospheric. Describe mood and composition, not camera brands.
+  - NEVER depict real, named, or identifiable people. No copyrighted characters/IP.
+  - Keep it safe and universal (religion-agnostic; no graphic or disturbing content).
+  - Each prompt should stand alone and clearly tie to its scene's emotional beat.
+
+
+=====================================================
+STAGE 6 — SCENE PLANNING
+=====================================================
+Segment the final script into scenes for production.
+  - Each scene = a coherent narration chunk + its emotional beat + a visual direction.
+  - Keep scene boundaries where the emotion or idea shifts, not mid-thought.
+  - Note the mood of each scene (e.g. reflective, rising, somber, hopeful) so
+    downstream visual and music choices can match.
+  - Output as a clean, ordered list of scenes.
+
+
+=====================================================
+CRAFT PRINCIPLES (apply to all writing stages)
+=====================================================
+EDITOR'S MINDSET:
+  - Preserve every unforgettable INSIGHT, not every memorable story.
+  - Two stories, same truth → keep the strongest, cut the other.
+  - Depth over coverage. If removing a story strengthens the whole, remove it.
+NARRATIVE MOMENTUM:
+  - Never: story → explanation → story → explanation.
+  - Weave story, reflection, psychology, modern life, philosophy together.
+  - Never feel like the narration stopped to explain. It should feel like a journey.
+LESS IS MORE:
+  - Never explain an idea twice or strengthen by repeating.
+  - If one sentence creates the realization, don't add three explaining it.
+  - Trust the viewer. Silence is part of storytelling.
+
+
+=====================================================
+FINAL QUALITY TEST (run silently before delivering a script)
+=====================================================
+- Does every paragraph move the story forward?
+- Can any paragraph be removed without weakening the script?
+- Any repeated philosophical idea?
+- Does every story earn its place?
+- Does the ending feel inevitable rather than sudden?
+- Will the viewer remember at least one unforgettable idea tomorrow?
+- Does this feel like a documentary, not a translated discourse?
+If any answer is "No," fix it before producing final output.
