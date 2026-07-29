@@ -1,3 +1,4 @@
+from loguru import logger
 from rich.console import Console
 from rich.rule import Rule
 
@@ -42,6 +43,7 @@ class BuildPipeline:
 
     def __init__(self):
         settings = Settings()
+        self.settings = settings
 
         self.light_normalization = LightNormalizationPipeline(settings)
         self.composer = ComposerPipeline(settings)
@@ -92,6 +94,7 @@ class BuildPipeline:
                 self.captions.run(project_id)
                 self.video.run(project_id)
                 self.cta.run(project_id)
+                self._maybe_split_video(project_id)
 
                 review_report = self.review.run(project_id)
 
@@ -225,6 +228,38 @@ class BuildPipeline:
         # Persist enriched scene plan back to disk
         SceneRepository().save_scenes(project_dir, scene_plan_data)
 
+    def _maybe_split_video(self, project_id: str) -> None:
+        """Post-processing: split final.mp4 into parts at scene boundaries.
+
+        Opt-in via VIDEO_SPLIT_ENABLED. Not a pipeline stage — does not touch
+        pipeline-status.json or trigger review validators.
+        """
+        import json
+
+        settings = self.settings
+        if not settings.video_split_enabled:
+            return
+
+        from ytfactory.video.splitter import VideoSplitter
+
+        project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
+        final_mp4_path = project_dir / "video" / "final.mp4"
+        scene_plan_path = project_dir / "scenes" / "scene-plan.json"
+
+        if not final_mp4_path.is_file() or not scene_plan_path.is_file():
+            return
+
+        scenes = json.loads(scene_plan_path.read_text(encoding="utf-8"))["scenes"]
+        parts = VideoSplitter().split(
+            input_path=final_mp4_path,
+            scenes=scenes,
+            output_dir=final_mp4_path.parent,
+            audio_dir=project_dir / "audio",
+            target_minutes=settings.video_split_length_minutes,
+        )
+        if parts:
+            logger.info(f"Video split into {len(parts)} parts: {[str(p) for p in parts]}")
+
     # ── Incremental / resume mode ─────────────────────────────────────────────
 
     def run_incremental(
@@ -312,6 +347,7 @@ class BuildPipeline:
             if _should_run("cta"):
                 self.cta.run(project_id)
                 engine.record_stage_outputs("cta")
+                self._maybe_split_video(project_id)
 
             # review
             if _should_run("review"):

@@ -4,6 +4,39 @@ Complete step-by-step guide to replicate the current production environment on a
 
 ---
 
+## Quick Start — One Command (Native, Ubuntu/Debian)
+
+For a brand-new Linux machine, a single script handles everything up through
+`ytfactory doctor`: system packages, `uv`, Python dependencies, `.env`
+scaffolding, workspace directories, and the bootstrap engine.
+
+```bash
+git clone <your-repo-url> youtube-factory
+cd youtube-factory
+./install.sh
+```
+
+It is idempotent — safe to re-run after `git pull` or if a step fails partway.
+It will **never overwrite an existing `.env`**. After it finishes, you still
+need to:
+
+1. Edit `.env` and fill in your API keys (see [Provider API Keys](#provider-api-keys--where-to-get-them)).
+2. Edit `config/brand_config.yaml` with your channel branding.
+3. Drop a few royalty-free MP3s into `workspace/music/<category>/` for BGM.
+
+Then verify with:
+
+```bash
+uv run ytfactory doctor
+uv run ytfactory run "Your Topic" --auto
+```
+
+Not on Ubuntu/Debian (macOS, Windows)? Use the [Docker path](#option-b-docker-recommended-for-any-os)
+below instead. Want to understand or customize each step `install.sh`
+automates? Read on — the rest of this guide walks through it manually.
+
+---
+
 ## System Requirements
 
 | Component | Minimum                    | Current system |
@@ -485,7 +518,30 @@ IMAGE_REVIEW_MIN_SCORE=90
 IMAGE_REVIEW_CONFIDENCE=80
 IMAGE_REVIEW_MAX_ATTEMPTS=3
 IMAGE_REVIEW_AUTO_REMEDIATE=true
+
+# ── Subtitles ────────────────────────────────────────────────────────────────
+SUBTITLE_BURN_ENABLED=true      # false = skip burning subtitles into video; upload .srt to YouTube instead
+
+# ── Cinematic Overlays (grain/smoke/particles/god-rays/rain/fog) ─────────────
+OVERLAY_ENABLED=true
+OVERLAY_GRAIN_ENABLED=true
+OVERLAY_SMOKE_ENABLED=true
+OVERLAY_PARTICLES_ENABLED=true
+OVERLAY_GOD_RAYS_ENABLED=true
+OVERLAY_RAIN_ENABLED=true
+OVERLAY_FOG_ENABLED=true
+
+# ── Post-processing: Video Split (optional) ──────────────────────────────────
+# Splits final.mp4 into 2-3 parts at scene boundaries after rendering, for
+# handoff to Epidemic Sound / external audio layering. Disabled by default —
+# existing single-file output is unchanged unless opted in.
+VIDEO_SPLIT_ENABLED=false
+VIDEO_SPLIT_LENGTH=4.0           # target part length, in minutes
 ```
+
+> This is a curated subset covering the most commonly changed settings. For
+> the exhaustive, always-current list, see `.env.example` directly — every
+> `Settings` / `SharedSettings` field has an entry there with its default.
 
 ---
 
@@ -493,6 +549,7 @@ IMAGE_REVIEW_AUTO_REMEDIATE=true
 
 ```
 youtube-factory/
+├── install.sh                  ← one-command bootstrap (native Linux)
 ├── .env                        ← your API keys (gitignored)
 ├── config/
 │   ├── brand_config.yaml       ← channel branding (canonical location)
@@ -733,6 +790,12 @@ After pulling new code:
 git pull
 uv sync                       # sync any new Python deps
 uv run ytfactory update       # re-validate environment + update manifest
+```
+
+Or just re-run the bootstrap script — it's idempotent and covers the same steps:
+
+```bash
+./install.sh
 ```
 
 After changing `.env` provider settings:

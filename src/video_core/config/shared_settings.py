@@ -208,6 +208,15 @@ class SharedSettings(BaseSettings):
     # Master switch for faithfulness validation gate.
     faithfulness_validation_enabled: bool = True
 
+    # ------------------------------------------------------------------
+    # Post-processing: Video Split
+    # ------------------------------------------------------------------
+
+    # Split final.mp4 into 2-3 parts at scene boundaries after rendering
+    # completes. Output goes to Epidemic Sound for BGM/sound layering.
+    video_split_enabled: bool = Field(default=False, alias="VIDEO_SPLIT_ENABLED")
+    video_split_length_minutes: float = Field(default=4.0, alias="VIDEO_SPLIT_LENGTH")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

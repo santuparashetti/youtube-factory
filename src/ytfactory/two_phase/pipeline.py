@@ -225,6 +225,9 @@ class TwoPhasePipeline:
             # CTA overlay
             pipeline.cta.run(project_id)
 
+            # post-processing: split final.mp4 into parts (opt-in via VIDEO_SPLIT_ENABLED)
+            pipeline._maybe_split_video(project_id)
+
             # quality review
             review_report = pipeline.review.run(project_id)
 

@@ -11,7 +11,14 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3088 passing, 1 skipped, 6 pre-existing unrelated failures (subtitle-burn/CLI, predate this work; as of 2026-07-28)
+**Test count:** 3101 passing, 1 skipped, 7 pre-existing unrelated failures (subtitle-burn/CLI, predate this work; as of 2026-07-29)
+
+## 2026-07-29 — Task: VIDEO_SPLIT_LENGTH — Split final video into parts
+`video_core/config/shared_settings.py`: `video_split_enabled` (default `False`) / `video_split_length_minutes` (default `4.0`). New `ytfactory/video/splitter.py::VideoSplitter.split()` — scene-boundary-aware split, window `[0.75×, 1.15×]` target, max 3 parts, <60s tail absorption, hard-timestamp fallback, `-c copy` stream copy, writes `video/split_manifest.json`. Wired as `BuildPipeline._maybe_split_video()` after the CTA step (true `final.mp4` completion point) in `build/pipeline.py` (`run()`/`run_incremental()`) and `two_phase/pipeline.py` (`run_resume()`). Not a pipeline stage — no `pipeline-status.json` writes. Test count → 3099, 7 pre-existing failures.
+
+**Addendum — smoke test caught real bug, fixed same session.** Original implementation used `scene-plan.json`'s `duration_seconds` (pre-TTS planning estimates). Actual `final.mp4` runs 14–19% shorter (real TTS audio lengths). Fix: `VideoSplitter.split()` now takes a required `audio_dir` param, computes per-scene durations via `ffprobe` on `audio/scene-NNN.mp3` (same source as `_actual_audio_duration`), and pins the last boundary to `ffprobe` on `final.mp4` itself so the tail always reaches true EOF. New guard: if per-scene sum diverges from `final.mp4` real duration by >5%, logs error and returns `[]`. Smoke-tested on two real projects — manifest `end_seconds` matches `final.mp4` duration exactly; cut points verified by independent scene-sum. Tests → 13/13 (11 original + 2 drift-guard tests). Test count → 3101.
+
+**Addendum 2 — window lower bound tightened 0.75× → 0.85×.** `WINDOW_LOW_RATIO` in `splitter.py` raised from `0.75` to `0.85`, narrowing the acceptance window to `[0.85×, 1.15×]` target so accepted parts stay closer to the target length (less low-end slack). `test_six_minute_video_tail_above_threshold_is_kept` changed behavior as a result — the 5-scene/180s boundary no longer clears the raised floor, so the split now lands at the 6-scene/216s boundary (tail 144s instead of 180s); assertions updated accordingly. All other scenario tests kept their outcomes (their split points already cleared 204s) — only stale `[180, 276]`/180s-threshold comments were corrected. 13/13 tests still pass. **VIDEO_SPLIT_LENGTH feature is fully closed.**
 
 ## 2026-07-28 — Composer replaces enhancer + Structural Retention Pass (whole-cloth rearchitecture)
 **Why:** Individual structural moves (open loop, parallel-example cut, shadow beat, climax breath)
