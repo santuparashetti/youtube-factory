@@ -30,6 +30,7 @@ from ytfactory.voice.aligner import boundaries_from_alignment, load_alignment
 from .artifacts import subtitles_directory
 from .models import CaptionArtifact
 from .repository import CaptionRepository
+from .transcript import build_transcript
 from ytfactory.shared.pipeline_status import get_writer
 
 
@@ -130,6 +131,7 @@ class CaptionPipeline:
             reports=reports,
             enabled=settings.subtitle_debug,
         )
+        build_transcript(project_id)
         if _w:
             _w.stage_complete()
 

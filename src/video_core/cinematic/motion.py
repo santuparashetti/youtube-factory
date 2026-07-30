@@ -150,6 +150,56 @@ def _resolve_easing(motion_type: str, cfg: ProfileConfig) -> str:
     return _MOTION_EASING.get(motion_type, cfg.easing)
 
 
+# ── Minimum motion visibility floor ──────────────────────────────────────────
+# motion.py is resolution-agnostic (drift_x/y are fractions of frame
+# width/height, consumed at any target resolution by ffmpeg_filters.py), so
+# there's no real output width to check pixel visibility against here. 1280
+# is the documented default render width (HD 720p, per CLAUDE.md) and is
+# what the showcase/verification scripts measure diff against — used as a
+# reference for "would this read as visible motion" only.
+_REFERENCE_OUTPUT_WIDTH = 1280
+_REFERENCE_OUTPUT_HEIGHT = 720
+_MIN_DRIFT_PX = 60.0
+_MIN_SCALE_DELTA = 0.20
+_ZOOM_FAMILY_PREFIXES = ("push", "pull", "reveal")
+
+
+def _enforce_min_velocity(
+    motion_type: str,
+    start_scale: float,
+    end_scale: float,
+    drift_x: float,
+    drift_y: float,
+) -> tuple[float, float, float, float]:
+    """Boost geometry that would render as sub-pixel, invisible motion.
+
+    Below ~1 output pixel of total travel, zoompan's per-frame integer
+    rounding dominates the intended continuous motion and reads as shake
+    instead of a deliberate pan/zoom (see ffmpeg_filters' sub-pixel
+    smoothing for the render-side half of this fix). Breathing/tripod are
+    excluded — intentionally subtle, and capped to short scenes instead
+    (see the >8s override in _plan_generated).
+    """
+    if motion_type.startswith("drift"):
+        # drift_x is a fraction of frame width, drift_y a fraction of
+        # height — each checked against its own axis's reference pixel
+        # count, not both against width.
+        if 0.0 < abs(drift_x) * _REFERENCE_OUTPUT_WIDTH < _MIN_DRIFT_PX:
+            sign = 1.0 if drift_x > 0 else -1.0
+            drift_x = sign * (_MIN_DRIFT_PX / _REFERENCE_OUTPUT_WIDTH)
+        if 0.0 < abs(drift_y) * _REFERENCE_OUTPUT_HEIGHT < _MIN_DRIFT_PX:
+            sign = 1.0 if drift_y > 0 else -1.0
+            drift_y = sign * (_MIN_DRIFT_PX / _REFERENCE_OUTPUT_HEIGHT)
+    elif motion_type.startswith(_ZOOM_FAMILY_PREFIXES):
+        if abs(end_scale - start_scale) < _MIN_SCALE_DELTA:
+            if end_scale >= start_scale:
+                end_scale = start_scale + _MIN_SCALE_DELTA
+            else:
+                start_scale = end_scale + _MIN_SCALE_DELTA
+
+    return start_scale, end_scale, drift_x, drift_y
+
+
 # ── Motion type → geometry resolver ──────────────────────────────────────────
 
 
@@ -662,6 +712,9 @@ class MotionPlanner:
                     start_s, end_s, ax, ay, dx, dy = _resolve_motion(
                         alt, scale_tier, cfg, scene["index"], scene_duration, shot_type
                     )
+                    start_s, end_s, dx, dy = _enforce_min_velocity(
+                        alt, start_s, end_s, dx, dy
+                    )
                     spec = MotionSpec(
                         motion_type=alt,
                         start_scale=round(start_s, 4),
@@ -715,10 +768,19 @@ class MotionPlanner:
             scale_tier = "small"
 
         scene_duration = float(scene.get("duration_seconds", 5.0))
+
+        # Breathing/tripod are subtle by design — fine for a short held
+        # shot, but on a long scene the near-static oscillation reads as
+        # "nothing is happening" rather than a deliberate slow hold.
+        if motion_type in ("hold_breathing", "hold_tripod") and scene_duration > 8.0:
+            motion_type = "drift_float"
+            scale_tier = "small"
+
         shot_type = scene.get("shot_type", "")
         start_s, end_s, ax, ay, dx, dy = _resolve_motion(
             motion_type, scale_tier, cfg, scene["index"], scene_duration, shot_type
         )
+        start_s, end_s, dx, dy = _enforce_min_velocity(motion_type, start_s, end_s, dx, dy)
 
         return MotionSpec(
             motion_type=motion_type,

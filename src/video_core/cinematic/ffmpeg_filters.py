@@ -119,6 +119,36 @@ def _clamp_drift(
     return drift
 
 
+_MIN_PER_FRAME_PX = 0.5
+
+
+def _drift_component_expr(
+    drift: float,
+    out_dim: int,
+    dim_var: str,
+    t: str,
+    active_frames: int,
+) -> str:
+    """Build one axis's drift term, stepping to whole pixels if too slow.
+
+    A continuous `iw*drift*t` expression moves less than a pixel per frame
+    when total travel is small relative to duration — zoompan floors each
+    frame's position to an integer pixel anyway, so a sub-pixel-per-frame
+    ramp quantizes into an irregular stop/hold/stop pattern that reads as
+    shake. Below that threshold, round the total travel to a whole pixel
+    count up front and step it directly (`floor(px_count*t)`), which still
+    quantizes but does so evenly across the clip instead of by accident.
+    """
+    if abs(drift) <= 1e-6:
+        return ""
+    total_px = drift * out_dim
+    per_frame_px = abs(total_px) / max(active_frames - 1, 1)
+    if per_frame_px < _MIN_PER_FRAME_PX:
+        px_count = round(total_px)
+        return f"floor({px_count}*({t}))" if px_count != 0 else ""
+    return f"{dim_var}*{drift:.6f}*({t})"
+
+
 def _validate_motion_curve(
     motion_type: str,
     start_scale: float,
@@ -369,8 +399,11 @@ def build_zoompan_filter(
         float(motion.get("drift_y", 0.0)), anchor_y, start_scale, end_scale
     )
 
-    dx = f"+iw*{drift_x:.6f}*({t})" if abs(drift_x) > 1e-6 else ""
-    dy = f"-ih*{drift_y:.6f}*({t})" if abs(drift_y) > 1e-6 else ""
+    active_frames = max(total_frames - fade_in_frames - fade_out_frames, 1)
+    dx_body = _drift_component_expr(drift_x, out_w, "iw", t, active_frames)
+    dy_body = _drift_component_expr(drift_y, out_h, "ih", t, active_frames)
+    dx = f"+{dx_body}" if dx_body else ""
+    dy = f"-{dy_body}" if dy_body else ""
 
     # Clamp to [0, zoom*iw - width] / [0, zoom*ih - height] — allows the full pan
     # range the zoompan filter actually supports while still preventing black-bars.

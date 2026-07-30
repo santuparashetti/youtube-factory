@@ -294,6 +294,7 @@ STRICT SCENE FIDELITY
 # (Leonardo, Midjourney, etc.) never sees the generation template above, so
 # the instruction has to travel with the prompt text itself.
 STORYBOARD_HEADER = (
+    "16:9 aspect ratio. "
     "Storyboard Mode. "
     "The visual_prompt is the authoritative source. "
     "Do not invent people, animals, objects, actions, or environments "
@@ -307,7 +308,7 @@ STORYBOARD_HEADER = (
 
 def prepend_storyboard_header(visual_prompt: str) -> str:
     """Prepend the storyboard header to a final output prompt. Idempotent."""
-    if visual_prompt.startswith("Storyboard Mode"):
+    if visual_prompt.startswith("16:9 aspect ratio. Storyboard Mode"):
         return visual_prompt
     return STORYBOARD_HEADER + visual_prompt
 

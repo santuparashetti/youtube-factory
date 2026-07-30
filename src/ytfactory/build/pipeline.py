@@ -29,6 +29,7 @@ from ytfactory.script_enhancer.pipeline import (
 from ytfactory.structural_retention.pipeline import StructuralRetentionPipeline
 from ytfactory.editorial_qa.pipeline import EditorialQAPipeline
 from ytfactory.composer.pipeline import ComposerPipeline
+from ytfactory.composer.selection import run_composer_with_ab_selection
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.two_phase.pipeline import TwoPhasePipeline
 from ytfactory.video.pipeline import VideoPipeline
@@ -83,7 +84,7 @@ class BuildPipeline:
                 if not skip_script:
                     ProjectRepository().load(project_id)
                     self.light_normalization.run(project_id)
-                    self.composer.run(project_id)
+                    run_composer_with_ab_selection(self.composer, project_id)
                     self.editorial_qa.run(project_id)
                 if not skip_scenes:
                     self.scenes.run(project_id)
@@ -312,7 +313,7 @@ class BuildPipeline:
             if _should_run("script"):
                 ProjectRepository().load(project_id)
                 self.light_normalization.run(project_id)
-                self.composer.run(project_id)
+                run_composer_with_ab_selection(self.composer, project_id)
                 self.editorial_qa.run(project_id)
                 engine.record_stage_outputs("script")
 

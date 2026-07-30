@@ -59,11 +59,11 @@ class TestTemplateOrdering:
 class TestPrependStoryboardHeader:
     def test_prepends_header(self):
         result = prepend_storyboard_header("A cliff at dawn.")
-        assert result.startswith("Storyboard Mode")
+        assert result.startswith("16:9 aspect ratio. Storyboard Mode")
         assert result.endswith("A cliff at dawn.")
 
     def test_idempotent(self):
-        prompt = "Storyboard Mode. Already has header. Some scene content."
+        prompt = "16:9 aspect ratio. Storyboard Mode. Already has header. Some scene content."
         result = prepend_storyboard_header(prompt)
         assert result.count("Storyboard Mode") == 1
         assert result == prompt
@@ -92,8 +92,8 @@ class TestDownstreamOutputs:
 
         manifest = json.loads((project_dir / "image_prompts_manifest.json").read_text())
         scenes = {s["scene_id"]: s for s in manifest["scenes"]}
-        assert scenes[1]["visual_prompt"].startswith("Storyboard Mode")
-        assert not scenes[2]["visual_prompt"].startswith("Storyboard Mode")
+        assert scenes[1]["visual_prompt"].startswith("16:9 aspect ratio. Storyboard Mode")
+        assert not scenes[2]["visual_prompt"].startswith("16:9 aspect ratio. Storyboard Mode")
 
     def test_image_prompts_md_prepends_header_to_non_brand_card(self, tmp_path, monkeypatch):
         from ytfactory.agents.nodes.scene_planner import _write_prompts_file
@@ -108,5 +108,5 @@ class TestDownstreamOutputs:
         _write_prompts_file(project_id, scenes, None, Settings())
 
         content = (tmp_path / "workspace" / "jobs" / project_id / "images" / "IMAGE_PROMPTS.md").read_text()
-        assert "> Storyboard Mode." in content
+        assert "> 16:9 aspect ratio. Storyboard Mode." in content
         assert "> Brand Card prompt" in content

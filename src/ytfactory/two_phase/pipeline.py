@@ -20,6 +20,7 @@ from rich.panel import Panel
 from rich.rule import Rule
 
 from ytfactory.agents.prompts.scene_planner import prepend_storyboard_header
+from ytfactory.composer.selection import run_composer_with_ab_selection
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.paths import safe_project_dir
@@ -150,7 +151,7 @@ class TwoPhasePipeline:
             else:
                 ProjectRepository().load(project_id)
                 pipeline.light_normalization.run(project_id)
-                pipeline.composer.run(project_id)
+                run_composer_with_ab_selection(pipeline.composer, project_id)
                 pipeline.editorial_qa.run(project_id)
 
             script_text = script_file.read_text(encoding="utf-8")

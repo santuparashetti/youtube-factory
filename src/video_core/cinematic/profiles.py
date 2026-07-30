@@ -83,55 +83,60 @@ _STATIC_MAP: dict[str, tuple[str, str]] = {
     ]
 }
 
-# Balanced: three motion categories, linear easing, moderate scale
+# Cinematic & Premium: full motion-type library, emotion-tuned. New motion
+# types (Cinematic Camera System) are mapped to the emotions where their
+# named intent fits best; legacy 8-type entries are kept as the fallback
+# family for the acceptable-motions rebalancer.
+_CINEMATIC_MAP: dict[str, tuple[str, str]] = {
+    "curiosity": ("push_slow", "medium"),
+    "wonder": ("drift_float", "small"),
+    "reflection": ("pull_reflection", "medium"),
+    "mystery": ("push_suspense", "small"),
+    "peace": ("hold_breathing", "small"),
+    "hope": ("drift_vertical_up", "small"),
+    "compassion": ("pull_ending", "medium"),
+    "urgency": ("push_hero", "large"),
+    "sadness": ("pull_isolation", "medium"),
+    "awe": ("reveal_window", "large"),
+    "determination": ("push_emotional", "medium"),
+    "revelation": ("pull_ending", "medium"),
+  }
+
+# Balanced: conservative subset of the new motion library layered onto the
+# original 3-category set — deliberately excludes macro/hero/reveal_corner
+# families, which stay reserved for cinematic/premium.
 _BALANCED_MAP: dict[str, tuple[str, str]] = {
     "curiosity": ("push_in", "medium"),
     "wonder": ("pull_out", "medium"),
-    "reflection": ("drift", "small"),
+    "reflection": ("drift_float", "small"),
     "mystery": ("push_in", "small"),
-    "peace": ("drift", "small"),
+    "peace": ("drift_float", "small"),
     "hope": ("pull_out", "small"),
     "compassion": ("push_in", "small"),
     "urgency": ("push_in", "large"),
     "sadness": ("pull_out", "small"),
     "awe": ("pull_out", "large"),
     "determination": ("push_in", "medium"),
-    "revelation": ("drift", "small"),
+    "revelation": ("drift_float", "small"),
 }
-
-# Cinematic & Premium: full eight motion types, emotion-tuned
-_CINEMATIC_MAP: dict[str, tuple[str, str]] = {
-    "curiosity": ("push_in", "medium"),
-    "wonder": ("pull_out_wide", "large"),
-    "reflection": ("drift", "small"),
-    "mystery": ("push_in_slow", "small"),
-    "peace": ("drift", "small"),
-    "hope": ("tilt_up", "small"),
-    "compassion": ("push_in", "small"),
-    "urgency": ("push_in_fast", "large"),
-    "sadness": ("pull_out", "medium"),
-    "awe": ("pull_out_wide", "large"),
-    "determination": ("push_in", "medium"),
-    "revelation": ("drift", "small"),
-  }
 
 # Acceptable-motion sets for the motion-variety rebalancer.
 # Each emotion maps to a small ranked set of alternatives appropriate to its
 # emotional register.  The rebalancer falls back within the same emotion rather
 # than substituting an unrelated motion type.
 _ACCEPTABLE_MOTIONS: dict[str, list[str]] = {
-    "curiosity": ["push_in", "drift"],
-    "wonder": ["pull_out", "drift"],
-    "reflection": ["drift", "push_in"],
-    "mystery": ["push_in", "drift"],
-    "peace": ["drift", "push_in"],
-    "hope": ["pull_out", "push_in"],
-    "compassion": ["push_in", "drift"],
-    "urgency": ["push_in", "drift"],
-    "sadness": ["pull_out", "drift"],
-    "awe": ["pull_out", "drift"],
-    "determination": ["push_in", "drift"],
-    "revelation": ["drift", "push_in"],
+    "curiosity": ["push_slow", "push_in", "push_reveal", "drift_float"],
+    "wonder": ["drift_float", "drift_horizon", "pull_out", "pull_wide"],
+    "reflection": ["pull_reflection", "pull_ending", "drift", "drift_float"],
+    "mystery": ["push_suspense", "push_in", "drift", "hold_breathing"],
+    "peace": ["hold_breathing", "hold_tripod", "drift_float", "drift"],
+    "hope": ["drift_vertical_up", "drift_float", "pull_out", "push_reveal"],
+    "compassion": ["pull_ending", "pull_reflection", "push_slow", "drift"],
+    "urgency": ["push_hero", "push_emotional", "push_in", "drift"],
+    "sadness": ["pull_isolation", "pull_reflection", "pull_out", "drift"],
+    "awe": ["reveal_window", "pull_wide", "reveal_corner", "pull_out"],
+    "determination": ["push_emotional", "push_hero", "push_in", "drift"],
+    "revelation": ["pull_ending", "reveal_light", "drift", "reveal_corner"],
 }
 
 
@@ -160,17 +165,17 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         motion_map=_BALANCED_MAP,
     ),
     RenderProfile.CINEMATIC: ProfileConfig(
-        scale_range_small=(1.0, 1.10),
-        scale_range_medium=(1.0, 1.18),
-        scale_range_large=(1.0, 1.25),
+        scale_range_small=(1.0, 1.22),
+        scale_range_medium=(1.0, 1.35),
+        scale_range_large=(1.0, 1.48),
         drift_amount=0.12,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
     ),
     RenderProfile.PREMIUM: ProfileConfig(
-        scale_range_small=(1.0, 1.12),
-        scale_range_medium=(1.0, 1.22),
-        scale_range_large=(1.0, 1.28),
+        scale_range_small=(1.0, 1.22),
+        scale_range_medium=(1.0, 1.35),
+        scale_range_large=(1.0, 1.48),
         drift_amount=0.14,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,

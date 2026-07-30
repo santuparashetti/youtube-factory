@@ -6,7 +6,7 @@ from rich.console import Console
 
 from ytfactory.benchmark.cli import benchmark_app
 from ytfactory.build.cli import build
-from ytfactory.captions.cli import generate_captions
+from ytfactory.captions.cli import generate_captions, transcript
 from ytfactory.cta.cli import overlay_cta
 from ytfactory.create.cli import create
 from ytfactory.doctor.cli import doctor
@@ -302,6 +302,7 @@ app.command(name="plan-scenes")(plan_scenes)
 app.command(name="generate-images")(generate_images)
 app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
+app.command(name="transcript")(transcript)
 app.command(name="render")(render)
 app.command(name="compare-video")(compare_video)
 app.command(name="overlay-cta")(overlay_cta)

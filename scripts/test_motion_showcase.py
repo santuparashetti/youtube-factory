@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
-from video_core.cinematic.motion import _resolve_easing, _resolve_motion
+from video_core.cinematic.motion import _enforce_min_velocity, _resolve_easing, _resolve_motion
 from video_core.cinematic.profiles import get_profile_config
 
 MOTION_TYPES = [
@@ -84,6 +84,7 @@ def main() -> None:
         start, end, ax, ay, dx, dy = _resolve_motion(
             motion_type, "medium", cfg, scene_index, DURATION
         )
+        start, end, dx, dy = _enforce_min_velocity(motion_type, start, end, dx, dy)
         motion = {
             "motion_type": motion_type,
             "start_scale": start,
