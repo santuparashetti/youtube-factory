@@ -1,6 +1,9 @@
 # Generated runtime data
 workspace/jobs/
 
+# Scratch renders from scripts/test_motion_showcase.py
+workspace/motion_showcase/
+
 # Keep directory structure
 !workspace/.gitkeep
 
