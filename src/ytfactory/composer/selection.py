@@ -23,13 +23,25 @@ DIVIDER = "━" * 40
 WORDS_PER_MINUTE = 140  # display estimate only — independent of composer's own target WPM
 
 
-def run_composer_with_ab_selection(composer: ComposerPipeline, project_id: str) -> None:
+def run_composer_with_ab_selection(
+    composer: ComposerPipeline,
+    project_id: str,
+    base_script_text: str | None = None,
+) -> str:
     """Run the composer twice on the same input, save script-a.md/script-b.md,
     pause for the user to pick one, then rename it to script.md (and the
-    rejected one to script-rejected.md) before the pipeline continues."""
+    rejected one to script-rejected.md) before the pipeline continues.
+
+    ``base_script_text`` is the source to compose from. When ``None`` it is read
+    from ``script.md`` on disk (the BuildPipeline / two-phase entry points, which
+    stage the base there first). The LangGraph composer node passes it explicitly
+    because the freshest base lives in graph state, not necessarily on disk yet.
+
+    Returns the chosen composed script text (the final ``script.md`` contents)."""
     script_dir = Path(WORKSPACE_DIR) / project_id / "script"
     script_file = script_dir / "script.md"
-    base_script_text = script_file.read_text(encoding="utf-8")
+    if base_script_text is None:
+        base_script_text = script_file.read_text(encoding="utf-8")
 
     composer.run(project_id, script_text=base_script_text)
     script_a = script_dir / "script-a.md"
@@ -80,3 +92,5 @@ def run_composer_with_ab_selection(composer: ComposerPipeline, project_id: str) 
     rejected_path.replace(script_dir / "script-rejected.md")
 
     console.print("Continuing pipeline...\n")
+
+    return script_file.read_text(encoding="utf-8")

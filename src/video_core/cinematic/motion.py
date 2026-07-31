@@ -74,6 +74,39 @@ _DRONE_SHOTS = frozenset({"drone_shot", "aerial"})
 _WIDE_SHOTS = frozenset({"wide_shot", "establishing"})
 
 
+def _canonical_shot_type(raw: str) -> str:
+    """Normalise a free-text shot_type to the canonical token the lookup
+    tables key on.
+
+    The scene planner emits human-readable, LLM-authored shot_type strings
+    ("wide shot", "establishing shot", "tracking shot", "drone", "close-up",
+    "wide cinematic"), but _SHOT_TYPE_PREFERENCE / _apply_shot_type_anchor key
+    on underscore tokens ("wide_shot", "establishing", "tracking_shot",
+    "drone_shot", "close_up"). Without this bridge every composition lookup
+    silently missed, so no scene ever got a shot-driven pan (drift_float for
+    wide/establishing, drift_river for tracking) or a composition-aware anchor
+    — the whole layer was dead and everything fell through to the zoom-biased
+    emotion map. Keyword matching (not exact keys) keeps it robust to phrasing
+    variants like "wide cinematic" or "extreme close-up".
+    """
+    s = (raw or "").strip().lower().replace("-", " ")
+    if not s:
+        return ""
+    if "macro" in s:
+        return "macro_shot"
+    if "drone" in s or "aerial" in s:
+        return "drone_shot"
+    if "establish" in s:
+        return "establishing"
+    if "wide" in s:
+        return "wide_shot"
+    if "tracking" in s:
+        return "tracking_shot"
+    if "close" in s:
+        return "close_up"
+    return s.replace(" ", "_")
+
+
 def _apply_shot_type_anchor(
     anchor_x: float, anchor_y: float, shot_type: str
 ) -> tuple[float, float]:
@@ -82,6 +115,7 @@ def _apply_shot_type_anchor(
     macro_shot deliberately falls through unchanged — the resolved anchor
     already fits close macro framing.
     """
+    shot_type = _canonical_shot_type(shot_type)
     if shot_type in _CLOSE_UP_SHOTS:
         return anchor_x, 0.40
     if shot_type in _DRONE_SHOTS:
@@ -109,21 +143,33 @@ def _scale_endpoint(value: float, duration_factor: float) -> float:
 
 
 # ── Per-motion-type easing overrides ─────────────────────────────────────────
-# The cinematic motion type library (Cinematic Camera System V1) was designed
-# with a distinct easing curve per motion type — sine for gentle push/pulls,
-# cubic/quint for punchier ones, linear for drift pans where a constant-speed
-# pan reads clearest. Types not listed here (legacy 8-type set: static,
-# push_in, push_in_slow, push_in_fast, pull_out, pull_out_wide, drift,
-# tilt_up, hold_locked) fall back to the profile's global easing, unchanged.
+# The cinematic motion type library (Cinematic Camera System V1) assigns a
+# distinct easing curve per motion type. Types not listed here (legacy 8-type
+# set: static, push_in, push_in_slow, push_in_fast, pull_out, pull_out_wide,
+# drift, tilt_up, hold_locked) fall back to the profile's global easing.
+#
+# Curve policy (why no cubic/quint here): on the long, contemplative scenes
+# this product renders (10–17 s), a heavily back-loaded curve leaves the frame
+# visibly frozen for most of the clip and then rushes the whole move into the
+# final third. cubic (t³) has only 12% of its travel done at the midpoint;
+# quint (t⁵) only 3%. That reads as "the effect starts in the middle" rather
+# than spanning start→end. Every curve used here completes a meaningful share
+# of its travel by the midpoint so motion is perceptible from the first second:
+#   - zoom-IN builds (push_*, macro_detail): ease_in_out — even, gentle at both
+#     ends (zero velocity at the cut boundaries → no cross-scene jerk).
+#   - zoom-OUT / reveal settles (pull_*, reveal_*): ease_out — moves
+#     immediately, decelerates into the final resting frame.
+#   - drift pans: linear — constant-speed pan reads cleanest.
+#   - sine / sine_power / smoothstep: already front-to-mid weighted, kept as-is.
 _MOTION_EASING: dict[str, str] = {
     "push_slow": "sine_power",
-    "push_emotional": "cubic",
-    "push_hero": "quint",
-    "push_reveal": "cubic",
+    "push_emotional": "ease_in_out",
+    "push_hero": "ease_in_out",
+    "push_reveal": "ease_out",
     "push_suspense": "sine_power",
     "pull_reflection": "sine",
     "pull_isolation": "ease_out",
-    "pull_ending": "cubic",
+    "pull_ending": "ease_out",
     "pull_wide": "ease_out",
     "drift_float": "linear",
     "drift_horizon": "linear",
@@ -133,9 +179,9 @@ _MOTION_EASING: dict[str, str] = {
     "hold_tripod": "sine",
     "reveal_corner": "ease_out",
     "reveal_window": "smoothstep",
-    "reveal_light": "cubic",
+    "reveal_light": "ease_out",
     "reveal_subject": "ease_out",
-    "macro_detail": "cubic",
+    "macro_detail": "ease_in_out",
     "macro_drift": "linear",
 }
 
@@ -591,7 +637,7 @@ def _apply_visual_metadata_overrides(
     current choice, so a stronger primary result (e.g. push_hero) is never
     diluted by a softer secondary signal (e.g. push_slow).
     """
-    shot_type = scene.get("shot_type", "")
+    shot_type = _canonical_shot_type(scene.get("shot_type", ""))
     visual_metadata = scene.get("visual_metadata") or {}
     mood = visual_metadata.get("mood", "")
     narrative_role = visual_metadata.get("narrative_role", "")

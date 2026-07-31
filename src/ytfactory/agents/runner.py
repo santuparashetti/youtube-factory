@@ -34,6 +34,7 @@ def run_pipeline(
     scene_filter: int | None = None,
     force_scene: int | None = None,
     pipeline_mode: str = "default",
+    ab_script_selection: bool = False,
 ) -> str:
     """
     Run the full agentic video production pipeline.
@@ -60,6 +61,9 @@ def run_pipeline(
         pipeline_mode: "default" | "prep_only" | "resume".
                        prep_only: run Phase 1, halt after voice/captions with manifest.
                        resume: validate images, then run remaining stages.
+        ab_script_selection: If True, the composer produces two variants and
+                       pauses for an interactive pick. Off by default (single
+                       compose) so non-interactive runs never block.
 
     Returns:
         The project_id of the produced video.
@@ -152,6 +156,7 @@ def run_pipeline(
         "style": style,
         "target_minutes": max(1, min(10, target_minutes)),
         "auto_mode": auto,
+        "ab_script_selection": ab_script_selection,
         "skip_images": skip_images,
         "skip_thumbnail": skip_thumbnail,
         "script_md": script_md,

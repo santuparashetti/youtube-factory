@@ -27,7 +27,7 @@ _PRESETS = [
     "📦  Publish Existing Project",
 ]
 
-_STYLES = ["Spiritual", "Documentary", "Educational", "History", "No style"]
+_STYLES = ["Documentary", "Spiritual", "Educational", "History", "No style"]
 _STYLE_MAP: dict[str, Optional[str]] = {
     "Spiritual": "spiritual",
     "Documentary": "documentary",
@@ -139,7 +139,7 @@ def _ask_project_id(label: str = "Project ID") -> Optional[str]:
     return answer or None
 
 
-def _ask_style(default: str = "Spiritual") -> Optional[str]:
+def _ask_style(default: str = "Documentary") -> Optional[str]:
     label = questionary.select("Style:", choices=_STYLES, default=default).ask()
     return _STYLE_MAP.get(label or "No style")
 
@@ -150,6 +150,16 @@ def _ask_language(default: str = "English (US)") -> tuple[str, str]:
     ).ask()
     lang_label = label or "English (US)"
     return lang_label, _LANGUAGES.get(lang_label, "en")
+
+
+def _ask_ab_selection() -> bool:
+    return bool(
+        questionary.confirm(
+            "Generate 2 script variants to choose from?",
+            default=True,
+            instruction="(runs the composer twice, then you pick the better one)",
+        ).ask()
+    )
 
 
 def _ask_profile(default: str = "Cinematic") -> str:
@@ -233,8 +243,9 @@ def _flow_new_project(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
+    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -246,6 +257,7 @@ def _flow_new_project(defaults: dict) -> None:
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
+            "Script variants": "2 (A/B pick)" if ab_selection else "1",
             "Phase": "1 (prep)",
         }
     ):
@@ -263,6 +275,7 @@ def _flow_new_project(defaults: dict) -> None:
         style=style,
         target_minutes=target_mins,
         pipeline_mode="prep_only",
+        ab_script_selection=ab_selection,
     )
 
 
@@ -275,8 +288,9 @@ def _flow_full_ai_video(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
+    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -286,6 +300,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
+            "Script variants": "2 (A/B pick)" if ab_selection else "1",
             "Images": defaults.get("image_provider", "?"),
             "TTS": defaults.get("tts_provider", "?"),
             "Mode": "fully automatic" if auto else "with review gates",
@@ -302,6 +317,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
         auto=bool(auto),
         style=style,
         target_minutes=target_mins,
+        ab_script_selection=ab_selection,
     )
 
 
@@ -325,8 +341,9 @@ def _flow_existing_script(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
+    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -337,6 +354,7 @@ def _flow_existing_script(defaults: dict) -> None:
             "Duration": f"{target_mins} min (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
+            "Script variants": "2 (A/B pick)" if ab_selection else "1",
             "Images": defaults.get("image_provider", "?"),
             "TTS": defaults.get("tts_provider", "?"),
             "Mode": "fully automatic" if auto else "with review gates",
@@ -354,6 +372,7 @@ def _flow_existing_script(defaults: dict) -> None:
         auto=bool(auto),
         style=style,
         target_minutes=target_mins,
+        ab_script_selection=ab_selection,
     )
 
 
@@ -397,9 +416,9 @@ def _flow_voice_only() -> None:
         return
 
     style_label = questionary.select(
-        "Style:", choices=_STYLES, default="Spiritual"
+        "Style:", choices=_STYLES, default="Documentary"
     ).ask()
-    style = _STYLE_MAP.get(style_label or "Spiritual") or "spiritual"
+    style = _STYLE_MAP.get(style_label or "Documentary") or "documentary"
 
     if not _confirm_launch(
         {"Project": project_id, "Stage": "Voice generation", "Style": style}

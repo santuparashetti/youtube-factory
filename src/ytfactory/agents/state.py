@@ -20,6 +20,7 @@ class VideoState(TypedDict, total=False):
     style: Optional[str]  # visual style hint: "spiritual" | "documentary" | None
     target_minutes: int  # target narration duration (1-10); drives enhancer word count
     auto_mode: bool  # True → skip all human-review gates
+    ab_script_selection: bool  # True → composer generates 2 variants; user picks one (interactive)
     skip_images: bool  # True → skip image generation (for manual-image workflow)
     skip_thumbnail: bool  # True → skip thumbnail generation (Phase 2 resume)
 

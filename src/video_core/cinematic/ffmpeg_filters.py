@@ -17,7 +17,6 @@ import math
 logger = logging.getLogger(__name__)
 
 _HALF_PI = math.pi / 2
-_TWO_PI = 2 * math.pi
 
 # Anti-jerk RULE 10: max safe scale change per frame (0.45/s @ 30fps).
 _MAX_SCALE_VELOCITY_PER_FRAME = 0.015
@@ -244,58 +243,65 @@ def _build_breathing_filter(
     fps: int,
     duration_hint: float,
 ) -> str:
-    """Build a sinusoidal breathing/tripod filter (RULE 4, 5, 6, 8, 9).
+    """Build a breathing/tripod filter as a single monotonic eased swell.
 
-    Unlike push/pull/drift motions, breathing motions oscillate around a
-    fixed baseline scale rather than interpolating from start to end.
-    RULE 5: sin(0) = 0 at on=0, so every scene starts at rest at the
-    baseline scale — no cross-scene snap.
+    Previous implementation oscillated 2.3 sine cycles across the clip. That
+    had two visible failure modes on a slow contemplative hold:
 
-    All axes share a single master oscillation (same period, same phase).
-    The previous implementation used independent periods per axis
-    (z/2.1, x/1.7, y/3.3); those periods drift in and out of phase with
-    each other, and at some frames the axes' velocities point opposite
-    directions — measured as a velocity sign reversal (e.g. vx flips
-    +0.262 -> -0.391 between consecutive frames), which reads as a shake.
-    A single shared sine removes that: every axis peaks and troughs
-    together, so the camera moves as one coordinated pulse.
+    1. **Repeat / loop.** 2.3 in-and-out pulses read as the camera "starting,
+       stopping and starting again" rather than one calm breath.
+    2. **Clamp-flat stalls.** The z oscillation dipped below the baseline
+       (baseline 1.02, amplitude 0.10 → z as low as 0.92), but z is floored at
+       1.001 to stay inside the crop. Every trough therefore pinned flat at
+       1.001 for a stretch of frames — the motion literally froze, then
+       resumed, several times per clip.
 
-    period = duration / 2.3 (not an exact fraction of duration, e.g. not
-    duration/2.0) deliberately — an exact integer number of cycles across
-    the clip returns the oscillation to (near) its starting phase at the
-    last frame, which visibility QA (first-frame vs last-frame pixel diff)
-    measures as static even though the motion is clearly visible mid-clip.
-    2.3 cycles per clip keeps multiple visible breaths while landing the
-    last frame near a phase extreme instead of near a phase repeat.
+    The fix is a single raised-cosine swell, swell(t) = (1 - cos(PI*t)) / 2,
+    that rises **monotonically** 0 → 1 across the whole clip:
+
+    - Monotonic → the camera never reverses, so it cannot read as a loop.
+    - Adds to the baseline only (z = baseline + amp*swell ≥ baseline), so z
+      never dips under the 1.001 floor — no clamp-flat stalls.
+    - RULE 5: swell(0) = 0, so every scene still starts at rest at the baseline
+      scale — no cross-scene snap.
+    - Eased both ends: swell'(t) = (PI/2)*sin(PI*t) is 0 at t=0 and t=1, so
+      there is zero velocity at both cut boundaries — no jerk in or out.
+    - First frame (baseline) and last frame (baseline+amp) differ, so
+      visibility QA (first-vs-last-frame pixel diff) still registers motion.
+
+    It reads as one extremely slow, gentle breath-in that holds — the calmest
+    possible "living frame" for meditative content.
     """
     baseline = float(motion.get("start_scale", 1.02))
     anchor_x = float(motion.get("anchor_x", 0.5))
     anchor_y = float(motion.get("anchor_y", 0.5))
 
-    safe_duration = max(duration_hint, 0.1)
-    period = safe_duration / 2.3
-    master = f"sin({_TWO_PI:.10f}*on/({period:.6f}*{fps}))"
+    total_frames = max(2, round(max(duration_hint, 0.1) * fps))
+    inv = 1.0 / (total_frames - 1)
+    # Monotonic raised-cosine swell 0 → 1 over the clip. Never reverses.
+    swell = f"(1-cos({math.pi:.10f}*on*{inv:.8f}))/2"
 
     if motion_type == "hold_tripod":
-        # amp_x carries the alternating-by-scene-index lateral direction
-        # via drift_x's sign (set in motion.py's hold_tripod case). Capped
-        # by the ~1.2%-of-frame-width room that baseline zoom 1.02 leaves
-        # around center before the crop-boundary floor (see build_zoompan_
-        # filter's x_expr) pins the position flat — amplitudes past this
-        # plateau produce no further measurable motion at this baseline.
+        # Tripod keeps its identity as a slow single-direction lateral drift
+        # (sign carried by drift_x, set per scene index in motion.py), plus a
+        # small z swell so the shot always reads as alive even where the
+        # tight baseline-1.02 crop limits how far the lateral pan can travel.
         sign = 1.0 if float(motion.get("drift_x", 0.0)) >= 0 else -1.0
-        amp_z, amp_x, amp_y = 0.0, 0.06 * sign, 0.02
+        amp_z, amp_x, amp_y = 0.03, 0.04 * sign, 0.0
     else:
-        amp_z, amp_x, amp_y = 0.10, 0.04, 0.06
+        # hold_breathing / macro_breathing: a pure z swell — no pan — so there
+        # is zero interaction with the x/y crop clamp and the motion is
+        # guaranteed smooth end to end.
+        amp_z, amp_x, amp_y = 0.045, 0.0, 0.0
 
     if abs(amp_z) > 1e-9:
-        z_body = f"{baseline:.4f}+{amp_z:.6f}*{master}"
+        z_body = f"{baseline:.4f}+{amp_z:.6f}*({swell})"
     else:
         z_body = f"{baseline:.4f}"
     z_expr = f"'max(1.001,{z_body})'"
 
-    dx = f"+iw*{amp_x:.6f}*{master}" if abs(amp_x) > 1e-9 else ""
-    dy = f"-ih*{amp_y:.6f}*{master}" if abs(amp_y) > 1e-9 else ""
+    dx = f"+iw*{amp_x:.6f}*({swell})" if abs(amp_x) > 1e-9 else ""
+    dy = f"-ih*{amp_y:.6f}*({swell})" if abs(amp_y) > 1e-9 else ""
 
     x_expr = f"'max(0,min(iw*{anchor_x:.4f}-iw/(2*zoom){dx},iw*zoom-{out_w}))'"
     y_expr = f"'max(0,min(ih*{anchor_y:.4f}-ih/(2*zoom){dy},ih*zoom-{out_h}))'"
