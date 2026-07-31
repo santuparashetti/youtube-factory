@@ -149,21 +149,59 @@ def human_review_scenes_node(state: VideoState) -> dict:
     return {}
 
 
+def _render_polisher_report(report: dict) -> None:
+    """Show the Script Selector + Polisher summary so the human sees which
+    variant was chosen and what was changed before approving."""
+    chosen = report.get("chosen", "?")
+    change_pct = report.get("change_percentage", 0)
+    changes = report.get("changes_made", []) or []
+    reason = report.get("selection_reason", "")
+    unchanged = report.get("unchanged_note", "")
+    fallback = report.get("fallback", False)
+
+    lines = [f"[bold]CHOSEN:[/bold] {chosen} — {reason}"]
+    if fallback:
+        lines.append(
+            "[yellow]⚠ Polisher did not run cleanly — this is a length-heuristic "
+            "fallback, no polishing was applied.[/yellow]"
+        )
+    lines.append(f"[bold]CHANGE %:[/bold] {change_pct}%")
+    if changes:
+        lines.append("[bold]CHANGES:[/bold]")
+        lines.extend(f"  • {c}" for c in changes)
+    else:
+        lines.append("[bold]CHANGES:[/bold] (none)")
+    if unchanged:
+        lines.append(f"[dim]{unchanged}[/dim]")
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title="Script Selector + Polisher",
+            border_style="magenta" if not fallback else "yellow",
+        )
+    )
+
+
 def human_review_final_script_node(state: VideoState) -> dict:
     """
-    Gate: present the finalized script (post Editorial QA) alongside its QA
-    report, between structural retention / editorial_qa and scene_planner.
+    Gate: present the finalized script (post Script Selector + Polisher)
+    alongside the polisher report, between the polisher and scene_planner.
 
     Named "final_script" (not "script") to avoid colliding with
-    human_review_script_node above, which reviews the pre-enhancement draft —
+    human_review_script_node above, which reviews the pre-composition draft —
     a different checkpoint entirely.
 
-    Delegates to FinalScriptReviewGate, which hash-guards script.md: unchanged
-    since the last review -> skip straight through (QA already valid);
-    changed (hand-edited during the pause) -> re-run Editorial QA on the edit
-    first (report-only), then present the new report. Never rewrites the
-    script itself.
+    When a polisher_report is present it is rendered first (chosen variant +
+    change summary), then the existing FinalScriptReviewGate runs: it
+    hash-guards script.md (unchanged since last review -> skip straight through;
+    hand-edited during the pause -> re-check the edit first), shows the script,
+    and offers the continue/stop options. Never rewrites the script itself.
     """
+    report = state.get("polisher_report")
+    if report:
+        _render_polisher_report(report)
+
     FinalScriptReviewGate(Settings()).run(
         state["project_id"],
         state.get("script_md", ""),

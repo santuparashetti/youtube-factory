@@ -14,19 +14,39 @@ from ytfactory.config.settings import Settings
 
 
 def composer_node(state: VideoState) -> dict:
+    """Compose the documentary narration from the base script.
+
+    Two selection mechanisms, flag-gated (see `_route_after_composer` in
+    agents/graph.py for how the graph routes on the outcome):
+
+    1. `ab_script_selection=True` → interactive HUMAN A/B pick. Blocking terminal
+       prompt; opt-in via its own wizard question, independent of auto_mode.
+       Generates two variants internally and the user picks — sets `script_md`
+       directly, so the graph routes straight to human_review_final_script (the
+       LLM polisher is skipped).
+    2. Otherwise (default) → produce TWO variants (`script_a`/`script_b`) at the
+       configured temperatures and hand them to the script_selector_polisher node,
+       which picks the stronger and lightly polishes it. This is the standard,
+       non-interactive path and never blocks.
+    """
     settings = Settings()
     pipeline = ComposerPipeline(settings)
+    project_id = state["project_id"]
     base_script = state.get("script_md", "")
 
-    # A/B selection is interactive (blocking terminal prompt). It is opt-in via
-    # its own wizard question and independent of auto_mode, so a fully-automatic
-    # run can still pick between two variants. Off by default → single compose,
-    # which keeps non-interactive graph runs from blocking.
     if state.get("ab_script_selection", False):
         composed = run_composer_with_ab_selection(
-            pipeline, state["project_id"], base_script_text=base_script
+            pipeline, project_id, base_script_text=base_script
         )
         return {"script_md": composed}
 
-    composed = pipeline.run(state["project_id"], script_text=base_script)
-    return {"script_md": composed}
+    # Two independent composes on the same source at slightly different
+    # temperatures — a genuinely different draft each time (the composer is
+    # non-memorizing). The polisher node chooses between them next.
+    script_a = pipeline.run(
+        project_id, script_text=base_script, temperature=settings.composer_variant_temp_a
+    )
+    script_b = pipeline.run(
+        project_id, script_text=base_script, temperature=settings.composer_variant_temp_b
+    )
+    return {"script_a": script_a, "script_b": script_b}

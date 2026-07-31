@@ -205,6 +205,21 @@ class Settings(SharedSettings):
     # forbids touching openai_provider.py's signature).
     faithfulness_validator_max_tokens: int = 150
 
+    # ── Script Selector + Polisher stage ──────────────────────────────────
+    # The composer emits two variants (A/B); the polisher picks the stronger,
+    # makes only the minimum necessary changes (≤10%), and returns the final
+    # script. Runs on a top model via the same provider (model-override pattern,
+    # like _get_cheap_llm). Replaces editorial_qa as the graph quality gate.
+    script_polisher_model: str = "anthropic/claude-opus-4-5"  # top model for final polish
+    script_polisher_temperature: float = 0.3  # low temp — precision, not creativity
+    # Reserved for future max_tokens tuning. NOT wired to the provider call —
+    # LLMProvider.generate() has no per-call max_tokens param (same limitation
+    # documented for faithfulness_validator_max_tokens above); the provider
+    # already requests a large ceiling internally.
+    script_polisher_max_tokens: int = 4000
+    composer_variant_temp_a: float = 0.62  # composer variant A temperature
+    composer_variant_temp_b: float = 0.58  # composer variant B temperature
+
     # Task 2.7: narrative-visual bridge — a batch LLM pass that derives a
     # concrete visual_anchor per scene from its narration, before prompt
     # generation, so abstract/empty-chars scenes get a specific literal

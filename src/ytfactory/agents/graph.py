@@ -6,10 +6,12 @@ Flow:
     → script_writer
       → [human_review_script]
         → composer  ◄── joins here from the alternate entry below too
-          → editorial_qa        ← Editorial QA Stage (flags only, never gates)
+          → script_selector_polisher  ← picks stronger of 2 variants + polishes ≤10%
             → [human_review_final_script]  ← hash-guarded review checkpoint
               → scene_planner
           → [human_review_scenes]
+          (composer with ab_script_selection=True skips the polisher — the human
+           already picked — and goes straight to human_review_final_script)
 
   Alternate entry — YouTube URL source (see _route_entry):
     acquire_audio → transcribe → translate → [human_review_base_script]
@@ -37,7 +39,11 @@ from langgraph.types import Send
 
 from ytfactory.agents.nodes.composer import composer_node
 from ytfactory.agents.nodes.cta import cta_node
-from ytfactory.agents.nodes.editorial_qa import editorial_qa_node
+
+# editorial_qa retired — replaced by script_selector_polisher. The node and its
+# pipeline remain importable (not deleted); it is simply no longer wired into
+# this graph. See agents/nodes/editorial_qa.py.
+from ytfactory.agents.nodes.script_selector_polisher import script_selector_polisher_node
 from ytfactory.agents.nodes.human_review import (
     human_review_base_script_node,
     human_review_final_script_node,
@@ -79,6 +85,20 @@ def _route_entry(state: VideoState) -> str:
     return "research_agent"
 
 
+def _route_after_composer(state: VideoState) -> str:
+    """Route the composer's output to the right selection mechanism.
+
+    - Interactive human A/B pick (`ab_script_selection=True`) already set
+      `script_md` inside composer_node → go straight to the human review gate;
+      the LLM polisher is skipped.
+    - Otherwise the composer emitted two variants (script_a/script_b) → the
+      script_selector_polisher node picks and lightly polishes one.
+    """
+    if state.get("ab_script_selection", False):
+        return "human_review_final_script"
+    return "script_selector_polisher"
+
+
 def _route_after_assets(state: VideoState) -> str:
     """Skip video rendering when --no-images was used (no images to render)."""
     if state.get("skip_images"):
@@ -109,7 +129,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("research_agent", research_node)
     workflow.add_node("script_writer", script_writer_node)
     workflow.add_node("composer", composer_node)
-    workflow.add_node("editorial_qa", editorial_qa_node)
+    workflow.add_node("script_selector_polisher", script_selector_polisher_node)
     workflow.add_node("human_review_final_script", human_review_final_script_node)
     workflow.add_node("human_review_script", human_review_script_node)
     workflow.add_node("acquire_audio", acquire_audio_node)
@@ -147,8 +167,17 @@ def build_graph() -> StateGraph:
     workflow.add_edge("research_agent", "script_writer")
     workflow.add_edge("script_writer", "human_review_script")
     workflow.add_edge("human_review_script", "composer")
-    workflow.add_edge("composer", "editorial_qa")
-    workflow.add_edge("editorial_qa", "human_review_final_script")
+    # composer → (human A/B pick already done) human_review_final_script
+    #          → (default) script_selector_polisher → human_review_final_script
+    workflow.add_conditional_edges(
+        "composer",
+        _route_after_composer,
+        {
+            "script_selector_polisher": "script_selector_polisher",
+            "human_review_final_script": "human_review_final_script",
+        },
+    )
+    workflow.add_edge("script_selector_polisher", "human_review_final_script")
     workflow.add_edge("human_review_final_script", "scene_planner")
     workflow.add_edge("scene_planner", "pre_render_gate")
     workflow.add_edge("pre_render_gate", "human_review_scenes")

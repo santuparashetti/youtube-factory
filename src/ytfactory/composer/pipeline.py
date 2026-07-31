@@ -51,7 +51,13 @@ class ComposerPipeline:
         self._settings = settings
         self._llm = get_llm_provider(settings)
 
-    def run(self, project_id: str, script_text: str | None = None) -> str:
+    def run(
+        self,
+        project_id: str,
+        script_text: str | None = None,
+        *,
+        temperature: float | None = None,
+    ) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,7 +83,7 @@ class ComposerPipeline:
         if _w:
             _w.stage_start("composer")
 
-        composed_ph = self._compose(system_prompt, placeholder_text)
+        composed_ph = self._compose(system_prompt, placeholder_text, temperature=temperature)
         composed = restore_scripture_spans(composed_ph, placeholders)
 
         words = len(composed.split())
@@ -118,7 +124,18 @@ class ComposerPipeline:
 
         return composed
 
-    def _compose(self, system_prompt: str, base_script_ph: str, recompose_directive: str = "") -> str:
+    def _compose(
+        self,
+        system_prompt: str,
+        base_script_ph: str,
+        recompose_directive: str = "",
+        *,
+        temperature: float | None = None,
+    ) -> str:
         prompt = build_composer_user_prompt(base_script_ph, recompose_directive)
-        response = self._llm.generate(prompt, system_prompt=system_prompt, temperature=0.6)
+        response = self._llm.generate(
+            prompt,
+            system_prompt=system_prompt,
+            temperature=0.6 if temperature is None else temperature,
+        )
         return response.text.strip()

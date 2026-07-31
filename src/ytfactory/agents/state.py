@@ -31,6 +31,15 @@ class VideoState(TypedDict, total=False):
     enhancement_instructions: Optional[str]
     scene_plan: list[dict]  # validated JSON list from scene planner
 
+    # ── Composer two-variant output + Script Selector + Polisher ──────────
+    # composer_node (polisher path) writes both variants; script_selector_polisher
+    # picks the stronger, lightly polishes it, and writes selected_script back
+    # into script_md (the real backward-compat key every downstream stage reads).
+    script_a: str  # composer variant A (temp composer_variant_temp_a)
+    script_b: str  # composer variant B (temp composer_variant_temp_b)
+    selected_script: str  # chosen + polished script, ready for scene_planner
+    polisher_report: dict  # {chosen, selection_reason, changes_made, change_percentage, unchanged_note, [fallback]}
+
     # ── YouTube ingestion (alternate Phase 1 source: URL instead of a script
     # file or AI research). When set, routes START → acquire_audio instead of
     # research_agent / script_enhancer. See agents/nodes/youtube_ingest.py.
