@@ -13,6 +13,25 @@ metadata:
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
 **Test count:** 3102 passing, 1 skipped, 7 pre-existing unrelated failures (subtitle-burn/CLI, predate this work; as of 2026-07-29)
 
+## 2026-07-31 — A/B script selection wired into wizard/graph path; wizard defaults flipped; breathing filter → monotonic swell (commit 4850a3a)
+
+**Why:** The A/B two-variant composer selection (`composer/selection.py::run_composer_with_ab_selection`, added 2026-07-30 in commit 45504f5) was only wired into the *sequential* pipelines — `BuildPipeline.run`/`run_incremental` and `TwoPhasePipeline` — reached by `ytfactory build`. The **interactive wizard** (`uv run ytfactory`, the default experience) runs the *LangGraph* path via `agents/runner.py::run_pipeline` → `graph.invoke`, whose `composer_node` called `ComposerPipeline.run()` exactly once. So picking a base script in the wizard never produced two variants. This session wired A/B into that graph path.
+
+**Graph wiring (`agents/nodes/composer.py::composer_node`):** now branches on a new `ab_script_selection` state flag. When set → `run_composer_with_ab_selection(pipeline, project_id, base_script_text=state["script_md"])` (returns the chosen composed text, put back into `script_md`); otherwise → single `pipeline.run()` as before. **Keyed off its own flag, NOT `auto_mode`** — deliberately, so a fully-automatic run can still stop for the A/B pick. Default is **off** in `run_pipeline` (`ab_script_selection: bool = False`), so non-interactive/background graph runs never block on the interactive picker.
+
+**`composer/selection.py::run_composer_with_ab_selection` signature change (backward compatible):** gained optional `base_script_text: str | None = None` and now **returns `str`** (the winning `script.md` contents). When `base_script_text is None` it reads `script.md` from disk (the `BuildPipeline`/two-phase callers, which stage the base there first, are unchanged). The graph passes it explicitly because the freshest base lives in graph state, not always on disk yet. New `ab_script_selection: bool` field on `VideoState` (`agents/state.py`); threaded through `run_pipeline` into `initial_state`.
+
+**Wizard (`cli/wizard.py`) — new prompt + three default flips:**
+- New `_ask_ab_selection()` → `questionary.confirm("Generate 2 script variants to choose from?", default=True)`; wired into all three composing flows (`_flow_new_project`, `_flow_full_ai_video`, `_flow_existing_script`) and passed as `ab_script_selection=`. Confirm summary shows `Script variants: 2 (A/B pick)` or `1`.
+- **"Run fully automatically (skip review gates)?" default flipped `True` → `False`** (all three flows) — pressing Enter now keeps the interactive review gates on.
+- **Style default changed `Spiritual` → `Documentary`**: `_STYLES` list reordered (Documentary first), `_ask_style(default=...)` and the voice-only flow's inline style select both default to Documentary.
+
+**Breathing filter reworked — supersedes the `_build_breathing_filter` portion of the 2026-07-30 entry below.** The shared-master-sine 2.3-cycle oscillation (documented in that entry) is replaced by a single **monotonic raised-cosine swell** `swell(t) = (1 - cos(PI*t))/2`, rising 0→1 across the whole clip. Two failure modes it fixes on a slow contemplative hold: (1) 2.3 in/out pulses read as start-stop-start (a "loop"), and (2) the z oscillation dipped below the 1.001 crop floor and pinned flat at each trough — the motion literally froze several times per clip. Monotonic + additive-to-baseline (`z = baseline + amp*swell ≥ baseline`) fixes both; `swell(0)=0` still preserves the RULE 5 no-cross-scene-snap start-at-rest. `_TWO_PI` constant removed from `ffmpeg_filters.py`. (`motion.py` also carries the pre-existing drift velocity-floor work bundled in commit 45504f5.)
+
+**Also bundled in the commit:** docs move (`The_latest_pipeline_execution_review.md`, `atma_theory_pipeline_playbook.txt` → `docs/pipeline/`); tracked runtime artifacts (`workspace/editorial_qa/{ledger.jsonl,promotions.json}`, `base_scripts/refined script files/the-invisible-prison-called-ego.md`) from a test run.
+
+**Verification:** ruff clean on all touched files; `tests/test_composer.py` 17 pass (1 deselected — `test_composes_eagle_script`, a pre-existing missing-fixture failure unrelated to this work). No dedicated wizard/runner-graph A/B test added yet. Committed + pushed to `main`.
+
 ## 2026-07-30 — Cinematic Camera System: oscillation-jerk fix + WEAK-type visibility boost
 **Why:** Breathing/tripod motion measurably shook — three independent per-axis sine periods (z/2.1, x/1.7, y/3.3 in `_build_breathing_filter`) drift in and out of phase, producing brief velocity sign reversals (e.g. frame 27 `vx=+0.262` → frame 28 `vx=-0.391`). Separately, a `scripts/test_motion_showcase.py` visibility audit (renders one clip per motion type, measures first-vs-last-frame pixel diff) found several types reading as WEAK or STATIC in practice.
 
