@@ -221,3 +221,136 @@ class TestHumanClassificationRules:
         assert "hands" in rule
         assert "feet" in rule
         assert "body part" in rule
+
+
+# ── Bug-fix regression tests ──────────────────────────────────────────────────
+
+
+class TestBodyPartFalsePositive:
+    """Bug 1: isolated body-part words must NOT fire HUMAN_CLASSIFICATION_VIOLATED
+    in non-animal_only NO_HUMAN_ALLOWED scenes (log: shoulder/arm/brain false positives)."""
+
+    def _run(self, prompt: str, category: str = "landscape") -> list:
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": [],
+            "forbidden_objects": [],
+            "scene_characters": [],
+            "characters": [],
+            "environment": "mountain pass",
+            "scene_category": category,
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt=prompt,
+            narration="A mountain path winds through fog.",
+            human_classification=HumanClassification.NO_HUMAN_ALLOWED,
+            scene_category=category,
+        )
+        return [e.code for e in result.errors]
+
+    def test_shoulder_in_landscape_scene_is_not_violation(self):
+        # "mountain shoulder" is geographic — not a human
+        codes = self._run("The rugged mountain shoulder disappears into low cloud.")
+        assert "HUMAN_CLASSIFICATION_VIOLATED" not in codes
+
+    def test_arm_in_landscape_scene_is_not_violation(self):
+        codes = self._run("A river arm curves around the rocky outcrop at dawn.")
+        assert "HUMAN_CLASSIFICATION_VIOLATED" not in codes
+
+    def test_hand_in_non_animal_scene_is_not_violation(self):
+        # hand is already excepted in non-animal scenes; regression guard
+        codes = self._run("A golden hand reaches from a cloud in classical style.")
+        assert "HUMAN_CLASSIFICATION_VIOLATED" not in codes
+
+    def test_standing_figure_is_still_a_violation(self):
+        # Action words remain hard violations — action implies a human agent
+        codes = self._run("A figure standing at the edge of a cliff.")
+        assert "HUMAN_CLASSIFICATION_VIOLATED" in codes
+
+    def test_silhouette_is_still_a_violation(self):
+        codes = self._run("A dark silhouette against the setting sun.")
+        assert "HUMAN_CLASSIFICATION_VIOLATED" in codes
+
+
+class TestHumanSymbolicForbiddenCharacterContradiction:
+    """Bug 2: generic human tokens must NOT fire FORBIDDEN_CHARACTER when
+    human_classification requires a human figure (log: scene 011 'man' rejected)."""
+
+    def _run(
+        self,
+        prompt: str,
+        forbidden: list[str],
+        human_classification: HumanClassification,
+    ) -> list:
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": forbidden,
+            "forbidden_objects": [],
+            "scene_characters": [],
+            "characters": [],
+            "environment": "abstract",
+            "scene_category": "human_symbolic",
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt=prompt,
+            narration="A symbolic figure contemplates the void.",
+            human_classification=human_classification,
+            scene_category="human_symbolic",
+        )
+        return [e.code for e in result.errors]
+
+    def test_man_not_forbidden_in_human_symbolic_scene(self):
+        # entity extraction produced forbidden_characters=["man"] but the scene
+        # requires a symbolic human — "man" must not be force-failed
+        codes = self._run(
+            prompt="A solitary man rendered as a geometric abstraction against fog.",
+            forbidden=["man"],
+            human_classification=HumanClassification.HUMAN_SYMBOLIC,
+        )
+        assert "FORBIDDEN_CHARACTER" not in codes
+
+    def test_person_not_forbidden_in_human_required_scene(self):
+        codes = self._run(
+            prompt="A person kneeling in prayer, dramatically lit.",
+            forbidden=["person"],
+            human_classification=HumanClassification.HUMAN_REQUIRED,
+        )
+        assert "FORBIDDEN_CHARACTER" not in codes
+
+    def test_non_generic_forbidden_still_fires_in_human_symbolic_scene(self):
+        # Only generic human tokens get the bypass — named characters stay blocked
+        codes = self._run(
+            prompt="Arjuna stands on the battlefield, bow raised.",
+            forbidden=["arjuna"],
+            human_classification=HumanClassification.HUMAN_SYMBOLIC,
+        )
+        assert "FORBIDDEN_CHARACTER" in codes
+
+    def test_man_IS_forbidden_in_no_human_scene(self):
+        # Bypass only applies when human presence is required — not when forbidden
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": ["man"],
+            "forbidden_objects": [],
+            "scene_characters": [],
+            "characters": [],
+            "environment": "forest",
+            "scene_category": "landscape",
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt="A man walks through the ancient forest.",
+            narration="The forest is empty and still.",
+            human_classification=HumanClassification.NO_HUMAN_ALLOWED,
+            scene_category="landscape",
+        )
+        codes = [e.code for e in result.errors]
+        assert "FORBIDDEN_CHARACTER" in codes

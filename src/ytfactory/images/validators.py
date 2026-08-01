@@ -51,14 +51,27 @@ HUMAN_CLASSIFICATION_RULES: dict[HumanClassification, str] = {
 }
 
 
-SYMBOLIC_BODY_PART_EXCEPTION = {
-    "hand",
-    "hands",
-    "foot",
-    "feet",
-    "eye",
-    "eyes",
-}
+# Body-part words that can appear in a NO_HUMAN_ALLOWED scene without implying a
+# human figure — e.g. "mountain shoulder", "river arm", "neural brain diagram",
+# "finger of land", "leg of the journey". In non-animal_only scenes these are
+# excepted from the HUMAN_CLASSIFICATION_VIOLATED check; animal_only scenes use
+# _is_animal_possessive_context instead (the stricter path).
+# Action words (standing/walking/holding/…) and figure words (silhouette/portrait/…)
+# are intentionally absent — they unambiguously require a human agent.
+SYMBOLIC_BODY_PART_EXCEPTION: frozenset[str] = frozenset({
+    "hand", "hands",
+    "foot", "feet",
+    "eye", "eyes",
+    "arm", "arms",
+    "leg", "legs",
+    "shoulder", "shoulders",
+    "torso",
+    "chest",
+    "forehead",
+    "chin",
+    "cheek",
+    "finger", "fingers",
+})
 
 
 # ── Task 2.3 — Story Fidelity Validator Fix ─────────────────────────────────────
@@ -119,6 +132,16 @@ SYMBOLIC_HUMAN_FIGURES: frozenset[str] = frozenset(
         "hermit", "rishi", "master",
     }
 )
+
+# Generic human-figure tokens that are STRUCTURALLY REQUIRED when
+# human_classification is HUMAN_SYMBOLIC / HUMAN_REQUIRED / NAMED_PERSON_REQUIRED.
+# Blocking these via forbidden_characters in those scenes is contradictory —
+# the validator already checks that a human IS present; FORBIDDEN_CHARACTER must
+# not then reject generic human words that serve that presence.
+_GENERIC_HUMAN_TOKENS: frozenset[str] = frozenset({
+    "man", "woman", "person", "figure", "human",
+    "boy", "girl", "child", "people",
+})
 
 # Environments that cannot be represented literally — a real-world visual
 # metaphor (a still lake, an open field) standing in for them is correct
@@ -424,6 +447,27 @@ class StoryFidelityValidator:
                         forbidden,
                     )
                     continue
+                # When the scene requires a human presence (human_symbolic /
+                # human_required / named_person_required), blocking generic human
+                # tokens like "man" or "person" is self-contradictory — entity
+                # extraction can produce this inconsistency. The human-presence
+                # check above already gates quality; don't also forbid the words
+                # that satisfy it.
+                if (
+                    human_classification in (
+                        HumanClassification.HUMAN_SYMBOLIC,
+                        HumanClassification.HUMAN_REQUIRED,
+                        HumanClassification.NAMED_PERSON_REQUIRED,
+                    )
+                    and forbidden.lower() in _GENERIC_HUMAN_TOKENS
+                ):
+                    logger.debug(
+                        "FORBIDDEN_CHARACTER check: '{}' is a generic human token "
+                        "but human_classification=%s requires human presence — skipping",
+                        forbidden,
+                        human_classification.value,
+                    )
+                    continue
                 errors.append(
                     ValidationError(
                         code="FORBIDDEN_CHARACTER",
@@ -528,13 +572,18 @@ class StoryFidelityValidator:
                     # Task 2.4 Fix 4: "eye"/"hand" etc. are only a real violation
                     # in animal_only scenes when NOT immediately preceded by an
                     # animal name ("the eagle's eye" is fine; a bare "the eye"
-                    # or "a man's hand" is not). Outside animal_only scenes,
-                    # keep the Task 2.2 symbolic-close-up exception as-is.
+                    # or "a man's hand" is not). For non-animal scenes these fall
+                    # through to the SYMBOLIC_BODY_PART_EXCEPTION check below.
                     if scene_category == "animal_only":
                         if _is_animal_possessive_context(indicator, prompt_lower, animal_names):
                             continue
-                    elif indicator in SYMBOLIC_BODY_PART_EXCEPTION:
-                        continue
+                # Isolated body-part words (shoulder, arm, brain, hand, etc.) can
+                # appear without a human figure in non-animal scenes — mountain
+                # shoulder, river arm, neural brain diagram. Action/figure words
+                # (standing, silhouette, …) are NOT in SYMBOLIC_BODY_PART_EXCEPTION
+                # and still fire unconditionally.
+                if scene_category != "animal_only" and indicator in SYMBOLIC_BODY_PART_EXCEPTION:
+                    continue
                 if scene_category == "animal_only" and indicator in ANIMAL_SAFE_WORDS:
                     continue
                 detected_human_words.append(indicator)
