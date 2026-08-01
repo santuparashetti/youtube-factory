@@ -456,6 +456,20 @@ class TestEnvironmentCoreWordMatch:
             "A dim warehouse full of crates and forklifts.",
         )
 
+    def test_outdoor_market_not_satisfied_by_indoor(self):
+        # indoors/outdoors are NOT qualifier-stripped — they change the visual,
+        # so "outdoor market" must count "outdoor" toward the core-word match
+        assert self._env_error(
+            "outdoor market",
+            "A bustling indoor market hall under a glass roof.",
+        )
+
+    def test_outdoor_market_matched_by_outdoor_prompt(self):
+        assert not self._env_error(
+            "outdoor market",
+            "A bustling outdoor market with striped awnings at noon.",
+        )
+
 
 class TestForbiddenObjectMetaphorGuard:
     """Fix B: a forbidden object that is the scene's own required visual /

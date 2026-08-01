@@ -113,14 +113,16 @@ _ANIMAL_ADJACENCY_WORDS: frozenset[str] = frozenset({"eye", "eyes", "hand", "han
 # its own. Unambiguous human words (man/woman/standing/…) are still blocked.
 _CAMERA_TERM_WORDS: frozenset[str] = frozenset({"profile", "portrait"})
 
-# Locational qualifier words stripped before the environment core-word fallback.
-# "auction houses abroad" → core {auction, house} → matched against prompt.
-# These words modify a location without describing its substance — dropping
-# them prevents spurious mismatches when the prompt omits the qualifier while
-# correctly depicting the setting. Deliberately small and closed.
+# Geographic-distance qualifier words stripped before the environment core-word
+# fallback. "auction houses abroad" → core {auction, house} → matched against
+# prompt. These describe WHERE a setting sits relative to the viewer, not WHAT
+# it looks like, so dropping them prevents spurious mismatches when the prompt
+# omits the qualifier while correctly depicting the setting.
+# Deliberately excludes indoors/outdoors/inside/outside — those DO change the
+# depicted visual (an outdoor market is not an indoor market hall), so they must
+# still count toward the core-word match. Deliberately small and closed.
 _ENV_QUALIFIER_WORDS: frozenset[str] = frozenset({
     "abroad", "overseas", "nearby", "distant", "foreign",
-    "indoors", "outdoors", "inside", "outside",
 })
 
 # Semantic equivalents — if a detected "unsupported" character word maps to an
