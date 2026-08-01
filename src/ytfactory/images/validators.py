@@ -106,6 +106,23 @@ UNAMBIGUOUS_HUMAN_WORDS: frozenset[str] = frozenset(
 # animal name from the scene's characters. See _is_animal_possessive_context().
 _ANIMAL_ADJACENCY_WORDS: frozenset[str] = frozenset({"eye", "eyes", "hand", "hands"})
 
+# Cinematic shot / composition vocabulary that overlaps with anatomy words.
+# These must NOT trigger HUMAN_CLASSIFICATION_VIOLATED — they are framing
+# instructions, not references to a human body. "Profile shot" is a camera
+# angle; "portrait" is a framing style; neither signals a human presence on
+# its own. Unambiguous human words (man/woman/standing/…) are still blocked.
+_CAMERA_TERM_WORDS: frozenset[str] = frozenset({"profile", "portrait"})
+
+# Locational qualifier words stripped before the environment core-word fallback.
+# "auction houses abroad" → core {auction, house} → matched against prompt.
+# These words modify a location without describing its substance — dropping
+# them prevents spurious mismatches when the prompt omits the qualifier while
+# correctly depicting the setting. Deliberately small and closed.
+_ENV_QUALIFIER_WORDS: frozenset[str] = frozenset({
+    "abroad", "overseas", "nearby", "distant", "foreign",
+    "indoors", "outdoors", "inside", "outside",
+})
+
 # Semantic equivalents — if a detected "unsupported" character word maps to an
 # allowed character word, it is not actually unsupported (e.g. "woman" when
 # allowed_characters=["she"]).
@@ -244,6 +261,48 @@ def should_skip_environment_check(scene_env: str) -> bool:
     return any(term in scene_env_lower for term in ABSTRACT_ENVIRONMENTS)
 
 
+def _singularize(word: str) -> str:
+    """Strip a trailing plural 's' so "houses" matches "house". Intentionally
+    simple — only handles the common regular plural; irregulars are rare in
+    environment strings and a miss just falls through to the exact-substring
+    path."""
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def environment_matches(environment: str, prompt_lower: str) -> bool:
+    """True when the prompt satisfies the Scene Analysis environment.
+
+    Two-tier match, no numeric thresholds:
+      1. Exact substring (fast path, unchanged behaviour).
+      2. Core-word fallback: every content word of the environment — after
+         dropping generic locational qualifiers (_ENV_QUALIFIER_WORDS) and
+         singularising — must appear in the prompt. This tolerates plural /
+         qualifier drift ("auction houses abroad" ~ "an auction house") while
+         still rejecting a genuinely different setting (a monastery prompt
+         lacks "auction"/"house").
+    """
+    env_lower = environment.lower().strip()
+    if env_lower in prompt_lower:
+        return True
+
+    core_words = [
+        _singularize(w)
+        for w in re.findall(r"\b[a-z]+\b", env_lower)
+        if len(w) > 2 and w not in _ENV_QUALIFIER_WORDS
+    ]
+    if not core_words:
+        return False  # nothing substantive to match — defer to exact path result
+    # Start-boundary only (no trailing \b) so a singularised core word still
+    # matches its plural in the prompt ("house" ~ "houses") while a word
+    # boundary at the start blocks false hits like "warehouse" for "house".
+    return all(
+        re.search(r"\b" + re.escape(w), prompt_lower) is not None
+        for w in core_words
+    )
+
+
 @dataclass
 class ValidationError:
     """Structured validation failure returned by validators."""
@@ -375,9 +434,15 @@ class StoryFidelityValidator:
         narration: str,
         human_classification: HumanClassification | None = None,
         scene_category: str = "",
+        visual_anchor: str = "",
     ) -> ValidationResult:
         errors: list[ValidationError] = []
         prompt_lower = prompt.lower()
+        # A scene's own required-visual language — the narration plus its
+        # visual_anchor (the "REQUIRED VISUAL"). A token the scene is required
+        # to depict must never be treated as a forbidden object (see the
+        # FORBIDDEN_OBJECT metaphor guard below).
+        required_visual_lower = (narration + " " + visual_anchor).lower()
         allowed_characters = [
             c.lower() for c in scene_analysis.get("allowed_characters", [])
         ]
@@ -485,6 +550,18 @@ class StoryFidelityValidator:
         ]
         for forbidden_obj in forbidden_objs:
             if forbidden_obj.lower() in prompt_lower:
+                # Metaphor guard: entity extraction can wrongly forbid an object
+                # that is the scene's OWN core metaphor / required visual (e.g.
+                # "canvas" forbidden on a scene about painting a life onto a
+                # canvas). If the object appears in the scene's narration or
+                # visual_anchor, it is required, not forbidden — skip it.
+                if forbidden_obj.lower() in required_visual_lower:
+                    logger.debug(
+                        "FORBIDDEN_OBJECT check: '{}' is part of the scene's own "
+                        "required visual / narration — skipping",
+                        forbidden_obj,
+                    )
+                    continue
                 errors.append(
                     ValidationError(
                         code="FORBIDDEN_OBJECT",
@@ -499,7 +576,7 @@ class StoryFidelityValidator:
         environment = scene_analysis.get("environment", "")
         if (
             environment
-            and environment.lower() not in prompt_lower
+            and not environment_matches(environment, prompt_lower)
             and not should_skip_environment_check(environment)
         ):
             errors.append(
@@ -567,6 +644,11 @@ class StoryFidelityValidator:
             animal_names = scene_analysis.get("characters") or scene_analysis.get("allowed_characters", [])
             for indicator in UNAMBIGUOUS_HUMAN_WORDS:
                 if not re.search(r"\b" + re.escape(indicator) + r"\b", prompt_lower):
+                    continue
+                # Camera/composition vocabulary ("profile shot", "portrait")
+                # overlaps with anatomy words but signals framing, not a human
+                # body — never a HUMAN_CLASSIFICATION violation on its own.
+                if indicator in _CAMERA_TERM_WORDS:
                     continue
                 if indicator in _ANIMAL_ADJACENCY_WORDS:
                     # Task 2.4 Fix 4: "eye"/"hand" etc. are only a real violation
@@ -829,10 +911,12 @@ def run_validators(
     narration: str,
     human_classification: HumanClassification | None = None,
     scene_category: str = "",
+    visual_anchor: str = "",
 ) -> ValidationResult:
     """Run all story-fidelity validators and return the combined result."""
     fidelity = StoryFidelityValidator().validate(
-        scene_analysis, prompt, narration, human_classification, scene_category
+        scene_analysis, prompt, narration, human_classification,
+        scene_category, visual_anchor,
     )
     symbolism = SymbolismValidator().validate(narration, prompt)
     realism = RealismValidator().validate(prompt)

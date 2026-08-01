@@ -1195,6 +1195,7 @@ def scene_planner_node(state: VideoState) -> dict:
                 narration=scene.get("narration", ""),
                 human_classification=entities.human_classification,
                 scene_category=entities.scene_category,
+                visual_anchor=scene.get("visual_anchor", ""),
             )
 
             # Task 2.4 Fix 1 / Task 2.5 Fix C: zero CRITICAL errors = PASS,

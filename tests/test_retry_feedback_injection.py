@@ -354,3 +354,159 @@ class TestHumanSymbolicForbiddenCharacterContradiction:
         )
         codes = [e.code for e in result.errors]
         assert "FORBIDDEN_CHARACTER" in codes
+
+
+# ── RUN3 false-positive fixes ─────────────────────────────────────────────────
+
+
+class TestCameraTermNotHuman:
+    """Fix A: 'profile'/'portrait' are shot vocabulary, not human body refs
+    (log scene 013: HUMAN_CLASSIFICATION_VIOLATED — remove 'profile')."""
+
+    def _codes(self, prompt: str) -> list:
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": [],
+            "forbidden_objects": [],
+            "scene_characters": [],
+            "characters": [],
+            "environment": "an auction house",
+            "scene_category": "object_focus",
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt=prompt,
+            narration="A gavel rests on the auctioneer's desk.",
+            human_classification=HumanClassification.NO_HUMAN_ALLOWED,
+            scene_category="object_focus",
+        )
+        return [e.code for e in result.errors]
+
+    def test_profile_shot_is_not_human_violation(self):
+        codes = self._codes(
+            "Profile shot of an antique vase in an auction house, side lighting."
+        )
+        assert "HUMAN_CLASSIFICATION_VIOLATED" not in codes
+
+    def test_portrait_framing_is_not_human_violation(self):
+        codes = self._codes(
+            "A portrait orientation composition of a lone chair in an auction house."
+        )
+        assert "HUMAN_CLASSIFICATION_VIOLATED" not in codes
+
+    def test_standing_still_fires(self):
+        # regression guard — real human tokens are unaffected by the camera guard
+        codes = self._codes(
+            "A man standing beside the auction house podium."
+        )
+        assert "HUMAN_CLASSIFICATION_VIOLATED" in codes
+
+
+class TestEnvironmentCoreWordMatch:
+    """Fix C: qualified/plural environment strings match the depicted setting
+    (log scene 013: ENVIRONMENT_MISMATCH — allowed 'auction houses abroad')."""
+
+    def _env_error(self, environment: str, prompt: str) -> bool:
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": [],
+            "forbidden_objects": [],
+            "scene_characters": [],
+            "characters": [],
+            "environment": environment,
+            "scene_category": "object_focus",
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt=prompt,
+            narration="A gavel falls.",
+            human_classification=HumanClassification.NO_HUMAN_ALLOWED,
+            scene_category="object_focus",
+        )
+        return "ENVIRONMENT_MISMATCH" in [e.code for e in result.errors]
+
+    def test_plural_and_qualifier_still_match(self):
+        # "auction houses abroad" ~ "an auction house"
+        assert not self._env_error(
+            "auction houses abroad",
+            "Interior of an elegant auction house, warm chandelier light.",
+        )
+
+    def test_exact_substring_still_matches(self):
+        assert not self._env_error(
+            "a quiet monastery",
+            "A quiet monastery courtyard at dawn.",
+        )
+
+    def test_genuinely_wrong_environment_still_fails(self):
+        # a monastery prompt must not satisfy an auction-house environment
+        assert self._env_error(
+            "auction houses abroad",
+            "A quiet monastery courtyard at dawn, stone walls.",
+        )
+
+    def test_warehouse_does_not_satisfy_house(self):
+        # start-boundary guard: "warehouse" must not match core word "house"
+        assert self._env_error(
+            "auction houses abroad",
+            "A dim warehouse full of crates and forklifts.",
+        )
+
+
+class TestForbiddenObjectMetaphorGuard:
+    """Fix B: a forbidden object that is the scene's own required visual /
+    metaphor must not fire (log scene 017: FORBIDDEN_OBJECT — remove 'canvas'
+    on a paint-a-life-onto-canvas scene)."""
+
+    def _codes(self, prompt, forbidden_objects, narration="", visual_anchor=""):
+        from ytfactory.images.validators import StoryFidelityValidator
+        v = StoryFidelityValidator()
+        scene_analysis = {
+            "allowed_characters": [],
+            "forbidden_characters": [],
+            "forbidden_objects": forbidden_objects,
+            "scene_characters": [],
+            "characters": [],
+            "environment": "abstract",
+            "scene_category": "abstract",
+        }
+        result = v.validate(
+            scene_analysis=scene_analysis,
+            prompt=prompt,
+            narration=narration,
+            human_classification=HumanClassification.HUMAN_SYMBOLIC,
+            scene_category="abstract",
+            visual_anchor=visual_anchor,
+        )
+        return [e.code for e in result.errors]
+
+    def test_canvas_in_narration_is_not_forbidden(self):
+        codes = self._codes(
+            prompt="A vast blank canvas slowly filling with colour.",
+            forbidden_objects=["canvas"],
+            narration="Each choice paints a life onto the canvas of the years.",
+        )
+        assert "FORBIDDEN_OBJECT" not in codes
+
+    def test_canvas_in_visual_anchor_is_not_forbidden(self):
+        codes = self._codes(
+            prompt="A vast blank canvas slowly filling with colour.",
+            forbidden_objects=["canvas"],
+            narration="Each choice adds a brushstroke.",
+            visual_anchor="A painter's canvas being filled stroke by stroke.",
+        )
+        assert "FORBIDDEN_OBJECT" not in codes
+
+    def test_unrelated_forbidden_object_still_fires(self):
+        # guard only exempts the scene's own required visual — others still block
+        codes = self._codes(
+            prompt="A canvas beside a smartphone on the table.",
+            forbidden_objects=["smartphone"],
+            narration="Each choice paints a life onto the canvas.",
+            visual_anchor="A painter's canvas.",
+        )
+        assert "FORBIDDEN_OBJECT" in codes
