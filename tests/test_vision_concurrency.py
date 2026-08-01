@@ -60,6 +60,9 @@ class TestConfigValidation:
         s = SharedSettings()
         assert s.vision_max_concurrency == 1
 
+    def test_audience_profile_default_is_western_english(self):
+        assert SharedSettings().AUDIENCE_PROFILE == "western_english"
+
     @pytest.mark.parametrize("bad", [0, -1, 101, 200])
     def test_rejects_out_of_range(self, bad):
         with pytest.raises(ValueError, match="VISION_MAX_CONCURRENCY"):

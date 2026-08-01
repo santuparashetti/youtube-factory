@@ -209,6 +209,15 @@ class SharedSettings(BaseSettings):
     faithfulness_validation_enabled: bool = True
 
     # ------------------------------------------------------------------
+    # Audience Profile
+    # ------------------------------------------------------------------
+
+    # Governs character/scene defaults in all visual prompts.
+    # "western_english" = US/UK/AU/CA audience; Western characters + symbolic defaults.
+    # Future: "india_english" for India-targeted English content, "kannada" for Kannada variant.
+    AUDIENCE_PROFILE: str = "western_english"
+
+    # ------------------------------------------------------------------
     # Post-processing: Video Split
     # ------------------------------------------------------------------
 

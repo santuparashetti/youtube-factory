@@ -156,6 +156,14 @@ class TestPromptBuilders:
         assert "LENGTH CORRECTION directive text" in prompt
         assert "Base script." in prompt
 
+    def test_composer_prompt_contains_audience_character_rule(self):
+        from ytfactory.agents.prompts.composer import build_composer_system_prompt
+
+        prompt = build_composer_system_prompt({})
+        assert "CHARACTERS & EXAMPLES" in prompt
+        assert "Western" in prompt
+        assert "US, UK, AU, CA" in prompt
+
 
 class TestGraphWiring:
     def test_composer_node_in_active_graph(self):

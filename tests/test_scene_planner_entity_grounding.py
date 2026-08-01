@@ -265,3 +265,15 @@ class TestValidatePromptFaithfulness:
         )
         assert passed is True
         assert violation == ""
+
+
+class TestAudienceVisualDirective:
+    def test_visual_prompts_template_contains_audience_rule(self):
+        from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
+
+        prompt = build_visual_prompts_prompt(
+            scenes=[{"index": 1, "narration": "A man walks forward.", "shot_type": "wide shot"}]
+        )
+        assert "SYMBOLIC / ABSTRACT" in prompt
+        assert "WESTERN / ENGLISH-SPEAKING" in prompt
+        assert "US, UK, AU, CA" in prompt

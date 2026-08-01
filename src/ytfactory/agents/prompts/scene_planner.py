@@ -702,6 +702,27 @@ A scene's visual must serve the emotional beat, not just the keyword:
     If the narration is somber (grief, fear, loss) then darker lighting is fine.
     Default is NOT dark mood — only darken when the emotional beat requires it.
 
+══════════════════════════════════════════════════════
+VISUAL CHARACTER & SCENE RULE (apply to every visual_prompt you write)
+══════════════════════════════════════════════════════
+
+Priority order — strict:
+
+1. SYMBOLIC / ABSTRACT — always prefer. Concept, metaphor, object, nature, texture.
+   No human character needed. Use this whenever the scene allows it.
+
+2. WESTERN / ENGLISH-SPEAKING CHARACTER — default when a human is genuinely needed.
+   Appearance: European or American. Setting: Western city, office, library, countryside,
+   modern home, international airport. Neutral-but-Western feel.
+
+3. INDIAN / SOUTH ASIAN character or setting — ONLY if this specific scene in the
+   script is about a named Indian person, Indian historical event, or an India-specific
+   statistic. Not a default. Not when in doubt.
+
+Never use Indian street scenes, South Asian faces, or Indian cultural markers as generic
+"atmosphere" for philosophical, psychological, or motivational content.
+The target viewer is English-speaking (US, UK, AU, CA).
+
 ════════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])
 ════════════════════════════════════════════════════

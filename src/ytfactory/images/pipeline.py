@@ -265,7 +265,10 @@ class ImagePipeline:
         return output_path
 
     def _refine_prompt_from_score(self, prompt: str, score: float, failed_constraint: str = "") -> str:
-        adaptations = []
+        # Audience anchor: scene planner already embeds Western/symbolic preference;
+        # this phrase reinforces it through refinement without overriding scene-specific
+        # cultural content (Indian settings remain valid when the scene demands them).
+        adaptations = ["Western or symbolic setting preferred unless scene requires otherwise"]
         constraint_lower = failed_constraint.lower()
         if "anatomy" in constraint_lower or "hand" in constraint_lower:
             adaptations.append("anatomically correct hands with exactly five fingers per hand")
@@ -279,7 +282,7 @@ class ImagePipeline:
             adaptations.append("no text, no watermark, no artifacts")
         if "realism" in constraint_lower or "style" in constraint_lower:
             adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")
-        if not adaptations:
+        if len(adaptations) == 1:
             if score < 8.5:
                 adaptations.append("cinematic lighting, strong atmosphere")
             adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")

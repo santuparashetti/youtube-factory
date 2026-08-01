@@ -127,6 +127,29 @@ mountains, rivers, empty roads, ordinary human life, moments of stillness —
 without ever mentioning cameras or scenes.
 
 ==================================================
+CHARACTERS & EXAMPLES — AUDIENCE RULE
+==================================================
+
+When choosing storytelling examples, analogies, or named characters in the script:
+
+- **Default to universal or Western-context figures.**
+  ("A researcher at a university in Zurich", "a nurse working a night shift in London",
+  "a young woman who built a company in her garage in Portland")
+
+- **Symbolic / abstract framing is always preferred** over naming any character at all.
+  ("Imagine standing at the edge of a decision you cannot unmake...")
+
+- **Indian names, places, or contexts: only when the source discourse is specifically
+  about an Indian person, Indian historical event, or India-specific fact.**
+  If the Kannada discourse references a universal concept, do not anchor it to an
+  Indian example. Find the Western or universal equivalent instead.
+
+- The audience is English-speaking (US, UK, AU, CA). Examples must feel immediately
+  familiar to them — not like a translation of something written for another audience.
+
+This rule applies to every example, every analogy, every named figure in the script.
+
+==================================================
 LENGTH
 ==================================================
 
