@@ -52,4 +52,10 @@ class LLMScenePlanner:
                 f"Response starts with: {text[:200]}"
             ) from exc
 
+        # DeepSeek (and some other models) sometimes wrap the whole plan inside
+        # the "scenes" key, producing {"scenes": {"title": ..., "scenes": [...]}}.
+        # Unwrap any such nesting before validation.
+        while isinstance(data.get("scenes"), dict) and "scenes" in data["scenes"]:
+            data = data["scenes"]
+
         return ScenePlan.model_validate(data)

@@ -82,6 +82,8 @@ def run_pipeline(
         )
 
     # ── Two-phase mode ─────────────────────────────────────────────────────
+    if pipeline_mode == "prep_only" and project_id is None:
+        raise ValueError("--phase=prep requires --project <id>")
     if pipeline_mode == "resume" and project_id is None:
         raise ValueError("--phase=resume requires --project <id>")
 
@@ -108,7 +110,7 @@ def run_pipeline(
     else:
         console.print(f"[cyan]Resuming project:[/cyan] [bold]{project_id}[/bold]")
 
-    # ── Load pre-written script if provided ──────────────────────────────
+    # ── Load script ───────────────────────────────────────────────────────
     script_md: str = ""
     if script_path:
         src = Path(script_path)
@@ -128,6 +130,23 @@ def run_pipeline(
         )
         if style:
             console.print(f"[green]✓[/green] Style: [bold]{style}[/bold]")
+
+    elif not source_url:
+        # No explicit script_path and not a YouTube URL — load existing script.md
+        # from the workspace (required; research stage has been removed).
+        workspace_script = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
+        if workspace_script.exists():
+            script_md = workspace_script.read_text(encoding="utf-8")
+            word_count = len(script_md.split())
+            console.print(
+                f"[green]✓[/green] Script loaded from workspace: [bold]{word_count} words[/bold]"
+            )
+        else:
+            raise FileNotFoundError(
+                f"No script found for project '{project_id}'. "
+                f"Expected: {workspace_script}\n"
+                "Provide --script <path> or import via YouTube URL."
+            )
 
     if source_url:
         console.print(f"[green]✓[/green] YouTube source: [bold]{source_url}[/bold]")

@@ -252,10 +252,11 @@ class TestRouteEntry:
 
         assert _route_entry({"script_md": "some script"}) == "composer"
 
-    def test_routes_to_research_agent_by_default(self):
+    def test_routes_to_composer_by_default(self):
         from ytfactory.agents.graph import _route_entry
 
-        assert _route_entry({}) == "research_agent"
+        # Research stage removed — all non-URL sources go directly to composer.
+        assert _route_entry({}) == "composer"
 
     def test_graph_contains_ingestion_nodes(self):
         from ytfactory.agents.graph import build_graph

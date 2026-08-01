@@ -32,6 +32,25 @@ class HumanClassification(str, Enum):
     HUMAN_SYMBOLIC = "human_symbolic"
 
 
+# Plain-English expansions for each classification — used in retry prompts so
+# the model understands the RULE, not just the code name.  Note: NO_HUMAN_ALLOWED
+# explicitly lists body-part words so the model knows "hands" counts as human.
+HUMAN_CLASSIFICATION_RULES: dict[HumanClassification, str] = {
+    HumanClassification.NO_HUMAN_ALLOWED: (
+        "No people, hands, feet, silhouettes, shadows of people, or any body part. "
+        "Objects and environment only."
+    ),
+    HumanClassification.HUMAN_OPTIONAL: "Human presence is optional — may include or omit.",
+    HumanClassification.HUMAN_SYMBOLIC: (
+        "Exactly one stylized/abstract human figure. Not photorealistic."
+    ),
+    HumanClassification.HUMAN_REQUIRED: "One clearly visible human figure present.",
+    HumanClassification.NAMED_PERSON_REQUIRED: (
+        "The named person from the narration must be clearly present."
+    ),
+}
+
+
 SYMBOLIC_BODY_PART_EXCEPTION = {
     "hand",
     "hands",
@@ -211,14 +230,21 @@ class ValidationError:
     severity: str = "critical"
     allowed_values: list[str] | None = None
     hint: str = ""
+    violated_item: str = ""  # specific term/object that triggered this failure
 
     def to_feedback_block(self) -> str:
-        # Task 2.4 token-efficiency: one compact line per error — code, allowed
-        # values (or hint), no restated message/preamble. The caller
-        # (build_retry_prompt) already supplies its own framing and JSON
-        # instructions, so repeating them here was pure waste.
+        # One compact line per error.  When violated_item is set we name the
+        # specific offender first so the model knows WHAT to remove/add, not
+        # just THAT there was a problem.
         line = f"FAILED: {self.code}"
-        if self.allowed_values:
+        if self.violated_item and self.allowed_values:
+            line += (
+                f" — '{self.violated_item}' detected;"
+                f" allowed: {', '.join(str(v) for v in self.allowed_values)}"
+            )
+        elif self.violated_item:
+            line += f" — remove '{self.violated_item}'"
+        elif self.allowed_values:
             line += f" — allowed: {', '.join(str(v) for v in self.allowed_values)}"
         elif self.hint:
             line += f" — {self.hint}"
@@ -364,6 +390,7 @@ class StoryFidelityValidator:
                         severity="critical",
                         allowed_values=scene_analysis.get("allowed_characters", []),
                         hint="Characters may ONLY come from the narration or Scene Analysis.",
+                        violated_item=token,
                     )
                 )
                 break
@@ -404,6 +431,7 @@ class StoryFidelityValidator:
                         severity="critical",
                         allowed_values=scene_analysis.get("scene_characters", []),
                         hint="Remove forbidden character from the visual prompt.",
+                        violated_item=forbidden,
                     )
                 )
                 break
@@ -419,6 +447,7 @@ class StoryFidelityValidator:
                         message=f"Forbidden object present in prompt: '{forbidden_obj}'.",
                         severity="critical",
                         hint="Remove forbidden object from the visual prompt.",
+                        violated_item=forbidden_obj,
                     )
                 )
                 break
@@ -520,6 +549,7 @@ class StoryFidelityValidator:
                         ),
                         severity="critical",
                         hint="Remove all human figures from this scene.",
+                        violated_item=", ".join(detected_human_words),
                     )
                 )
         elif human_classification == HumanClassification.HUMAN_SYMBOLIC:
@@ -871,25 +901,55 @@ def build_retry_prompt(
     style: str | None = None,
     entity_constraints_section: str = "",
     scene_analysis_section: str = "",
+    human_classification: HumanClassification | None = None,
 ) -> str:
     """Build a strict-JSON retry prompt for a single scene."""
+    # Hard constraints pinned at top of the retry block so the model reads them
+    # as rules before anything else.  The human_classification rule is expanded
+    # to plain English so the model knows e.g. that "hands" count as human under
+    # NO_HUMAN_ALLOWED.
+    hc_value = (
+        human_classification.value
+        if human_classification is not None
+        else scene_analysis.get("human_requirement", "forbidden")
+    )
+    human_rule = (
+        HUMAN_CLASSIFICATION_RULES.get(human_classification, "")
+        if human_classification is not None
+        else ""
+    )
+    allowed_chars = (
+        scene_analysis.get("allowed_characters") or scene_analysis.get("scene_characters") or []
+    )
+    allowed_chars_str = (
+        ", ".join(allowed_chars)
+        if allowed_chars
+        else "NONE — introduce no named person or figure"
+    )
+    environment = scene_analysis.get("environment", "")
+    env_str = environment if environment else "unspecified"
+
     retry_block = f"""\
 FAILED — REGENERATE THIS SCENE ONLY
 
 SCENE ID: {scene.get('index')}
 NARRATION: {narration}
-SCENE CATEGORY: {scene_analysis.get('scene_category', 'abstract')}
-HUMAN REQUIREMENT: {scene_analysis.get('human_requirement', 'forbidden')}
 
-ORIGINAL PROMPT (contains violation):
-{scene.get('visual_prompt', '')}
+HARD CONSTRAINTS (non-negotiable):
+  Characters: ONLY {allowed_chars_str}
+  Environment: MUST be one of [{env_str}]; no substitution.
+  human_classification={hc_value}: {human_rule}
 
 VIOLATION TO FIX:
 {violation_feedback}
 
+ORIGINAL PROMPT (contains violation):
+{scene.get('visual_prompt', '')}
+
 REQUIRED CHANGES:
-- Fix the violation above while keeping the same cinematic quality, shot type, mood, and era.
-- The rewritten prompt must not introduce any new violations.
+- Fix every violation listed above.
+- Keep the same cinematic quality, shot type, mood, and era.
+- Introduce no new violations.
 
 Return ONLY valid JSON matching this exact structure. No explanation, no markdown,
 no code fences, no preamble, no apology. Begin your response with {{ and end with }}.

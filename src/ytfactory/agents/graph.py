@@ -1,35 +1,31 @@
 """
 LangGraph agentic pipeline graph definition.
 
-Flow:
-  research_agent
-    → script_writer
-      → [human_review_script]
-        → composer  ◄── joins here from the alternate entry below too
-          → script_selector_polisher  ← picks stronger of 2 variants + polishes ≤10%
-            → [human_review_final_script]  ← hash-guarded review checkpoint
-              → scene_planner
-          → [human_review_scenes]
-          (composer with ab_script_selection=True skips the polisher — the human
-           already picked — and goes straight to human_review_final_script)
+Entry routing (see _route_entry):
+  YouTube URL source  → acquire_audio → transcribe → translate
+                          → [human_review_base_script] → composer
+  Script / project    → composer (script_md loaded from state or workspace)
 
-  Alternate entry — YouTube URL source (see _route_entry):
-    acquire_audio → transcribe → translate → [human_review_base_script]
-      → composer
-            → generate_scene_assets (parallel fan-out, one per scene)
-              → video_renderer
-                → video_concatenator
-                  → cta                  ← CTA Overlay Engine V2
-                    → quality_review     ← Video Quality Review Engine V1
-                      PASS → publish     ← Publishing & Growth Engine V1
-                      FAIL → remediation ← Auto Remediation Engine V1
-                        PASS → publish
-                        FAIL → END (pipeline stopped, publishing skipped)
+composer flow:
+  composer
+    → script_selector_polisher  ← picks stronger of 2 variants + polishes ≤10%
+      → [human_review_final_script]  ← hash-guarded review checkpoint
+        → scene_planner
+  (composer with ab_script_selection=True skips the polisher — the human
+   already picked — and goes straight to human_review_final_script)
+    → [human_review_scenes]
+      → generate_scene_assets (parallel fan-out, one per scene)
+        → video_renderer → video_concatenator → cta
+          → quality_review
+              PASS → publish
+              FAIL → remediation
+                PASS → publish
+                FAIL → END
 
-composer replaces the retired transform-based enhancer (Pass 1/2/3) and the
-Structural Retention Pass — both archived, not deleted (still importable:
-agents/nodes/script_enhancer.py, agents/nodes/structural_retention.py) but no
-longer wired into this graph until the composer is proven.
+Research and script-writer stages have been removed — a script is always
+provided (pre-written or imported from YouTube).  The nodes are still on
+disk (research.py, script_writer.py) but are no longer registered in this
+graph.
 """
 
 from __future__ import annotations
@@ -48,13 +44,10 @@ from ytfactory.agents.nodes.human_review import (
     human_review_base_script_node,
     human_review_final_script_node,
     human_review_scenes_node,
-    human_review_script_node,
 )
 from ytfactory.agents.nodes.pre_render_gate import pre_render_gate_node
-from ytfactory.agents.nodes.research import research_node
 from ytfactory.agents.nodes.scene_assets import generate_scene_assets
 from ytfactory.agents.nodes.scene_planner import scene_planner_node
-from ytfactory.agents.nodes.script_writer import script_writer_node
 from ytfactory.agents.nodes.publish import publish_node
 from ytfactory.agents.nodes.quality_review import quality_review_node
 from ytfactory.agents.nodes.remediation import remediation_node
@@ -77,25 +70,38 @@ def _dispatch_scenes(state: VideoState) -> list[Send]:
 
 
 def _route_entry(state: VideoState) -> str:
-    """Route by input source: YouTube URL > pre-written script > full research."""
+    """Route by input source: YouTube URL → ingestion chain; otherwise → composer."""
     if state.get("source_url"):
         return "acquire_audio"
-    if state.get("script_md"):
-        return "composer"
-    return "research_agent"
+    return "composer"
 
 
 def _route_after_composer(state: VideoState) -> str:
     """Route the composer's output to the right selection mechanism.
 
-    - Interactive human A/B pick (`ab_script_selection=True`) already set
-      `script_md` inside composer_node → go straight to the human review gate;
-      the LLM polisher is skipped.
-    - Otherwise the composer emitted two variants (script_a/script_b) → the
-      script_selector_polisher node picks and lightly polishes one.
+    Skip the polisher (go directly to human_review_final_script) when:
+    - A/B pick was done interactively by the human (script already chosen).
+    - script-rejected.md exists on disk → user already made a selection in a
+      previous run; no need to run the polisher again.
+    - Composer was idempotency-skipped (script.md already existed) and produced
+      no variants — safety net to prevent the polisher writing empty content.
+
+    Otherwise → two variants (script_a/script_b) are in state → polisher picks
+    the stronger one and lightly polishes it.
     """
     if state.get("ab_script_selection", False):
         return "human_review_final_script"
+
+    from pathlib import Path
+    from ytfactory.shared.constants import WORKSPACE_DIR
+    project_id = state.get("project_id", "")
+    rejected = Path(WORKSPACE_DIR) / project_id / "script" / "script-rejected.md"
+    if rejected.exists():
+        return "human_review_final_script"
+
+    if not state.get("script_a") and not state.get("script_b"):
+        return "human_review_final_script"
+
     return "script_selector_polisher"
 
 
@@ -126,16 +132,13 @@ def build_graph() -> StateGraph:
     workflow = StateGraph(VideoState)
 
     # ── Register nodes ────────────────────────────────────────────────────
-    workflow.add_node("research_agent", research_node)
-    workflow.add_node("script_writer", script_writer_node)
-    workflow.add_node("composer", composer_node)
-    workflow.add_node("script_selector_polisher", script_selector_polisher_node)
-    workflow.add_node("human_review_final_script", human_review_final_script_node)
-    workflow.add_node("human_review_script", human_review_script_node)
     workflow.add_node("acquire_audio", acquire_audio_node)
     workflow.add_node("transcribe", transcribe_node)
     workflow.add_node("translate", translate_node)
     workflow.add_node("human_review_base_script", human_review_base_script_node)
+    workflow.add_node("composer", composer_node)
+    workflow.add_node("script_selector_polisher", script_selector_polisher_node)
+    workflow.add_node("human_review_final_script", human_review_final_script_node)
     workflow.add_node("scene_planner", scene_planner_node)
     workflow.add_node("pre_render_gate", pre_render_gate_node)
     workflow.add_node("human_review_scenes", human_review_scenes_node)
@@ -149,14 +152,12 @@ def build_graph() -> StateGraph:
 
     # ── Entry ─────────────────────────────────────────────────────────────
     # YouTube URL → ingestion chain → base script review → compose → plan scenes
-    # User provided --script → compose it whole → plan scenes
-    # No script, no URL → full research → script writer → compose → plan scenes
+    # Script (pre-written or loaded from workspace) → compose → plan scenes
     workflow.add_conditional_edges(
         START,
         _route_entry,
         {
             "acquire_audio": "acquire_audio",
-            "research_agent": "research_agent",
             "composer": "composer",
         },
     )
@@ -164,9 +165,6 @@ def build_graph() -> StateGraph:
     workflow.add_edge("transcribe", "translate")
     workflow.add_edge("translate", "human_review_base_script")
     workflow.add_edge("human_review_base_script", "composer")
-    workflow.add_edge("research_agent", "script_writer")
-    workflow.add_edge("script_writer", "human_review_script")
-    workflow.add_edge("human_review_script", "composer")
     # composer → (human A/B pick already done) human_review_final_script
     #          → (default) script_selector_polisher → human_review_final_script
     workflow.add_conditional_edges(

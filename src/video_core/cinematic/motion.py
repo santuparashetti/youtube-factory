@@ -196,6 +196,87 @@ def _resolve_easing(motion_type: str, cfg: ProfileConfig) -> str:
     return _MOTION_EASING.get(motion_type, cfg.easing)
 
 
+# ── Subject-position detection ────────────────────────────────────────────────
+# Parse visual_prompt / narration for explicit left/right positional language so
+# drift direction can favour the subject side rather than alternating blindly.
+#
+# Direction convention (matches ffmpeg_filters drift convention):
+#   drift_sign = -1  → right-to-left pan  (subject on LEFT stays in frame)
+#   drift_sign = +1  → left-to-right pan  (subject on RIGHT stays in frame)
+
+_LEFT_POSITION_CUES: tuple[str, ...] = (
+    "on the left",
+    "left side",
+    "left of frame",
+    "left of the frame",
+    "to the left",
+    "at left",
+    "in the left",
+    "left corner",
+    "left foreground",
+    "left background",
+    "left edge",
+    "left of center",
+    "positioned left",
+)
+_RIGHT_POSITION_CUES: tuple[str, ...] = (
+    "on the right",
+    "right side",
+    "right of frame",
+    "right of the frame",
+    "to the right",
+    "at right",
+    "in the right",
+    "right corner",
+    "right foreground",
+    "right background",
+    "right edge",
+    "right of center",
+    "positioned right",
+)
+# Empty/open space on one side implies subject is anchored on the OTHER side.
+_EMPTY_SPACE_RIGHT: tuple[str, ...] = (
+    "empty space on the right",
+    "open space on the right",
+    "empty right side",
+    "empty wall on the right",
+    "open right",
+)
+_EMPTY_SPACE_LEFT: tuple[str, ...] = (
+    "empty space on the left",
+    "open space on the left",
+    "empty left side",
+    "empty wall on the left",
+    "open left",
+)
+
+
+def _detect_subject_side(visual_prompt: str, narration: str = "") -> str:
+    """Return 'left', 'right', or '' (unknown/center) from positional cues.
+
+    Scores explicit left/right language plus inverted empty-space cues (empty
+    space on the right → subject is on the left). Returns '' when tied or when
+    no relevant cues are found — callers fall back to scene-index alternation.
+    """
+    text = (visual_prompt + " " + narration).lower()
+    left_score = sum(1 for cue in _LEFT_POSITION_CUES if cue in text)
+    right_score = sum(1 for cue in _RIGHT_POSITION_CUES if cue in text)
+    # Empty-space cues score +2 on the opposite side — stronger than a bare
+    # directional phrase because they contain a directional sub-string that
+    # would otherwise double-count the wrong side (e.g. "empty space on the
+    # right" also contains "on the right", inflating right_score by 1; +2
+    # here guarantees the inversion wins even in that tie).
+    if any(cue in text for cue in _EMPTY_SPACE_RIGHT):
+        left_score += 2
+    if any(cue in text for cue in _EMPTY_SPACE_LEFT):
+        right_score += 2
+    if left_score > right_score:
+        return "left"
+    if right_score > left_score:
+        return "right"
+    return ""
+
+
 # ── Minimum motion visibility floor ──────────────────────────────────────────
 # motion.py is resolution-agnostic (drift_x/y are fractions of frame
 # width/height, consumed at any target resolution by ffmpeg_filters.py), so
@@ -256,6 +337,7 @@ def _resolve_motion(
     scene_index: int,
     scene_duration: float = 5.0,
     shot_type: str = "",
+    subject_side: str = "",
 ) -> tuple[float, float, float, float, float, float]:
     """
     Resolve (start_scale, end_scale, anchor_x, anchor_y, drift_x, drift_y)
@@ -286,8 +368,35 @@ def _resolve_motion(
     lo = 1.0 + (base_lo - 1.0) * duration_factor
     hi = 1.0 + (base_hi - 1.0) * duration_factor
     d = cfg.drift_amount * duration_factor
-    # Alternate drift direction by index (even = left→right, odd = right→left)
-    drift_sign = 1.0 if scene_index % 2 == 0 else -1.0
+    # Drift direction: bias toward the detected subject side so the camera
+    # stays on the subject rather than panning into empty space.
+    # subject LEFT → right-to-left pan (sign -1) keeps it in frame.
+    # subject RIGHT → left-to-right pan (sign +1) keeps it in frame.
+    # Unknown/center → alternate by scene index (original behaviour).
+    if subject_side == "left":
+        drift_sign = -1.0
+    elif subject_side == "right":
+        drift_sign = 1.0
+    else:
+        drift_sign = 1.0 if scene_index % 2 == 0 else -1.0
+
+    # Shot-type drift modifiers applied inside the drift_* cases below.
+    #
+    # _close_up_scale — halves dx only for close-up/macro shots: subject
+    #   fills the frame so less pan travel avoids pushing it off-screen.
+    #   z stays at full to keep crop-safety room for the (already halved) travel.
+    #
+    # _wide_shot_scale — scales BOTH z-deviation-from-1 AND dx for wide/
+    #   establishing/drone/tracking shots. Wide shots need a small, gentle
+    #   float; the current 1.9x zoom on a wide/establishing shot destroys the
+    #   composition. Scaling both together preserves the unclamped relationship
+    #   (z ≥ z_min(dx) still holds after the reduction). Factor 0.35 gives:
+    #     z ≈ 1.32  (vs 1.92 previously) and  dx ≈ 0.072  at max duration factor.
+    _canonical = _canonical_shot_type(shot_type)
+    _close_up_scale = 0.5 if _canonical in ("close_up", "macro_shot") else 1.0
+    _wide_shot_scale = (
+        0.35 if _canonical in ("wide_shot", "establishing", "drone_shot", "tracking_shot") else 1.0
+    )
 
     match motion_type:
         case "static":
@@ -421,20 +530,19 @@ def _resolve_motion(
         # perpendicular component at 30% of the primary magnitude.
 
         case "drift_float":
-            # start/end scale raised so _clamp_drift's crop-safety room
-            # (room = 1 - 1/zoom, split around the center anchor) can
-            # actually admit the full 0.12 primary travel instead of capping
-            # it back down. dx is the PRIMARY axis. z is held constant
-            # (start == end) and the perpendicular dy is zeroed — drift
-            # motion is a clean linear pan on one axis only, no wobble.
-            z = _scale_endpoint(1.5385, duration_factor)
-            dx = 0.12 * duration_factor * drift_sign
+            # z-deviation and dx both scaled by _wide_shot_scale so wide/
+            # establishing scenes get a gentle float (z≈1.32, dx≈0.072) rather
+            # than a 1.9x zoom that destroys the wide composition. Both are
+            # scaled together to keep dx within _clamp_drift's crop-safety room.
+            # _close_up_scale halves dx further for close-up/macro shots.
+            z = 1.0 + (1.5385 - 1.0) * duration_factor * _wide_shot_scale
+            dx = 0.12 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
             dy = 0.0
             result = (z, z, 0.5, 0.5, dx, dy)
 
         case "drift_horizon":
-            z = _scale_endpoint(1.5385, duration_factor)
-            dx = 0.15 * duration_factor * drift_sign
+            z = 1.0 + (1.5385 - 1.0) * duration_factor * _wide_shot_scale
+            dx = 0.15 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
             dy = 0.0
             result = (z, z, 0.5, 0.5, dx, dy)
 
@@ -459,8 +567,8 @@ def _resolve_motion(
             result = (z, z, 0.5, 0.4, dx, dy)
 
         case "drift_river":
-            z = _scale_endpoint(1.5385, duration_factor)
-            dx = 0.10 * duration_factor * drift_sign
+            z = 1.0 + (1.5385 - 1.0) * duration_factor * _wide_shot_scale
+            dx = 0.10 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
             dy = 0.0
             result = (z, z, 0.5, 0.5, dx, dy)
 
@@ -755,8 +863,11 @@ class MotionPlanner:
                             "medium",
                         ),
                     )
+                    subject_side = _detect_subject_side(
+                        scene.get("visual_prompt", ""), scene.get("narration", "")
+                    )
                     start_s, end_s, ax, ay, dx, dy = _resolve_motion(
-                        alt, scale_tier, cfg, scene["index"], scene_duration, shot_type
+                        alt, scale_tier, cfg, scene["index"], scene_duration, shot_type, subject_side
                     )
                     start_s, end_s, dx, dy = _enforce_min_velocity(
                         alt, start_s, end_s, dx, dy
@@ -823,8 +934,11 @@ class MotionPlanner:
             scale_tier = "small"
 
         shot_type = scene.get("shot_type", "")
+        subject_side = _detect_subject_side(
+            scene.get("visual_prompt", ""), scene.get("narration", "")
+        )
         start_s, end_s, ax, ay, dx, dy = _resolve_motion(
-            motion_type, scale_tier, cfg, scene["index"], scene_duration, shot_type
+            motion_type, scale_tier, cfg, scene["index"], scene_duration, shot_type, subject_side
         )
         start_s, end_s, dx, dy = _enforce_min_velocity(motion_type, start_s, end_s, dx, dy)
 

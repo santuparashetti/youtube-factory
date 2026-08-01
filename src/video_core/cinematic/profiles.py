@@ -171,6 +171,7 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         drift_amount=0.12,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
+        max_drift_scale_factor=1.7,
     ),
     RenderProfile.PREMIUM: ProfileConfig(
         scale_range_small=(1.0, 1.22),
@@ -179,6 +180,7 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         drift_amount=0.14,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
+        max_drift_scale_factor=1.7,
     ),
 }
 

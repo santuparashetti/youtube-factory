@@ -300,6 +300,7 @@ class TestFFmpegRendererDurationHandling:
         from ytfactory.video.ffmpeg import FFmpegRenderer
 
         renderer = FFmpegRenderer()
+        renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})
         captured: list[list[str]] = []
 
         with patch(

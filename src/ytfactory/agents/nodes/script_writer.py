@@ -54,13 +54,25 @@ def script_writer_node(state: VideoState) -> dict:
     4. Duration validation: log PASS/FAIL diagnostic, persist duration_ok in script.json
     5. Save to workspace/jobs/{id}/script/script.md
     """
+    from pathlib import Path
+    from ytfactory.shared.constants import WORKSPACE_DIR
+
+    project_id = state["project_id"]
+    script_file = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
+
+    if script_file.exists():
+        console.print(
+            f"\n[dim]✍️  Script already exists — skipping writer "
+            f"(delete workspace/jobs/{project_id}/script/script.md to re-run)[/dim]"
+        )
+        return {"script_md": script_file.read_text(encoding="utf-8")}
+
     settings = Settings()
     llm = get_llm_provider(settings)
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()
 
     topic = state["topic"]
-    project_id = state["project_id"]
     research_md = state.get("research_md", "")
     target_minutes: int = int(state.get("target_minutes", TARGET_IDEAL_MINUTES))
 

@@ -178,6 +178,135 @@ def _coerce_int(value, default: int = 0) -> int:
         return default
 
 
+_EDITORIAL_FIX_SYSTEM_PROMPT = """\
+You are a targeted script editor. You receive a finished documentary narration script
+and a list of specific Editorial QA issues. Your ONLY job is to fix those exact issues
+with the minimum change needed.
+
+Rules (strictly enforced):
+- Fix ONLY the issues listed. Leave everything else untouched.
+- Do NOT restructure, reorder, or expand sections.
+- Do NOT add new stories, metaphors, or ideas.
+- Do NOT remove stories unless a duplicate-story issue explicitly names one to cut.
+- Preserve the opening and closing lines unless they are the cited problem.
+- Change less than 10% of the script. Stop if you need more — log it but keep what you have.
+- Return the FULL corrected script, nothing else — no preamble, no JSON, no explanation."""
+
+_EDITORIAL_CHECK_GUIDANCE: dict[str, str] = {
+    "callback_to_opening": (
+        "The ending does not call back to the opening image/hook. Add a brief echo of "
+        "the opening in the final paragraph — a single line or image that mirrors the start. "
+        "Do not add a new paragraph; weave it into the existing ending."
+    ),
+    "unnecessary_explanation": (
+        "These sentences explain what the prior sentence already made the reader feel. "
+        "Delete each one; the prior sentence does the work alone."
+    ),
+    "open_loop_payoff": (
+        "A question or tension was planted early and never resolved. "
+        "Add a short resolution in the final third of the script — one sentence is enough."
+    ),
+    "ending_vs_opening": (
+        "The closing beat is weaker than the opening. Strengthen the final image or line "
+        "so it lands with at least the same emotional weight as the opening."
+    ),
+    "sounds_translated": (
+        "These sentences read as translated rather than originally written in English "
+        "(literal phrasing, stiff constructions). Rewrite each one to sound natural — "
+        "shorter words, looser sentence rhythm, idiomatic American English."
+    ),
+    "every_story_earns_place": (
+        "These stories duplicate another story's narrative function. Cut or compress "
+        "the weaker duplicate to a single sentence."
+    ),
+}
+
+
+def _build_editorial_fix_prompt(script_text: str, flagged: list[tuple[str, dict]]) -> str:
+    """Build the user prompt for a targeted Editorial QA fix pass."""
+    issue_lines: list[str] = []
+    for check_name, check in flagged:
+        guidance = _EDITORIAL_CHECK_GUIDANCE.get(check_name, "Fix this issue.")
+        note = check.get("note", "").strip()
+        issue_lines.append(f"ISSUE — {check_name}")
+        issue_lines.append(f"  What was flagged: {note or '(see evidence below)'}")
+        issue_lines.append(f"  How to fix: {guidance}")
+
+        # Per-check evidence to make the fix targetable
+        if check_name == "callback_to_opening":
+            opening = check.get("opening_image", "").strip()
+            ending = check.get("ending_quote", "").strip()
+            if opening:
+                issue_lines.append(f"  Opening image/hook: \"{opening}\"")
+            if ending:
+                issue_lines.append(f"  Current ending beat: \"{ending}\"")
+        elif check_name == "unnecessary_explanation":
+            for v in (check.get("violations") or []):
+                issue_lines.append(f"  Delete: \"{v}\"")
+        elif check_name == "sounds_translated":
+            for v in (check.get("flagged") or []):
+                issue_lines.append(f"  Rewrite: \"{v}\"")
+        elif check_name == "open_loop_payoff":
+            q = check.get("question", "").strip()
+            if q:
+                issue_lines.append(f"  Unresolved question: \"{q}\"")
+        elif check_name == "ending_vs_opening":
+            opening = check.get("opening_beat", "").strip()
+            closing = check.get("closing_beat", "").strip()
+            if opening:
+                issue_lines.append(f"  Opening beat: \"{opening}\"")
+            if closing:
+                issue_lines.append(f"  Closing beat (to strengthen): \"{closing}\"")
+        elif check_name == "every_story_earns_place":
+            for s in (check.get("stories") or []):
+                if isinstance(s, dict) and s.get("duplicate_of"):
+                    issue_lines.append(
+                        f"  Story \"{s.get('name', '?')}\" duplicates \"{s['duplicate_of']}\""
+                    )
+        issue_lines.append("")
+
+    issues_text = "\n".join(issue_lines).rstrip()
+    return (
+        f"Fix the following Editorial QA issues in the script below.\n\n"
+        f"{issues_text}\n\n"
+        f"=== SCRIPT ===\n{script_text}"
+    )
+
+
+def apply_editorial_fixes(
+    script_text: str,
+    flagged: list[tuple[str, dict]],
+    settings: "Settings",
+) -> str:
+    """Targeted Editorial QA fix pass — fixes only flagged issues, one attempt.
+
+    Returns the fixed script on success, or the original script if the LLM
+    fails or returns suspiciously short content. Never raises.
+    """
+    if not flagged or not script_text.strip():
+        return script_text
+
+    try:
+        llm = _get_polisher_llm(settings)
+        user_prompt = _build_editorial_fix_prompt(script_text, flagged)
+        response = llm.generate(
+            user_prompt,
+            system_prompt=_EDITORIAL_FIX_SYSTEM_PROMPT,
+            temperature=0.3,
+        )
+        fixed = response.text.strip()
+        if len(fixed) < len(script_text) * 0.7:
+            logger.warning(
+                "Editorial fix returned suspiciously short text ({} chars vs {} original) — keeping original",
+                len(fixed), len(script_text),
+            )
+            return script_text
+        return fixed
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Editorial fix pass failed ({}); keeping original script", exc)
+        return script_text
+
+
 def _fallback_report(script_a: str, script_b: str) -> tuple[str, dict]:
     """Polisher LLM failed — pick the longer variant, no changes, flag it."""
     chose_a = len(script_a) >= len(script_b)
@@ -240,12 +369,15 @@ def script_selector_polisher_node(state: VideoState) -> dict:
         selected_script, report = _fallback_report(script_a, script_b)
 
     # ── Shim: selected_script → script_md (+ disk) so downstream needs no change
-    script_dir = Path(WORKSPACE_DIR) / project_id / "script"
-    script_dir.mkdir(parents=True, exist_ok=True)
-    (script_dir / "script.md").write_text(selected_script, encoding="utf-8")
+    # Guard: never overwrite script.md with empty content (e.g. when both
+    # variants were empty because the composer was idempotency-skipped).
+    if selected_script.strip():
+        script_dir = Path(WORKSPACE_DIR) / project_id / "script"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "script.md").write_text(selected_script, encoding="utf-8")
 
     return {
         "selected_script": selected_script,
         "polisher_report": report,
-        "script_md": selected_script,
+        "script_md": selected_script if selected_script.strip() else state.get("script_md", ""),
     }

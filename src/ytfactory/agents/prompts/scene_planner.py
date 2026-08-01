@@ -601,7 +601,9 @@ Write one flowing paragraph per scene that naturally weaves in all of these:
   3. Environment — specific location with two or three concrete physical details
   4. Emotional tone — the dominant feeling communicated through composition
   5. Camera shot — the ASSIGNED shot type for this scene (from the brackets)
-  6. Lens / composition — focal length, depth of field, rule-of-thirds or symmetry
+  6. Lens / composition — focal length, depth of field, rule-of-thirds or symmetry;
+     state where the main subject sits in the frame using ONE of these exact phrases:
+     "positioned on the left", "positioned on the right", or "centered in the frame"
   7. Lighting — one specific, meaningful light source or quality
   8. Color palette — two or three dominant colors that carry the emotion
   9. Cinematic details — texture, atmosphere, subtle motion, or environmental storytelling

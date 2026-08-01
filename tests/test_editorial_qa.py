@@ -565,6 +565,10 @@ class TestGatherEvidenceExamples:
 
 
 class TestEagleScriptFixture:
+    @pytest.mark.skipif(
+        not EAGLE_SCRIPT_PATH.exists(),
+        reason="fixture script not present in this checkout",
+    )
     def test_eagle_script_end_to_end(self, pipeline, mock_llm, tmp_path):
         script_text = EAGLE_SCRIPT_PATH.read_text(encoding="utf-8")
 

@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import typer
+from loguru import logger
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -27,6 +28,56 @@ from ytfactory.editorial_qa.pipeline import EditorialQAPipeline
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()
+
+
+def _run_editorial_fix_loop(
+    project_id: str,
+    script_text: str,
+    qa_report: dict,
+    settings: Settings,
+) -> str:
+    """After Editorial QA, attempt one targeted fix pass for flagged issues.
+
+    - Reads flagged checks from the QA report.
+    - Calls the polisher's targeted fix function with those checks as context.
+    - Saves the fixed script and re-runs QA once to confirm.
+    - Returns the (possibly fixed) script. Never raises.
+    """
+    checks = qa_report.get("checks") or {}
+    flagged = [
+        (name, check)
+        for name, check in checks.items()
+        if check.get("flagged") and not check.get("invalid")
+    ]
+    if not flagged:
+        return script_text
+
+    flag_names = ", ".join(name for name, _ in flagged)
+    console.print(
+        f"\n[bold magenta]✏️  Editorial Fix Pass[/bold magenta] — "
+        f"fixing: [yellow]{flag_names}[/yellow]"
+    )
+
+    from ytfactory.agents.nodes.script_selector_polisher import apply_editorial_fixes
+
+    fixed = apply_editorial_fixes(script_text, flagged, settings)
+    if not fixed or fixed.strip() == script_text.strip():
+        console.print("[dim]  Fix pass produced no changes — keeping original.[/dim]")
+        return script_text
+
+    # Persist the fixed script
+    script_dir = Path(WORKSPACE_DIR) / project_id / "script"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    (script_dir / "script.md").write_text(fixed, encoding="utf-8")
+    console.print("[green]  ✓[/green] Fix applied — re-running Editorial QA to verify...")
+
+    # One confirmation pass (no further fix loop)
+    try:
+        EditorialQAPipeline(settings).run(project_id, script_text=fixed)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Editorial QA re-run after fix failed: {}", exc)
+
+    return fixed
 
 
 def _format_qa_summary(project_id: str) -> str:
@@ -66,7 +117,7 @@ class FinalScriptReviewGate:
             if current_hash == recorded_hash:
                 # Unchanged since last review — QA already valid, skip straight through.
                 return script_text
-            # Hand-edited during the pause — same QA scrutiny as generated text.
+            # Hash changed (polisher ran, or hand-edited) — QA + auto-fix loop.
             console.print(
                 Panel(
                     "script.md changed since the last review — re-running "
@@ -76,7 +127,13 @@ class FinalScriptReviewGate:
                     border_style="yellow",
                 )
             )
-            EditorialQAPipeline(self._settings).run(project_id, script_text=script_text)
+            qa_report = EditorialQAPipeline(self._settings).run(
+                project_id, script_text=script_text
+            )
+            # Auto-fix loop: targeted polish for flagged issues, then one QA re-run.
+            script_text = _run_editorial_fix_loop(
+                project_id, script_text, qa_report, self._settings
+            )
 
         if auto_mode:
             qa_checkpoint.record_hash(project_id, script_text)

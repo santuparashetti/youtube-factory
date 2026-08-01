@@ -35,6 +35,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.images.faithfulness_gate import evaluate_faithfulness_gate
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
 from ytfactory.images.validators import (
+    HUMAN_CLASSIFICATION_RULES,
     RETRY_RESPONSE_SCHEMA,
     HumanClassification,
     build_retry_prompt,
@@ -224,8 +225,9 @@ def _build_entity_constraints_section(scenes: list[dict], entity_map: dict[int, 
         entities = entity_map.get(idx)
         if not entities:
             continue
+        hc_rule = HUMAN_CLASSIFICATION_RULES.get(entities.human_classification, "")
         lines.append(f"Scene {idx}:")
-        lines.append(f"  category={entities.scene_category}  human_classification={entities.human_classification.value}")
+        lines.append(f"  category={entities.scene_category}  human_classification={entities.human_classification.value}: {hc_rule}")
         if entities.characters:
             lines.append(f"  characters={', '.join(entities.characters)}")
         if entities.human_names:
@@ -1304,6 +1306,7 @@ def scene_planner_node(state: VideoState) -> dict:
                 style=style,
                 entity_constraints_section=entity_constraints_section,
                 scene_analysis_section=scene_analysis_section,
+                human_classification=entities.human_classification,
             )
             retry_resp = llm.generate(
                 retry_prompt,

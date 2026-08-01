@@ -27,6 +27,10 @@ class ScenePipeline:
         if not script_file.exists():
             raise FileNotFoundError("Script not found. Run 'import-script' first.")
 
+        scene_plan_file = project_dir / "scenes" / "scene-plan.json"
+        if scene_plan_file.exists():
+            return
+
         script = script_file.read_text(encoding="utf-8")
         # Strip any leading H1 title heading — it is a structural label, not narration.
         script, heading = strip_script_heading(script)

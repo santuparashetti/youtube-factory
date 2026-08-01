@@ -71,6 +71,30 @@ def research_node(state: VideoState) -> dict:
     4. Draft research with self-critique loop
     5. Generate script outline
     """
+    from pathlib import Path
+    from ytfactory.shared.constants import WORKSPACE_DIR
+
+    project_id = state["project_id"]
+    research_file = Path(WORKSPACE_DIR) / project_id / "research" / "research.md"
+    research_json = Path(WORKSPACE_DIR) / project_id / "research" / "research.json"
+
+    if research_file.exists():
+        console.print(
+            f"\n[dim]🔬 Research already exists — skipping (delete "
+            f"workspace/jobs/{project_id}/research/research.md to re-run)[/dim]"
+        )
+        category = "other"
+        if research_json.exists():
+            try:
+                import json as _json
+                category = _json.loads(research_json.read_text()).get("category", "other")
+            except Exception:
+                pass
+        return {
+            "topic_category": category,
+            "research_md": research_file.read_text(encoding="utf-8"),
+        }
+
     settings = Settings()
     llm = get_llm_provider(settings)
     search = get_search_provider(settings)
@@ -78,7 +102,6 @@ def research_node(state: VideoState) -> dict:
     project_repo = ProjectRepository()
 
     topic = state["topic"]
-    project_id = state["project_id"]
 
     project_repo.update_stage(project_id, "research", "running")
     console.print(

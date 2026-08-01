@@ -22,6 +22,7 @@ class TestPerSceneRenderSkipsSubtitleForBrandCard:
         from ytfactory.video.ffmpeg import FFmpegRenderer
 
         renderer = FFmpegRenderer()
+        renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})
         captured: list[list[str]] = []
 
         with patch(
@@ -87,6 +88,7 @@ class TestRenderContinuousSkipsSubtitleForBrandCard:
         }
 
         renderer = FFmpegRenderer()
+        renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})
         captured: dict[str, list[str]] = {}
 
         def _fake_run(cmd, **kwargs):

@@ -17,9 +17,9 @@ console = Console()
 _PRESETS = [
     "🆕  New Project (Phase 1)",
     "▶️   Resume Project (Phase 2)",
+    "🔄  Re-plan Scenes (keep script)",
     "🎬  Full AI Video (legacy — runs through to publish)",
     "📄  Existing Script (legacy)",
-    "🔍  Research Only",
     "🖼   Images Only",
     "🎙   Voice Only",
     "📝   Captions Only",
@@ -208,36 +208,49 @@ def _flow_new_project(defaults: dict) -> None:
     if not title:
         return
 
-    use_script = questionary.confirm(
-        "Do you have a pre-written source?", default=False
+    from slugify import slugify
+
+    project_dir = Path("workspace/jobs") / slugify(title)
+    existing_images = sorted(project_dir.glob("images/scene-*.png")) if project_dir.exists() else []
+    if existing_images:
+        console.print(
+            f"\n[bold yellow]⚠  Project '{slugify(title)}' already exists with {len(existing_images)} images.[/bold yellow]\n"
+            f"  Re-running Phase 1 will overwrite the script and scene plan.\n"
+            f"  Existing images will be out of sync until regenerated."
+        )
+        confirm_rerun = questionary.confirm(
+            f"Proceed and overwrite? ({len(existing_images)} existing images will be out of sync)",
+            default=False,
+        ).ask()
+        if not confirm_rerun:
+            return
+
+    source_choice = questionary.select(
+        "Source:",
+        choices=["Existing base script (file path)", "YouTube URL"],
     ).ask()
+    if not source_choice:
+        return
 
     script_path: str | None = None
     source_url: str | None = None
-    if use_script:
-        source_choice = questionary.select(
-            "Source:",
-            choices=["Existing base script (file path)", "YouTube URL"],
-        ).ask()
-        if not source_choice:
-            return
 
-        if source_choice == "YouTube URL":
-            source_url = questionary.text("YouTube URL:").ask()
-            if not source_url:
-                return
-            source_url = source_url.strip()
-        else:
-            script_path = questionary.text(
-                "Script file path:",
-                instruction="(.md, .txt, .pdf, .docx)",
-            ).ask()
-            if not script_path:
-                return
-            script_path = script_path.strip()
-            if not Path(script_path).exists():
-                console.print(f"[red]File not found: {script_path}[/red]")
-                return
+    if source_choice == "YouTube URL":
+        source_url = questionary.text("YouTube URL:").ask()
+        if not source_url:
+            return
+        source_url = source_url.strip()
+    else:
+        script_path = questionary.text(
+            "Script file path:",
+            instruction="(.md, .txt, .pdf, .docx)",
+        ).ask()
+        if not script_path:
+            return
+        script_path = script_path.strip()
+        if not Path(script_path).exists():
+            console.print(f"[red]File not found: {script_path}[/red]")
+            return
 
     style = _ask_style()
     target_mins = _ask_target_minutes()
@@ -245,13 +258,13 @@ def _flow_new_project(defaults: dict) -> None:
     profile = _ask_profile()
     ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=False
+        "Run fully automatically (skip review gates)?", default=True
     ).ask()
 
     if not _confirm_launch(
         {
             "Title": title,
-            "Script": script_path or ("YouTube ingest" if source_url else "AI-generated"),
+            "Script": script_path or "YouTube ingest",
             **({"YouTube URL": source_url} if source_url else {}),
             "Style": style or "none",
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
@@ -290,7 +303,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
     profile = _ask_profile()
     ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=False
+        "Run fully automatically (skip review gates)?", default=True
     ).ask()
 
     if not _confirm_launch(
@@ -343,7 +356,7 @@ def _flow_existing_script(defaults: dict) -> None:
     profile = _ask_profile()
     ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=False
+        "Run fully automatically (skip review gates)?", default=True
     ).ask()
 
     if not _confirm_launch(
@@ -373,26 +386,6 @@ def _flow_existing_script(defaults: dict) -> None:
         style=style,
         target_minutes=target_mins,
         ab_script_selection=ab_selection,
-    )
-
-
-def _flow_research_only() -> None:
-    title = questionary.text("Video title (a new project will be created):").ask()
-    if not title:
-        return
-
-    if not _confirm_launch({"Title": title, "Stage": "Research only"}):
-        return
-
-    from ytfactory.create.pipeline import CreatePipeline
-    from ytfactory.research.pipeline import ResearchPipeline
-
-    project = CreatePipeline().run(title)
-    console.print(f"[green]✓[/green] Project created: [bold]{project.id}[/bold]")
-    ResearchPipeline().run(project.id)
-    console.print(
-        f"\n[green]✓[/green] Research complete\n"
-        f"  [dim]workspace/jobs/{project.id}/research/research.md[/dim]"
     )
 
 
@@ -489,6 +482,73 @@ def _flow_publish() -> None:
     PublishPipeline(config=config).run(project_id)
 
 
+def _flow_replan_scenes() -> None:
+    project_id = _ask_project_id("Project ID to re-plan scenes for")
+    if not project_id:
+        return
+
+    project_dir = Path("workspace/jobs") / project_id
+    script_path = project_dir / "script" / "script.md"
+    scene_plan_path = project_dir / "scenes" / "scene-plan.json"
+
+    if not script_path.exists():
+        console.print(f"[red]No script found at {script_path}[/red]")
+        console.print("[dim]Run 'New Project (Phase 1)' first to generate a script.[/dim]")
+        return
+
+    existing_images = sorted((project_dir / "images").glob("scene-*.png")) if (project_dir / "images").exists() else []
+
+    if existing_images:
+        console.print(
+            f"\n[bold yellow]⚠  {len(existing_images)} images already exist for this project.[/bold yellow]\n"
+            f"  Re-planning will generate a new scene plan that no longer matches those images.\n"
+            f"  You will need to regenerate all images afterwards."
+        )
+        confirm_images = questionary.confirm(
+            f"Proceed anyway? ({len(existing_images)} existing images will be out of sync until regenerated)",
+            default=False,
+        ).ask()
+        if not confirm_images:
+            return
+
+    if scene_plan_path.exists():
+        console.print("[yellow]Existing scene plan found.[/yellow] It will be deleted so a fresh plan is generated.")
+        delete = questionary.confirm("Delete existing scene-plan.json and re-plan?", default=True).ask()
+        if not delete:
+            return
+        scene_plan_path.unlink()
+        console.print("[dim]Deleted scene-plan.json[/dim]")
+
+    profile = _ask_profile()
+
+    import json as _json
+    title = _json.loads((project_dir / "project.json").read_text()).get("title", project_id)
+
+    if not _confirm_launch({
+        "Project": project_id,
+        "Title": title,
+        "Script": str(script_path),
+        "Stage": "Phase 1 (scene planning → voice → captions → image prompts)",
+        "Profile": profile,
+    }):
+        return
+
+    _apply_profile_env(profile)
+    from ytfactory.agents.runner import run_pipeline
+
+    run_pipeline(
+        title,
+        project_id=project_id,
+        auto=True,
+        pipeline_mode="prep_only",
+        ab_script_selection=False,
+    )
+    console.print(
+        "\n[dim]Phase 1 complete. Generate images externally, place them in "
+        f"workspace/jobs/{project_id}/images/, then run 'Resume Project (Phase 2)'.[/dim]"
+    )
+
+
 def _flow_resume_project() -> None:
     existing = _list_phase1_ready_projects()
     if not existing:
@@ -518,7 +578,7 @@ def _flow_resume_project() -> None:
 
     overlay = questionary.confirm(
         "Apply motion overlay compositing?",
-        default=True,
+        default=False,
     ).ask()
 
     BuildPipeline().run_resume(project_id, overlay=overlay)
@@ -574,14 +634,14 @@ def run_wizard() -> None:
     try:
         if "New Project" in preset:
             _flow_new_project(defaults)
+        elif "Re-plan Scenes" in preset:
+            _flow_replan_scenes()
         elif "Resume Project" in preset:
             _flow_resume_project()
         elif "Full AI Video" in preset:
             _flow_full_ai_video(defaults)
         elif "Existing Script" in preset:
             _flow_existing_script(defaults)
-        elif "Research Only" in preset:
-            _flow_research_only()
         elif "Images Only" in preset:
             _flow_images_only()
         elif "Voice Only" in preset:

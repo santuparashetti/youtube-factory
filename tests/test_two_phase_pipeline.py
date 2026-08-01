@@ -300,6 +300,8 @@ class TestRunnerPipelineMode:
         (project_dir / "project.json").write_text(
             json.dumps({"id": project_id, "title": "Topic"}), encoding="utf-8"
         )
+        (project_dir / "script").mkdir(parents=True, exist_ok=True)
+        (project_dir / "script" / "script.md").write_text("Test script.", encoding="utf-8")
         monkeypatch.setattr("ytfactory.agents.runner.WORKSPACE_DIR", str(tmp_path))
 
         mock_project = MagicMock()
@@ -343,6 +345,8 @@ class TestRunnerPipelineMode:
         (project_dir / "project.json").write_text(
             json.dumps({"id": project_id, "title": "Topic"}), encoding="utf-8"
         )
+        (project_dir / "script").mkdir(parents=True, exist_ok=True)
+        (project_dir / "script" / "script.md").write_text("Test script.", encoding="utf-8")
         (project_dir / "images").mkdir(parents=True, exist_ok=True)
         (project_dir / "image_prompts_manifest.json").write_text(
             json.dumps({
@@ -395,6 +399,8 @@ class TestRunnerPipelineMode:
         (project_dir / "project.json").write_text(
             json.dumps({"id": project_id, "title": "Topic"}), encoding="utf-8"
         )
+        (project_dir / "script").mkdir(parents=True, exist_ok=True)
+        (project_dir / "script" / "script.md").write_text("Test script.", encoding="utf-8")
         (project_dir / "images").mkdir(parents=True, exist_ok=True)
         (project_dir / "image_prompts_manifest.json").write_text(
             json.dumps({
@@ -458,6 +464,12 @@ class TestPhase1ResumeSkip:
 
         mock_bp.composer.run.side_effect = _fake_compose
         monkeypatch.setattr("ytfactory.build.pipeline.BuildPipeline", lambda: mock_bp)
+        # Stub the A/B selection wrapper so tests stay non-interactive and
+        # composer.run() is called exactly once (matching pre-A/B assertions).
+        monkeypatch.setattr(
+            "ytfactory.two_phase.pipeline.run_composer_with_ab_selection",
+            lambda composer, project_id: composer.run(project_id),
+        )
 
         mock_gate = MagicMock()
         mock_gate.run.side_effect = lambda pid, text, auto_mode=False: text

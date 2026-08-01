@@ -11,7 +11,76 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3102 passing, 1 skipped, 7 pre-existing unrelated failures (subtitle-burn/CLI, predate this work; as of 2026-07-29)
+**Test count:** 3127 passing, 4 skipped, 0 failures (as of 2026-08-01)
+
+## 2026-08-01 — Research/script-writer nodes removed; editorial QA→polisher feedback loop; faithfulness-gate retry injection; subject-position drift detection
+
+### 1 — Research + script-writer nodes removed from graph (major)
+
+**Why:** The research node was re-running on every graph invocation, overwriting prior research and adding 2–4 minutes of latency even when the script was already finalized. The intended workflow has always been: provide a base script (pre-written or from YouTube), not AI-generate it from scratch. The research and script-writer stages are now offline utilities only.
+
+**Graph (`agents/graph.py`):** `research_node`, `script_writer_node`, `human_review_script_node` imports and edges removed. Entry routing simplified: YouTube URL → acquire_audio → transcribe → translate → human_review_base_script → composer; script/project → composer directly. The nodes themselves (`research.py`, `script_writer.py`) remain on disk — importable for CLI use — but are no longer wired into this graph.
+
+**Idempotency guards added** to the remaining nodes so re-runs never clobber finished work:
+- `research_node` (`agents/nodes/research.py`): returns cached `research.md` if it exists, printing a skip message.
+- `script_writer_node` (`agents/nodes/script_writer.py`): returns cached `script.md` if it exists.
+- `composer_node` (`agents/nodes/composer.py`): if `script.md` already exists on disk (Phase 1 resume path), returns it directly instead of re-composing.
+- `ScenePipeline.run()` (`scenes/pipeline.py`): returns early if `scene-plan.json` already exists.
+
+**`runner.py`:** when no `source_url` and no explicit `script_path`, loads `script.md` from workspace (raises `FileNotFoundError` with clear message if missing). `prep_only` guard: raises `ValueError("--phase=prep requires --project <id>")` when `project_id is None`.
+
+**Wizard (`cli/wizard.py`):**
+- "Research Only" preset and `_flow_research_only()` removed entirely.
+- "Re-plan Scenes (keep script)" preset added.
+- New project flow: source is now **mandatory** — always prompts "Source: Existing base script / YouTube URL"; the old optional "Do you have a pre-written source?" gate is gone.
+- Existing-project safety: if `workspace/jobs/<slug>/images/` already has scenes, a warning banner + `default=False` confirmation is shown before overwriting the plan.
+- **Auto-mode default flipped back `False → True`** for all three composing flows (reverting the 2026-07-31 flip; the interactive review gates default back to off, matching the production workflow where a human reviews the published output rather than each intermediate stage).
+
+### 2 — Faithfulness-gate retry: specific violation feedback injection
+
+**Why:** 7/19 scenes were exhausting retries with BLIND feedback — the retry prompt said "FORBIDDEN_OBJECT detected" but didn't name the object, and `HUMAN_CLASSIFICATION_VIOLATED/NO_HUMAN_ALLOWED` didn't mention that hands count as human.
+
+**`src/ytfactory/images/validators.py`:**
+- `ValidationError` dataclass: new `violated_item: str = ""` field.
+- `to_feedback_block()` updated: when `violated_item` is set, outputs `"FAILED: CODE — remove 'phone'"` or `"FAILED: UNSUPPORTED_CHARACTER — 'monk' detected; allowed: Mother Eagle, ..."` (specific names, not generic hints). `violated_item` populated at UNSUPPORTED_CHARACTER, FORBIDDEN_CHARACTER, FORBIDDEN_OBJECT, HUMAN_CLASSIFICATION_VIOLATED/NO_HUMAN sites.
+- `HUMAN_CLASSIFICATION_RULES: dict[HumanClassification, str]` added — plain-English expansion of each value; `NO_HUMAN_ALLOWED` explicitly lists "hands, feet, silhouettes, shadows of people, any body part."
+- `build_retry_prompt(human_classification=None)`: new HARD CONSTRAINTS block **leads the retry prompt** (above the violation detail): character list, environment list, expanded human_classification rule. Empty `allowed_chars` → `"NONE — introduce no named person or figure"`.
+- `_build_entity_constraints_section()` (`agents/nodes/scene_planner.py`): now appends the expanded rule text after each `human_classification=` value in the **initial batch prompt** too (not just retries). `human_classification=entities.human_classification` threaded to `build_retry_prompt` call.
+- **14 new tests** in `tests/test_retry_feedback_injection.py` — all pass.
+
+### 3 — Editorial QA → Polisher feedback loop
+
+**Why:** `callback_to_opening` and other Editorial QA flags were never auto-fixed — the QA stage flagged them, the human reviewer saw them, but nothing closed the loop. Phase 2 auto-fixer is now built.
+
+**`src/ytfactory/agents/nodes/script_selector_polisher.py`:**
+- `_EDITORIAL_FIX_SYSTEM_PROMPT` — strict targeted-edit instructions (fix ONLY listed issues, change <10% of script).
+- `_EDITORIAL_CHECK_GUIDANCE: dict[str, str]` — per-check fix instructions for all 6 QA check names (`callback_to_opening`, `unnecessary_explanation`, `duplicate_story`, `missing_sensory`, `weak_opening`, `weak_closing`).
+- `_build_editorial_fix_prompt(script_text, flagged)` — builds the LLM prompt with the script + specific flagged issues + their guidance.
+- `apply_editorial_fixes(script_text, flagged, settings) -> str` — calls the polisher LLM, returns the fixed script; never raises (returns original on failure).
+
+**`src/ytfactory/editorial_qa/review_gate.py`:**
+- `_run_editorial_fix_loop(project_id, script_text, qa_report, settings) -> str` — reads flagged checks from the QA report, calls `apply_editorial_fixes()`, saves the fixed `script.md`, re-runs QA once to confirm. Wired into `run_review_gate()` at the hash-changed path (after hash changed = new composition or hand-edit).
+
+### 4 — Motion: subject-position-aware drift direction
+
+**`src/video_core/cinematic/motion.py`:**
+- `_detect_subject_side(visual_prompt, narration) -> 'left' | 'right' | ''` — scores positional cue phrases (`_LEFT_POSITION_CUES`, `_RIGHT_POSITION_CUES`, `_EMPTY_SPACE_RIGHT/LEFT`). Empty-space cues score +2 on the opposite side (stronger than a bare directional phrase; also prevents double-counting from the embedded directional sub-string). Returns `''` on a tie or no cues — callers fall back to scene-index alternation.
+- `drift_sign` now uses `_detect_subject_side()` instead of pure index-based alternation: pan toward the subject (drift away from where they stand keeps them in frame).
+
+**`src/video_core/cinematic/profiles.py`:** `max_drift_scale_factor=1.7` added to CINEMATIC and PREMIUM `ProfileConfig`.
+
+**`src/ytfactory/agents/prompts/scene_planner.py`:** subject-position language guidance added to scene prompt (instructs the model to include left/right placement cues when subject position is significant).
+
+### 5 — DeepSeek nested scenes unwrapping
+
+**`src/ytfactory/scenes/planner/llm_planner.py`:** DeepSeek (and some other models) sometimes wrap the whole plan inside the "scenes" key → `{"scenes": {"title": ..., "scenes": [...]}}`. A `while isinstance(data.get("scenes"), dict) and "scenes" in data["scenes"]` unwrap loop before `ScenePlan.model_validate(data)` prevents this from causing a validation error.
+
+### Test fixes (pre-existing failures resolved)
+- **Subtitle burn** (`test_brand_card_no_subtitle_burn`, `test_production_quality_fixes`, `test_video_encoding_optimization`): `renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})` — tests were reading `SUBTITLE_BURN_ENABLED=false` from `.env`.
+- **Eagle fixture tests** (`test_composer.py`, `test_structural_retention.py`, `test_editorial_qa.py`): `@pytest.mark.skipif(not EAGLE_SCRIPT_PATH.exists(), ...)` — fixture file is local-only, not in repo.
+- **A/B wrapper** (`test_incremental.py`, `test_two_phase_pipeline.py`): monkeypatched `run_composer_with_ab_selection` to a passthrough lambda — tests predate the A/B wiring.
+
+**Test count:** 3127 passing, 4 skipped (Eagle fixture skipif), 0 failures.
 
 ## 2026-07-31 — A/B script selection wired into wizard/graph path; wizard defaults flipped; breathing filter → monotonic swell (commit 4850a3a)
 
@@ -101,8 +170,9 @@ rationalization-bug fix. Flags only — never gates/blocks/rewrites (`EDITORIAL_
 Ledger (`ledger.py::QALedger`, append-only JSONL at `workspace/editorial_qa/ledger.jsonl`,
 cross-project) + pattern promoter (`promoter.py::PatternPromoter`, proposes a generation-prompt
 change only at ≥N-of-M flag rate, human approve/dismiss via `ytfactory qa-promotions`, never
-auto-applies). Phase 2 scoped auto-fixer documented in spec but NOT built — gated on ~15-20 real
-scripts of ledger data.
+auto-applies). **Phase 2 auto-fixer built 2026-08-01** — see `apply_editorial_fixes()` in
+`agents/nodes/script_selector_polisher.py` and `_run_editorial_fix_loop()` in
+`editorial_qa/review_gate.py`.
 
 **Review checkpoint:** `human_review_final_script_node` (`agents/nodes/human_review.py`) +
 `FinalScriptReviewGate`/`checkpoint.py` (`editorial_qa/`) — SHA-256 hash-guard on `script.md`.

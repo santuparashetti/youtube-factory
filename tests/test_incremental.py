@@ -581,6 +581,13 @@ class TestBuildPipelineIncrementalScript:
             "ytfactory.build.pipeline.ProjectRepository",
             lambda: type("R", (), {"load": lambda self, pid: type("P", (), {"title": "My Topic"})()})(),
         )
+        # run_composer_with_ab_selection wraps the composer with an interactive
+        # A/B picker; stub it out so the test stays non-interactive and the
+        # assertion on composer.run still works as a simple call count.
+        monkeypatch.setattr(
+            "ytfactory.build.pipeline.run_composer_with_ab_selection",
+            lambda composer, project_id: composer.run(project_id),
+        )
 
         bp = self._build_pipeline_with_mocks(monkeypatch)
         bp.run_incremental(project_id)

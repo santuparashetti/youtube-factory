@@ -7,10 +7,14 @@ wired into build_graph() — see agents/graph.py.
 
 from __future__ import annotations
 
+from rich.console import Console
+
 from ytfactory.agents.state import VideoState
 from ytfactory.composer.pipeline import ComposerPipeline
 from ytfactory.composer.selection import run_composer_with_ab_selection
 from ytfactory.config.settings import Settings
+
+console = Console()
 
 
 def composer_node(state: VideoState) -> dict:
@@ -29,9 +33,20 @@ def composer_node(state: VideoState) -> dict:
        which picks the stronger and lightly polishes it. This is the standard,
        non-interactive path and never blocks.
     """
+    from pathlib import Path
+    from ytfactory.shared.constants import WORKSPACE_DIR
+
+    project_id = state["project_id"]
+    script_file = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
+
+    if script_file.exists() and not state.get("ab_script_selection", False):
+        console.print(
+            "\n[dim]Composer skipped — finalized script.md already exists.[/dim]"
+        )
+        return {"script_md": script_file.read_text(encoding="utf-8")}
+
     settings = Settings()
     pipeline = ComposerPipeline(settings)
-    project_id = state["project_id"]
     base_script = state.get("script_md", "")
 
     if state.get("ab_script_selection", False):

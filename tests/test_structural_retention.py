@@ -518,6 +518,10 @@ class TestEagleScriptFixture:
     model's writing quality on this script (manual break-in-period review).
     """
 
+    @pytest.mark.skipif(
+        not EAGLE_SCRIPT_PATH.exists(),
+        reason="fixture script not present in this checkout",
+    )
     def test_five_success_criteria(self, pipeline, mock_llm, tmp_path):
         script_text = EAGLE_SCRIPT_PATH.read_text(encoding="utf-8")
 

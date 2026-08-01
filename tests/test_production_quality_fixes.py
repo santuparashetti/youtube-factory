@@ -294,6 +294,7 @@ class TestFFmpegFilterOrder:
         from ytfactory.video.ffmpeg import FFmpegRenderer
 
         renderer = FFmpegRenderer()
+        renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})
 
         run_calls: list[list] = []
 
@@ -333,6 +334,7 @@ class TestFFmpegFilterOrder:
         from ytfactory.video.ffmpeg import FFmpegRenderer
 
         renderer = FFmpegRenderer()
+        renderer.settings = renderer.settings.model_copy(update={"subtitle_burn_enabled": True})
         run_calls: list[list] = []
 
         with patch("ytfactory.video.ffmpeg.subprocess.run", side_effect=lambda cmd, **kw: run_calls.append(list(cmd))):
