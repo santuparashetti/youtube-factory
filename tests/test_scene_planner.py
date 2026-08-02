@@ -19,9 +19,11 @@ import pytest
 from ytfactory.agents.nodes.scene_planner import (
     _enforce_closing_scene_primary,
     _enforce_primary_kai_spec,
+    _enforce_style_footer,
     _has_character_staging,
     _has_kai_markers,
     _parse_visual_prompts,
+    _propagate_environment_anchors,
 )
 from ytfactory.scenes.models import Scene, ScenePlan
 
@@ -333,3 +335,174 @@ class TestEnforcementGuards:
         assert result[0]["anchor_role"] == "absent"
         assert "no human figure" in result[0]["visual_prompt"].lower()
         assert not _has_kai_markers(result[0]["visual_prompt"])
+
+
+# ── Scene continuity / environment anchor propagation ────────────────────────
+
+
+class TestPropagateEnvironmentAnchors:
+    def test_injects_continuity_prefix_when_missing(self):
+        """Subsequent scene without continuity prefix gets it injected."""
+        scenes = [
+            {
+                "index": 5,
+                "scene_group_id": "laughing_club_park",
+                "environment_anchor": "Manicured urban park at pre-dawn. Cool blue light.",
+                "visual_prompt": "Full description of scene 5 with environment.",
+                "anchor_role": "spectator",
+            },
+            {
+                "index": 6,
+                "scene_group_id": "laughing_club_park",
+                "environment_anchor": "Manicured urban park at pre-dawn. Cool blue light.",
+                "visual_prompt": "The instructor turns to walk away, collecting payment.",
+                "anchor_role": "spectator",
+            },
+        ]
+        result = _propagate_environment_anchors(scenes)
+        assert result[1]["visual_prompt"].startswith("Continuous from scene 5")
+        assert "Manicured urban park" in result[1]["visual_prompt"]
+
+    def test_does_not_double_inject(self):
+        """Subsequent scene that already has the continuity prefix is not modified."""
+        scenes = [
+            {
+                "index": 5,
+                "scene_group_id": "laughing_club_park",
+                "environment_anchor": "Manicured urban park at pre-dawn.",
+                "visual_prompt": "Scene 5 full prompt.",
+                "anchor_role": "spectator",
+            },
+            {
+                "index": 6,
+                "scene_group_id": "laughing_club_park",
+                "environment_anchor": "Manicured urban park at pre-dawn.",
+                "visual_prompt": "Continuous from scene 5. Manicured urban park at pre-dawn. Payment exchange.",
+                "anchor_role": "spectator",
+            },
+        ]
+        result = _propagate_environment_anchors(scenes)
+        assert result[1]["visual_prompt"].count("Continuous from scene 5") == 1
+
+    def test_ungrouped_scenes_unaffected(self):
+        """Scenes with no scene_group_id are not touched."""
+        scenes = [
+            {
+                "index": 3,
+                "scene_group_id": None,
+                "visual_prompt": "A glowing orb on a cloth. Symbolic.",
+                "anchor_role": "absent",
+            },
+        ]
+        result = _propagate_environment_anchors(scenes)
+        assert result[0]["visual_prompt"] == "A glowing orb on a cloth. Symbolic."
+
+
+class TestSceneGroupModelFields:
+    def test_scene_group_id_and_environment_anchor_defaults_to_none(self):
+        """Scene model has scene_group_id and environment_anchor fields defaulting to None."""
+        from ytfactory.scenes.models import Scene
+        s = Scene(index=1, title="t", narration="n",
+                  visual_prompt="test", duration_seconds=3.0)
+        assert s.scene_group_id is None
+        assert s.environment_anchor is None
+
+
+# ── Style footer enforcement ─────────────────────────────────────────────────
+
+
+class TestEnforceStyleFooter:
+    def test_appends_human_footer_to_primary_missing_photorealistic(self):
+        """Primary scene missing 'photorealistic' gets full human quality footer."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": "Lean young man at a desk."}]
+        result = _enforce_style_footer(scenes)
+        assert "photorealistic" in result[0]["visual_prompt"].lower()
+        assert "highly detailed human face" in result[0]["visual_prompt"].lower()
+
+    def test_appends_symbolic_footer_to_absent_missing_photorealistic(self):
+        """Absent scene missing 'photorealistic' gets symbolic footer only."""
+        scenes = [{"index": 1, "anchor_role": "absent",
+                   "visual_prompt": "A glowing orb on dark cloth."}]
+        result = _enforce_style_footer(scenes)
+        assert "photorealistic" in result[0]["visual_prompt"].lower()
+        assert "highly detailed human face" not in result[0]["visual_prompt"].lower()
+
+    def test_does_not_double_footer_when_full_footer_present(self):
+        """Prompt already containing full footer is not modified."""
+        original = (
+            "Lean young man at a desk. Documentary-quality realism, "
+            "highly detailed human face, realistic eyes, authentic skin texture, "
+            "seamless integration with the environment, "
+            "no text, no watermark, photorealistic."
+        )
+        scenes = [{"index": 1, "anchor_role": "primary", "visual_prompt": original}]
+        result = _enforce_style_footer(scenes)
+        assert result[0]["visual_prompt"].lower().count("photorealistic") == 1
+
+    def test_upgrades_bare_photorealistic_for_primary(self):
+        """Primary scene with bare 'photorealistic' (no human quality lines) gets full footer."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": "Lean young man at a desk. No text, photorealistic."}]
+        result = _enforce_style_footer(scenes)
+        assert "highly detailed human face" in result[0]["visual_prompt"].lower()
+
+    def test_partial_footer_not_doubled(self):
+        """LLM partial footer (documentary-quality realism but no photorealistic) is not duplicated."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": (
+                       "Lean young man at a desk. "
+                       "Documentary-quality realism, natural facial expression."
+                   )}]
+        result = _enforce_style_footer(scenes)
+        prompt = result[0]["visual_prompt"].lower()
+        assert prompt.count("documentary-quality realism") == 1
+        assert "highly detailed human face" in prompt
+
+    def test_full_footer_not_modified(self):
+        """Prompt with complete footer (all four indicators) is not modified."""
+        full = (
+            "Lean young man at a desk. Documentary-quality realism, "
+            "highly detailed human face, realistic eyes, authentic skin texture, "
+            "seamless integration with the environment, no text, no watermark, "
+            "photorealistic."
+        )
+        scenes = [{"index": 1, "anchor_role": "primary", "visual_prompt": full}]
+        result = _enforce_style_footer(scenes)
+        assert result[0]["visual_prompt"].lower().count("documentary-quality realism") == 1
+
+
+# ── Primary Kai spec: action-verb guard (Fix 3) ─────────────────────────────
+
+
+class TestEnforcePrimaryKaiSpecActionGuard:
+    def test_kai_spec_with_action_left_as_primary(self):
+        """Primary scene with Kai spec AND action verb stays primary, unchanged."""
+        original = (
+            "Lean young man, late 20s, short dark hair, light stubble, "
+            "simple dark shirt, plain trousers, calm expression — "
+            "sitting alone at a desk, staring at a blank page."
+        )
+        scenes = [{"index": 1, "anchor_role": "primary", "visual_prompt": original}]
+        result = _enforce_primary_kai_spec(scenes)
+        assert result[0]["anchor_role"] == "primary"
+        assert result[0]["visual_prompt"] == original
+
+    def test_kai_spec_with_no_action_reclassified_to_absent(self):
+        """Primary scene with Kai spec but no action verb is reclassified to absent."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": (
+                       "Lean young man, late 20s, short dark hair, light stubble, "
+                       "simple dark shirt, plain trousers, calm expression — "
+                       "A wide shot of a dim, empty room. A single chair sits unused."
+                   )}]
+        result = _enforce_primary_kai_spec(scenes)
+        assert result[0]["anchor_role"] == "absent"
+
+    def test_scene_group_id_in_scene_model_defaults_to_none(self):
+        """Pydantic Scene model has scene_group_id field defaulting to None."""
+        from ytfactory.scenes.models import Scene
+        s = Scene(index=1, title="t", narration="n",
+                  visual_prompt="test", duration_seconds=3.0)
+        assert hasattr(s, "scene_group_id")
+        assert s.scene_group_id is None

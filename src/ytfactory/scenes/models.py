@@ -75,6 +75,14 @@ class Scene(BaseModel):
         default="absent",
         description="Kai anchor character role: primary (Kai is subject), spectator (Kai observes real figure), absent (symbolic, no Kai)",
     )
+    scene_group_id: str | None = Field(
+        default=None,
+        description="Identifies scenes in the same story beat (same location, continuous action). Scenes sharing a non-None value are grouped.",
+    )
+    environment_anchor: str | None = Field(
+        default=None,
+        description="Canonical environment description for this scene group. Set by LLM on the first scene in each group; propagated to subsequent scenes by post-processing.",
+    )
 
 
 class ScenePlan(BaseModel):

@@ -507,12 +507,46 @@ def probe(
         1 for s in scenes if kai_pattern.search(s.get("visual_prompt") or "")
     )
 
+    # ── Scene group checks ────────────────────────────────────────────────
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for s in scenes:
+        gid = s.get("scene_group_id")
+        if gid:
+            groups[gid].append(s)
+
+    grouped_count = sum(len(v) for v in groups.values())
+
+    continuity_ok = True
+    for gid, group_scenes in groups.items():
+        first = group_scenes[0]
+        first_id = first.get("index", "?")
+        for subsequent in group_scenes[1:]:
+            vp = subsequent.get("visual_prompt") or ""
+            if not vp.startswith(f"Continuous from scene {first_id}"):
+                continuity_ok = False
+
+    anchor_match_ok = True
+    for gid, group_scenes in groups.items():
+        first_anchor = group_scenes[0].get("environment_anchor") or ""
+        for s in group_scenes[1:]:
+            if (s.get("environment_anchor") or "") != first_anchor:
+                anchor_match_ok = False
+
+    footer_ok = all(
+        "photorealistic" in (s.get("visual_prompt") or "").lower()
+        for s in scenes
+    )
+
     checks_pass = (
         all_classified
         and opening_ok
         and closing_ok
         and primary_markers_ok
         and absent_clean_ok
+        and continuity_ok
+        and anchor_match_ok
+        and footer_ok
     )
 
     # ── Report ────────────────────────────────────────────────────────────
@@ -528,6 +562,17 @@ def probe(
     missing_suffix = "  [red]← FAIL[/red]" if counts["MISSING"] > 0 else ""
     _console.print(f"  MISSING   : {counts['MISSING']}{missing_suffix}\n")
 
+    _console.print("scene_group distribution:")
+    _console.print(f"  grouped scenes : {grouped_count}  (in {len(groups)} group{'s' if len(groups) != 1 else ''})")
+    _console.print(f"  ungrouped      : {total - grouped_count}")
+    if groups:
+        _console.print("\nGroups:")
+        for gid, group_scenes in sorted(groups.items()):
+            ids = ", ".join(str(s.get("index", "?")) for s in group_scenes)
+            anchor_snippet = (group_scenes[0].get("environment_anchor") or "")[:60]
+            _console.print(f"  {gid} → scenes {ids}   [dim][environment_anchor: {anchor_snippet}...][/dim]")
+    _console.print("")
+
     _console.print("Checks:")
     _console.print(f"  {_mark(all_classified)}  All scenes have anchor_role field")
     _console.print(
@@ -539,6 +584,10 @@ def probe(
     _console.print(f"  {_mark(primary_markers_ok)}  All primary prompts contain Kai spec markers")
     _console.print(f"  {_mark(absent_clean_ok)}  All absent prompts are Kai-free")
     _console.print(f"  [dim]ℹ[/dim]  Kai name used in image prompts → {kai_prompt_count} of {total} prompts reference 'Kai'")
+    _console.print("\nContinuity checks:")
+    _console.print(f"  {_mark(continuity_ok)}  All grouped scenes (non-first) open with 'Continuous from scene X'")
+    _console.print(f"  {_mark(anchor_match_ok)}  All grouped scenes have matching environment_anchor values within group")
+    _console.print(f"  {_mark(footer_ok)}  All visual_prompts end with quality footer ('photorealistic' present)")
 
     # ── Samples ───────────────────────────────────────────────────────────
     def _first_with_role(role: str) -> dict | None:

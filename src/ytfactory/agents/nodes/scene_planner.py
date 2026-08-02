@@ -99,23 +99,150 @@ def _has_character_staging(prompt: str) -> bool:
     return bool(_CHARACTER_STAGING_RE.search(prompt))
 
 
+_ACTION_VERBS = [
+    "sitting", "seated", "standing", "walking", "looking", "facing",
+    "leaning", "kneeling", "watching", "holding", "reaching", "turning",
+    "positioned", "gazing", "staring", "moving", "stepping",
+]
+
+
+def _has_action_staging(prompt: str) -> bool:
+    """True if the prompt contains an active character action verb."""
+    p = prompt.lower()
+    return any(v in p for v in _ACTION_VERBS)
+
+
 def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
     """For primary scenes:
-    - Already has Kai markers: leave unchanged.
-    - Has character staging but no Kai spec: prepend Kai spec.
-    - No character staging (atmospheric/symbolic): reclassify to 'absent' to
-      prevent Kai spec + empty-scene contradiction.
+    - Kai markers present AND action verb present: leave unchanged (correct).
+    - Kai markers present but NO action verb: reclassify to 'absent' — the spec
+      was prepended by the LLM but the staging is atmospheric, creating a
+      contradiction (Kai spec with no character action).
+    - No Kai markers, has character staging: prepend Kai spec.
+    - No Kai markers, no character staging (atmospheric/symbolic): reclassify
+      to 'absent' to prevent Kai spec + empty-scene contradiction.
     """
     for scene in scenes:
         if scene.get("anchor_role") != "primary":
             continue
         prompt = scene.get("visual_prompt", "")
         if _has_kai_markers(prompt):
-            continue
-        if _has_character_staging(prompt):
+            if _has_action_staging(prompt):
+                continue  # spec present AND character is acting — correct
+            # Spec present but staging is atmospheric — reclassify to absent.
+            # Strip any prepended Kai spec so the prompt is clean.
+            for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
+                prompt = prompt.replace(marker, "").strip()
+            scene["visual_prompt"] = prompt
+            scene["anchor_role"] = "absent"
+        elif _has_character_staging(prompt):
             scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
         else:
             scene["anchor_role"] = "absent"
+    return scenes
+
+
+_STYLE_FOOTER_HUMAN = (
+    "Documentary-quality realism, highly detailed human face, realistic eyes, "
+    "authentic skin texture, seamless integration with the environment, "
+    "no text, no watermark, photorealistic."
+)
+
+_STYLE_FOOTER_SYMBOLIC = (
+    "No text, no watermark, photorealistic."
+)
+
+# Two or more of these in a prompt means a footer is already present (partial or full).
+_FOOTER_INDICATORS = [
+    "photorealistic",
+    "documentary-quality realism",
+    "no text, no watermark",
+    "highly detailed human face",
+]
+
+
+def _has_footer(prompt: str) -> bool:
+    """True if the prompt already contains at least two footer indicator phrases."""
+    p = prompt.lower()
+    return sum(1 for ind in _FOOTER_INDICATORS if ind in p) >= 2
+
+
+def _strip_partial_footer(prompt: str) -> str:
+    """Strip any partial footer indicator phrases to prevent doubling on re-append."""
+    for indicator in ["documentary-quality realism", "no text, no watermark", "photorealistic"]:
+        prompt = re.sub(
+            rf'[,.]?\s*{re.escape(indicator)}[^.]*\.?',
+            '',
+            prompt,
+            flags=re.IGNORECASE,
+        ).strip(" ,.")
+    return prompt
+
+
+def _propagate_environment_anchors(scenes: list[dict]) -> list[dict]:
+    """
+    For scenes in the same scene_group, ensure the environment anchor from
+    the first scene is referenced in all subsequent scenes.
+
+    If a subsequent scene's visual_prompt already opens with "Continuous from
+    scene [N]", it is left unchanged. Otherwise the anchor is prepended.
+    """
+    group_registry: dict[str, tuple[int, str]] = {}
+
+    for scene in scenes:
+        group_id = scene.get("scene_group_id")
+        if not group_id:
+            continue
+
+        scene_id = scene.get("index") or scene.get("scene_id")
+        env_anchor = scene.get("environment_anchor") or ""
+
+        if group_id not in group_registry:
+            group_registry[group_id] = (scene_id, env_anchor)
+        else:
+            first_id, anchor = group_registry[group_id]
+            prompt = scene.get("visual_prompt", "")
+            continuity_prefix = f"Continuous from scene {first_id}"
+
+            if not prompt.startswith(continuity_prefix):
+                anchor_clause = f"{anchor} " if anchor else ""
+                scene["visual_prompt"] = f"{continuity_prefix}. {anchor_clause}{prompt}"
+
+    return scenes
+
+
+def _enforce_style_footer(scenes: list[dict]) -> list[dict]:
+    """
+    Ensures every visual_prompt ends with the correct style/quality footer.
+    primary / spectator → full human quality footer
+    absent              → symbolic footer (no human quality instructions)
+
+    Partial footer phrases (e.g. only "documentary-quality realism") are stripped
+    before the full footer is appended so phrases never appear twice.
+    The prompt is left unchanged only when it already has both the full footer
+    indicator count AND the human quality block (for primary/spectator).
+    """
+    for scene in scenes:
+        role = scene.get("anchor_role", "absent")
+        prompt = scene.get("visual_prompt", "").rstrip()
+
+        footer = (
+            _STYLE_FOOTER_HUMAN
+            if role in ("primary", "spectator")
+            else _STYLE_FOOTER_SYMBOLIC
+        )
+
+        has_full_footer = _has_footer(prompt)
+        has_human_block = "highly detailed human face" in prompt.lower()
+        needs_human_upgrade = role in ("primary", "spectator") and not has_human_block
+
+        if has_full_footer and not needs_human_upgrade:
+            continue  # already complete and correct
+
+        # Strip any partial indicator phrases before appending the full footer.
+        stripped = _strip_partial_footer(prompt)
+        scene["visual_prompt"] = f"{stripped} {footer}"
+
     return scenes
 
 
@@ -1501,6 +1628,8 @@ def scene_planner_node(state: VideoState) -> dict:
     # ── Kai enforcement guards ────────────────────────────────────────────
     scenes = _enforce_primary_kai_spec(scenes)
     scenes = _enforce_closing_scene_primary(scenes)
+    scenes = _propagate_environment_anchors(scenes)
+    scenes = _enforce_style_footer(scenes)
 
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:

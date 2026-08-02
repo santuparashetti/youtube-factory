@@ -633,7 +633,12 @@ WRITING RULES
 — The {style_label} feeling should come through the imagery — not by stating it as a keyword.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
-[{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
+[{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "scene_group_id": "snake_case_group_name_or_null", "environment_anchor": "canonical environment description or null", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
+
+Every scene object MUST include "scene_group_id" and "environment_anchor" explicitly, even when null:
+  "scene_group_id": "snake_case_group_name"  ← or null if this scene is not part of a group
+  "environment_anchor": "canonical environment description"  ← or null if not part of a group
+Do NOT omit these fields. Scenes with no group: output "scene_group_id": null, "environment_anchor": null
 
 ═════════════════════════════════════════════════════════
 VISUAL METADATA — classify every scene
@@ -799,6 +804,120 @@ Standard symbolic/atmospheric prompt only. No Kai reference at all.
 Example:
 "A cracked hourglass lying on its side on a stone floor, sand pooled beneath
 it, soft diffused grey light. No human figure."
+
+---
+
+## CHARACTER COMPLETENESS RULE (applies to ALL scenes)
+
+Every human character visually present in a scene MUST be explicitly described
+in the visual_prompt. Do not leave any character's appearance to the image
+generator's assumption — generators will default to whatever is convenient,
+which destroys cross-scene consistency.
+
+For EVERY non-Kai character in the scene, specify all five of:
+
+1. ROLE       — what they are in this scene (e.g. instructor, executive,
+                scholar, villager, child)
+2. APPEARANCE — age range, build, skin tone, hair. Default: Western European
+                (light to medium complexion, Western hair and features) UNLESS
+                the script explicitly names a cultural identity for this
+                character (e.g. "a Japanese elder", "an African-American CEO")
+3. CLOTHING   — specific garment, color, style
+                (e.g. "simple grey linen shirt, dark trousers"
+                      "formal dark navy business suit, white shirt, slim tie")
+4. POSITION   — where in the frame relative to the composition
+                (e.g. "centre-left", "background right", "foreground")
+5. ACTION     — what they are doing in this exact moment
+                (e.g. "extending a payment envelope", "standing at attention",
+                       "turning to walk away")
+
+For GROUP characters (e.g. a group of executives), describe the GROUP as a unit:
+  - Number: approximate count ("8 to 10 executives")
+  - Shared appearance: "Western European appearance, late 40s to 60s"
+  - Shared clothing: "formal dark business suits"
+  - Formation: "standing in neat rows"
+  - Expression/action: "strained forced smiles"
+
+Kai's appearance is locked via KAI_COMPRESSED_SPEC — if his spec is already
+in the prompt, do NOT re-describe him here. Just add the secondary characters.
+
+NEVER write: "a man in a suit", "some executives", "an instructor"
+ALWAYS write: "a man in his 50s, Western European, silver hair, simple grey
+linen shirt and dark trousers, standing centre-left, turning to walk away"
+
+## CROSS-SCENE CHARACTER LOCKING (within a scene_group)
+
+If this scene is part of a scene_group (scene_group_id is not null) AND it is
+NOT the first scene in the group:
+
+  For every secondary character who appeared in the first scene of this group,
+  do NOT re-invent their description. Instead:
+  1. Reference them explicitly: "same instructor as in scene [first_scene_id]"
+  2. Repeat ONLY their key locking descriptors (role + clothing key item):
+     "same instructor as in scene 5 — grey linen shirt, dark trousers"
+  3. Then describe only what CHANGES for this character in this scene
+     (their new action, position, expression).
+
+This ensures the image generator receives a consistent character description
+and does not re-invent the character's appearance between scenes.
+
+EXAMPLE (scene 6, same group as scene 5):
+  WRONG:  "An instructor in a grey coat collects payment..."
+  CORRECT: "Same instructor as in scene 5 — grey linen shirt, dark trousers —
+            now turning to walk away, holding a small payment envelope."
+
+---
+
+## SCENE CONTINUITY RULE
+
+Before writing visual_prompts, identify SCENE GROUPS — consecutive scenes
+that are part of the same story moment (same physical location, same time
+of day, continuous or directly sequential action).
+
+For each group:
+  1. Assign a short descriptive scene_group_id to all scenes in the group
+     (e.g. "laughing_club_park", "gallery_sale", "home_dawn_sequence")
+     Use snake_case, max 4 words, descriptive of the location/moment.
+     Scenes NOT part of any group: leave scene_group_id as null.
+
+  2. For the FIRST scene in the group:
+     - Write a full, detailed environment_anchor — the canonical description
+       of this location: what type of space, time of day, lighting quality,
+       color palette, key environmental elements.
+     - This anchor is the CONTRACT that all subsequent scenes in the group
+       must match exactly.
+     Example environment_anchor:
+     "Manicured urban park at pre-dawn. Cool flat blue light with first
+      hints of golden hour on the skyline. City skyscrapers visible in
+      morning haze behind. Dew on grass. Color palette: slate grey, muted
+      navy, faint cold amber."
+
+  3. For SUBSEQUENT scenes in the same group:
+     - Open the visual_prompt with: "Continuous from scene [first_scene_id].
+       [environment_anchor short form repeated verbatim]."
+     - Only describe what CHANGES: character positions, actions, emotional
+       state, specific focal point.
+     - Do NOT re-describe the environment from scratch — reference the anchor.
+     - The environment_anchor field for non-first scenes: copy the same value
+       as the first scene in the group (for post-processing reference).
+
+EXAMPLE — scenes 5 and 6 are both at the laughing club in the park:
+
+Scene 5 (first in group):
+  scene_group_id: "laughing_club_park"
+  environment_anchor: "Manicured urban park at pre-dawn. Cool flat blue light
+    with first hints of golden hour catching the city skyline. Skyscrapers
+    in soft morning haze. Dew on grass. Slate grey, muted navy, cold amber."
+  visual_prompt: "[full scene 5 description with environment included]"
+
+Scene 6 (subsequent in same group):
+  scene_group_id: "laughing_club_park"
+  environment_anchor: "Manicured urban park at pre-dawn. Cool flat blue light
+    with first hints of golden hour catching the city skyline. Skyscrapers
+    in soft morning haze. Dew on grass. Slate grey, muted navy, cold amber."
+  visual_prompt: "Continuous from scene 5. Manicured urban park, pre-dawn,
+    cool blue light, city skyline in haze. [then: what changed — the payment
+    transaction, characters' updated positions and actions]"
 
 ════════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])
