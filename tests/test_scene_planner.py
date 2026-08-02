@@ -2,7 +2,8 @@
 
 The scene planner assigns anchor_role ∈ {"primary", "spectator", "absent"} to
 each scene and builds a visual_prompt that injects Kai's compressed spec per role.
-"Kai" is a pipeline-internal handle — it must never appear in a visual_prompt.
+"Kai" is the pipeline-internal character handle — it is permitted (and preferred)
+in visual_prompt fields to aid image-generator consistency.
 
 These tests drive controlled scene-plan JSON (as the LLM would return it) through
 the real parse path (`_parse_visual_prompts`) and the real Pydantic model
@@ -18,9 +19,9 @@ import pytest
 from ytfactory.agents.nodes.scene_planner import (
     _enforce_closing_scene_primary,
     _enforce_primary_kai_spec,
+    _has_character_staging,
     _has_kai_markers,
     _parse_visual_prompts,
-    _sanitize_kai_name_from_prompts,
 )
 from ytfactory.scenes.models import Scene, ScenePlan
 
@@ -148,11 +149,6 @@ class TestPrimaryContract:
                     f"Scene {scene.index} is primary but has no Kai spec marker"
                 )
 
-    def test_primary_prompt_has_no_kai_name(self, plan: ScenePlan):
-        for scene in plan.scenes:
-            if scene.anchor_role == "primary":
-                assert "kai" not in scene.visual_prompt.lower()
-
 
 # ── SPECTATOR contract ───────────────────────────────────────────────────────
 
@@ -168,11 +164,6 @@ class TestSpectatorContract:
                     f"Scene {scene.index} is spectator but has no brief Kai descriptor"
                 )
 
-    def test_spectator_prompt_has_no_kai_name(self, plan: ScenePlan):
-        for scene in plan.scenes:
-            if scene.anchor_role == "spectator":
-                assert "kai" not in scene.visual_prompt.lower()
-
 
 # ── ABSENT contract ──────────────────────────────────────────────────────────
 
@@ -187,21 +178,6 @@ class TestAbsentContract:
                         f"Scene {scene.index} is absent but contains Kai marker '{marker}'"
                     )
 
-    def test_absent_prompt_has_no_kai_name(self, plan: ScenePlan):
-        for scene in plan.scenes:
-            if scene.anchor_role == "absent":
-                assert "kai" not in scene.visual_prompt.lower()
-
-
-# ── Global ───────────────────────────────────────────────────────────────────
-
-
-class TestGlobalNoKaiLeak:
-    def test_no_visual_prompt_contains_kai(self, plan: ScenePlan):
-        for scene in plan.scenes:
-            assert "kai" not in scene.visual_prompt.lower(), (
-                f"Scene {scene.index} visual_prompt contains the name 'Kai'"
-            )
 
 
 # ── Real parse path preserves anchor_role ────────────────────────────────────
@@ -271,10 +247,10 @@ class TestEnforcementGuards:
         assert _has_kai_markers(result[-1]["visual_prompt"])
 
     def test_primary_spec_prepended_when_missing(self):
-        """Primary scenes without Kai spec markers get the spec prepended."""
+        """Primary scenes with character staging but no Kai spec get the spec prepended."""
         mock_scenes = [
             {"index": 1, "anchor_role": "primary",
-             "visual_prompt": "A single human figure in an empty room."},
+             "visual_prompt": "A man seated at a desk, looking at scattered papers."},
         ]
         result = _enforce_primary_kai_spec(mock_scenes)
         assert _has_kai_markers(result[0]["visual_prompt"])
@@ -307,14 +283,53 @@ class TestEnforcementGuards:
         assert result[0]["anchor_role"] == "absent"
         assert "dark hair" not in result[0]["visual_prompt"]
 
-    def test_kai_name_stripped_from_visual_prompts(self):
-        """'Kai' must never appear in visual_prompts — stripped and replaced with 'the young man'."""
+    def test_atmospheric_primary_reclassified_to_absent(self):
+        """Primary scene with no character staging gets reclassified to absent."""
         mock_scenes = [
             {"index": 1, "anchor_role": "primary",
-             "visual_prompt": "Kai sits at a desk, looking out the window."},
-            {"index": 2, "anchor_role": "spectator",
-             "visual_prompt": "A professor lectures while Kai watches from the back."},
+             "visual_prompt": "A wide shot of an empty room with peeling paint."},
         ]
-        result = _sanitize_kai_name_from_prompts(mock_scenes)
-        for scene in result:
-            assert "kai" not in scene["visual_prompt"].lower()
+        result = _enforce_primary_kai_spec(mock_scenes)
+        assert result[0]["anchor_role"] == "absent"
+        assert not _has_kai_markers(result[0]["visual_prompt"])
+
+    def test_primary_with_character_staging_gets_spec_prepended(self):
+        """Primary scene with character staging gets Kai spec prepended."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "A man standing at a window, facing outward."},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        assert result[0]["anchor_role"] == "primary"
+        assert _has_kai_markers(result[0]["visual_prompt"])
+
+    def test_no_contradiction_in_output(self):
+        """Primary scene whose staging declares absence of humans must not get Kai spec prepended."""
+        # Scene 1: staging explicitly has no human — must be reclassified absent, not get Kai spec
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "No human figure, hands, or silhouettes are present."},
+            # Scene 2: staging has Kai already — guard must not touch it
+            {"index": 2, "anchor_role": "primary",
+             "visual_prompt": "Lean young man, dark hair — seated at a desk."},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        scene1 = next(s for s in result if s["index"] == 1)
+        scene2 = next(s for s in result if s["index"] == 2)
+        # Scene 1 must have been reclassified — it has no character staging
+        assert scene1["anchor_role"] == "absent", "Atmospheric scene must be reclassified to absent"
+        assert not _has_kai_markers(scene1["visual_prompt"]), "Absent scene must not have Kai spec"
+        # Scene 2 already had Kai markers — should remain primary and unchanged
+        assert scene2["anchor_role"] == "primary"
+        assert _has_kai_markers(scene2["visual_prompt"])
+
+    def test_no_kai_spec_on_absent_reclassified_scene(self):
+        """Scene reclassified from primary to absent must not have Kai spec."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "No human figure. An empty cushion on a stone floor."},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        assert result[0]["anchor_role"] == "absent"
+        assert "no human figure" in result[0]["visual_prompt"].lower()
+        assert not _has_kai_markers(result[0]["visual_prompt"])

@@ -503,8 +503,8 @@ def probe(
                 absent_clean_ok = False
                 break
 
-    no_kai_ok = not any(
-        kai_pattern.search(s.get("visual_prompt") or "") for s in scenes
+    kai_prompt_count = sum(
+        1 for s in scenes if kai_pattern.search(s.get("visual_prompt") or "")
     )
 
     checks_pass = (
@@ -513,7 +513,6 @@ def probe(
         and closing_ok
         and primary_markers_ok
         and absent_clean_ok
-        and no_kai_ok
     )
 
     # ── Report ────────────────────────────────────────────────────────────
@@ -539,7 +538,7 @@ def probe(
     )
     _console.print(f"  {_mark(primary_markers_ok)}  All primary prompts contain Kai spec markers")
     _console.print(f"  {_mark(absent_clean_ok)}  All absent prompts are Kai-free")
-    _console.print(f"  {_mark(no_kai_ok)}  No visual_prompt contains the string 'Kai'")
+    _console.print(f"  [dim]ℹ[/dim]  Kai name used in image prompts → {kai_prompt_count} of {total} prompts reference 'Kai'")
 
     # ── Samples ───────────────────────────────────────────────────────────
     def _first_with_role(role: str) -> dict | None:

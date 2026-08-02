@@ -83,13 +83,39 @@ def _has_kai_markers(prompt: str) -> bool:
     return any(m in p for m in _KAI_MARKERS)
 
 
+# Pronouns use word-boundary matching (via _CHARACTER_STAGING_RE) to avoid
+# false positives like "the " matching "he " or "there " matching "her ".
+# Multi-word phrases and action verbs are matched as substrings (also via the RE).
+_CHARACTER_STAGING_RE = re.compile(
+    r"\b(?:he|his|him|she|her|seated|standing|sitting|walking|looking|facing|"
+    r"kneeling|leaning|the man|the woman|a man|a woman|the figure|a figure|"
+    r"a human figure|the young man|a person|someone|a single person|positioned)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_character_staging(prompt: str) -> bool:
+    """True if the visual_prompt staging describes a visible human character."""
+    return bool(_CHARACTER_STAGING_RE.search(prompt))
+
+
 def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
-    """Every primary scene must open with the compressed Kai spec. Prepend if absent."""
+    """For primary scenes:
+    - Already has Kai markers: leave unchanged.
+    - Has character staging but no Kai spec: prepend Kai spec.
+    - No character staging (atmospheric/symbolic): reclassify to 'absent' to
+      prevent Kai spec + empty-scene contradiction.
+    """
     for scene in scenes:
-        if scene.get("anchor_role") == "primary":
-            prompt = scene.get("visual_prompt", "")
-            if not _has_kai_markers(prompt):
-                scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+        if scene.get("anchor_role") != "primary":
+            continue
+        prompt = scene.get("visual_prompt", "")
+        if _has_kai_markers(prompt):
+            continue
+        if _has_character_staging(prompt):
+            scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+        else:
+            scene["anchor_role"] = "absent"
     return scenes
 
 
@@ -107,20 +133,16 @@ def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
         closing["anchor_role"] = "primary"
         prompt = closing.get("visual_prompt", "")
         if not _has_kai_markers(prompt):
-            closing["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+            if _has_character_staging(prompt):
+                closing["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+            else:
+                closing["visual_prompt"] = (
+                    f"{KAI_COMPRESSED_SPEC} — standing still, facing forward, "
+                    f"looking outward with quiet resolve. "
+                    f"{prompt}"
+                )
     return scenes
 
-
-_KAI_NAME_RE = re.compile(r"\bkai\b", re.IGNORECASE)
-
-
-def _sanitize_kai_name_from_prompts(scenes: list[dict]) -> list[dict]:
-    """Strip the internal name 'Kai' from all visual_prompts. Replace with 'the young man'."""
-    for scene in scenes:
-        prompt = scene.get("visual_prompt", "")
-        if _KAI_NAME_RE.search(prompt):
-            scene["visual_prompt"] = _KAI_NAME_RE.sub("the young man", prompt)
-    return scenes
 
 
 @dataclass
@@ -702,12 +724,49 @@ def _write_prompts_file(
     total_scenes = len(scenes)
     style_label = style or "documentary"
 
+    primary_scene_ids = [
+        s["index"] for s in scenes if s.get("anchor_role") == "primary"
+    ]
+    first_primary = primary_scene_ids[0] if primary_scene_ids else 1
+    primary_scenes_str = ", ".join(str(i) for i in primary_scene_ids)
+
     lines: list[str] = [
         f"# Image Prompts — {project_id}",
         f"**Style:** {style_label} | **Scenes:** {total_scenes} | **Size:** {w}×{h} px (16:9)",
         "",
         "---",
         "",
+    ]
+
+    if getattr(settings, "ANCHOR_CHARACTER_ENABLED", False):
+        lines += [
+            "## Step 0 — Before You Start (Image Generator Setup)",
+            "",
+            "**ChatGPT / DALL-E 3:** Paste this message ONCE at the start of a new",
+            "conversation, before pasting any scene prompt:",
+            "",
+            "```",
+            f"I'm generating a {total_scenes}-scene documentary storyboard. One consistent",
+            f"character appears throughout: {KAI_COMPRESSED_SPEC}. Keep his appearance",
+            "identical across every image. I'll paste each scene prompt one by one now.",
+            "```",
+            "",
+            f"Scenes where this character is the primary subject: {primary_scenes_str}",
+            "All other scenes are symbolic or observational — no character needed.",
+            "",
+            f"Keep all {total_scenes} generations in ONE conversation window.",
+            f"If the character's appearance drifts, paste Scene {first_primary} back",
+            "into the chat and say \"same character as this — continue with scene [X]\".",
+            "",
+            f"**Midjourney / Leonardo:** Generate Scene {first_primary} first.",
+            "Use that image as your character reference (--cref / character reference)",
+            "for all primary scenes listed above.",
+            "",
+            "---",
+            "",
+        ]
+
+    lines += [
         "## How to Use",
         "",
         "1. Copy each prompt below into your preferred image generator.",
@@ -1440,7 +1499,6 @@ def scene_planner_node(state: VideoState) -> dict:
             }
 
     # ── Kai enforcement guards ────────────────────────────────────────────
-    scenes = _sanitize_kai_name_from_prompts(scenes)   # strip name before spec checks
     scenes = _enforce_primary_kai_spec(scenes)
     scenes = _enforce_closing_scene_primary(scenes)
 
