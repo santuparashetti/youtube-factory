@@ -111,6 +111,18 @@ def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
+_KAI_NAME_RE = re.compile(r"\bkai\b", re.IGNORECASE)
+
+
+def _sanitize_kai_name_from_prompts(scenes: list[dict]) -> list[dict]:
+    """Strip the internal name 'Kai' from all visual_prompts. Replace with 'the young man'."""
+    for scene in scenes:
+        prompt = scene.get("visual_prompt", "")
+        if _KAI_NAME_RE.search(prompt):
+            scene["visual_prompt"] = _KAI_NAME_RE.sub("the young man", prompt)
+    return scenes
+
+
 @dataclass
 class SceneEntities:
     """
@@ -1428,6 +1440,7 @@ def scene_planner_node(state: VideoState) -> dict:
             }
 
     # ── Kai enforcement guards ────────────────────────────────────────────
+    scenes = _sanitize_kai_name_from_prompts(scenes)   # strip name before spec checks
     scenes = _enforce_primary_kai_spec(scenes)
     scenes = _enforce_closing_scene_primary(scenes)
 

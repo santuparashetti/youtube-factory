@@ -20,6 +20,7 @@ from ytfactory.agents.nodes.scene_planner import (
     _enforce_primary_kai_spec,
     _has_kai_markers,
     _parse_visual_prompts,
+    _sanitize_kai_name_from_prompts,
 )
 from ytfactory.scenes.models import Scene, ScenePlan
 
@@ -305,3 +306,15 @@ class TestEnforcementGuards:
         result = _enforce_closing_scene_primary(result)
         assert result[0]["anchor_role"] == "absent"
         assert "dark hair" not in result[0]["visual_prompt"]
+
+    def test_kai_name_stripped_from_visual_prompts(self):
+        """'Kai' must never appear in visual_prompts — stripped and replaced with 'the young man'."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "Kai sits at a desk, looking out the window."},
+            {"index": 2, "anchor_role": "spectator",
+             "visual_prompt": "A professor lectures while Kai watches from the back."},
+        ]
+        result = _sanitize_kai_name_from_prompts(mock_scenes)
+        for scene in result:
+            assert "kai" not in scene["visual_prompt"].lower()
