@@ -82,8 +82,7 @@ def run_pipeline(
         )
 
     # ── Two-phase mode ─────────────────────────────────────────────────────
-    if pipeline_mode == "prep_only" and project_id is None:
-        raise ValueError("--phase=prep requires --project <id>")
+    # prep_only with no project_id is valid — a new project is created below.
     if pipeline_mode == "resume" and project_id is None:
         raise ValueError("--phase=resume requires --project <id>")
 

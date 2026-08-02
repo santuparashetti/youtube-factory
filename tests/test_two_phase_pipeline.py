@@ -273,12 +273,6 @@ class TestBuildPipelineTwoPhase:
 
 
 class TestRunnerPipelineMode:
-    def test_prep_only_requires_project_id(self):
-        from ytfactory.agents.runner import run_pipeline
-
-        with pytest.raises(ValueError, match="--phase=prep requires"):
-            run_pipeline("Topic", pipeline_mode="prep_only")
-
     def test_resume_requires_project_id(self):
         from ytfactory.agents.runner import run_pipeline
 
