@@ -413,6 +413,156 @@ def verify_images_cmd(
         raise typer.Exit(1)
 
 
+_KAI_MARKERS = ["dark hair", "simple dark shirt", "lean young man", "light stubble"]
+
+
+@app.command(name="probe")
+def probe(
+    project_dir: str = typer.Argument(
+        ..., help="Phase 1 output directory containing scene-plan.json"
+    ),
+) -> None:
+    """Inspect a Phase 1 scene-plan.json and verify anchor_role classification.
+
+    Reports the anchor_role distribution, runs a set of PASS/FAIL checks
+    (every scene classified, opening not 'absent', closing 'primary', Kai spec
+    markers present/absent per role, no 'Kai' name leaked into any prompt), and
+    prints one sample prompt per role. Exits 1 if any check fails.
+    """
+    import json
+    import re
+
+    base = Path(project_dir)
+    # Spec layout is <project-dir>/scene-plan.json; the repo writes it under
+    # <project-dir>/scenes/scene-plan.json — accept either.
+    candidates = [base / "scene-plan.json", base / "scenes" / "scene-plan.json"]
+    plan_path = next((p for p in candidates if p.is_file()), None)
+    if plan_path is None:
+        _console.print(
+            f"[red]✗ scene-plan.json not found[/red] — looked in:\n"
+            f"    {candidates[0]}\n    {candidates[1]}"
+        )
+        raise typer.Exit(1)
+
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _console.print(f"[red]✗ Could not read {plan_path}: {exc}[/red]")
+        raise typer.Exit(1)
+
+    scenes = plan.get("scenes", [])
+    total = len(scenes)
+
+    kai_pattern = re.compile(r"\bkai\b", re.IGNORECASE)
+
+    def _role(scene: dict) -> str | None:
+        r = scene.get("anchor_role")
+        return r if r in ("primary", "spectator", "absent") else None
+
+    def _is_brand_or_asset(scene: dict) -> bool:
+        return scene.get("scene_type") in ("asset", "brand_card")
+
+    counts = {"primary": 0, "spectator": 0, "absent": 0, "MISSING": 0}
+    for s in scenes:
+        r = _role(s)
+        counts["MISSING" if r is None else r] += 1
+
+    def _pct(n: int) -> str:
+        return f"{(100.0 * n / total):.0f}" if total else "0"
+
+    # ── Checks ────────────────────────────────────────────────────────────
+    all_classified = counts["MISSING"] == 0
+
+    opening_role = _role(scenes[0]) if scenes else None
+    opening_ok = bool(scenes) and opening_role is not None and opening_role != "absent"
+
+    # Closing = last non-absent, non-brand/asset scene; fall back to 2nd-to-last.
+    closing_scene = None
+    for s in reversed(scenes):
+        if not _is_brand_or_asset(s) and _role(s) not in (None, "absent"):
+            closing_scene = s
+            break
+    if closing_scene is None and len(scenes) >= 2:
+        closing_scene = scenes[-2]
+    closing_role = _role(closing_scene) if closing_scene else None
+    closing_ok = closing_role == "primary"
+
+    primary_markers_ok = True
+    for s in scenes:
+        if _role(s) == "primary":
+            vp = (s.get("visual_prompt") or "").lower()
+            if not any(m in vp for m in _KAI_MARKERS):
+                primary_markers_ok = False
+                break
+
+    absent_clean_ok = True
+    for s in scenes:
+        if _role(s) == "absent":
+            vp = (s.get("visual_prompt") or "").lower()
+            if any(m in vp for m in _KAI_MARKERS):
+                absent_clean_ok = False
+                break
+
+    no_kai_ok = not any(
+        kai_pattern.search(s.get("visual_prompt") or "") for s in scenes
+    )
+
+    checks_pass = (
+        all_classified
+        and opening_ok
+        and closing_ok
+        and primary_markers_ok
+        and absent_clean_ok
+        and no_kai_ok
+    )
+
+    # ── Report ────────────────────────────────────────────────────────────
+    def _mark(ok: bool) -> str:
+        return "[green]✔[/green]" if ok else "[red]✗[/red]"
+
+    _console.print(f"\n── [bold]Scene Plan Probe[/bold]: {project_dir} ──\n")
+    _console.print(f"Scenes : {total}\n")
+    _console.print("anchor_role distribution:")
+    _console.print(f"  primary   : {counts['primary']}  ({_pct(counts['primary'])}%)")
+    _console.print(f"  spectator : {counts['spectator']}  ({_pct(counts['spectator'])}%)")
+    _console.print(f"  absent    : {counts['absent']}  ({_pct(counts['absent'])}%)")
+    missing_suffix = "  [red]← FAIL[/red]" if counts["MISSING"] > 0 else ""
+    _console.print(f"  MISSING   : {counts['MISSING']}{missing_suffix}\n")
+
+    _console.print("Checks:")
+    _console.print(f"  {_mark(all_classified)}  All scenes have anchor_role field")
+    _console.print(
+        f"  {_mark(opening_ok)}  Opening scene is not 'absent'   → actual: {opening_role or 'MISSING'}"
+    )
+    _console.print(
+        f"  {_mark(closing_ok)}  Closing scene is 'primary'      → actual: {closing_role or 'MISSING'}"
+    )
+    _console.print(f"  {_mark(primary_markers_ok)}  All primary prompts contain Kai spec markers")
+    _console.print(f"  {_mark(absent_clean_ok)}  All absent prompts are Kai-free")
+    _console.print(f"  {_mark(no_kai_ok)}  No visual_prompt contains the string 'Kai'")
+
+    # ── Samples ───────────────────────────────────────────────────────────
+    def _first_with_role(role: str) -> dict | None:
+        return next((s for s in scenes if _role(s) == role), None)
+
+    _console.print("\n── [bold]Samples[/bold] ──")
+    for role_label, role in (("PRIMARY", "primary"), ("SPECTATOR", "spectator"), ("ABSENT", "absent")):
+        sample = _first_with_role(role)
+        if sample is None:
+            continue  # omit section when no scene has this role
+        sid = sample.get("index", "?")
+        snippet = (sample.get("visual_prompt") or "")[:250]
+        _console.print(f"\n{role_label}  (scene {sid}):")
+        _console.print(f"  [dim]{snippet}[/dim]")
+
+    result = "PASS" if checks_pass else "FAIL"
+    color = "green" if checks_pass else "red"
+    _console.print(f"\n── [bold]Result: [{color}]{result}[/{color}][/bold] ──\n")
+
+    if not checks_pass:
+        raise typer.Exit(1)
+
+
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """YouTube Factory — run without arguments to open the interactive wizard."""
