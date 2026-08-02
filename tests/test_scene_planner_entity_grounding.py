@@ -277,3 +277,49 @@ class TestAudienceVisualDirective:
         assert "SYMBOLIC / ABSTRACT" in prompt
         assert "WESTERN / ENGLISH-SPEAKING" in prompt
         assert "US, UK, AU, CA" in prompt
+
+
+class TestKaiAnchorCharacter:
+    def test_visual_prompts_template_contains_anchor_classification(self):
+        from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
+
+        prompt = build_visual_prompts_prompt(
+            scenes=[{"index": 1, "narration": "Someone sits with a hard choice.", "shot_type": "medium shot"}]
+        )
+        assert "KAI ANCHOR CHARACTER" in prompt
+        assert "anchor_role" in prompt
+        assert "primary" in prompt and "spectator" in prompt and "absent" in prompt
+
+    def test_output_format_includes_anchor_role(self):
+        from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
+
+        prompt = build_visual_prompts_prompt(
+            scenes=[{"index": 1, "narration": "A quiet room.", "shot_type": "static"}]
+        )
+        assert '"anchor_role": "primary|spectator|absent"' in prompt
+
+    def test_scene_model_default_anchor_role_is_absent(self):
+        from ytfactory.scenes.models import Scene
+
+        scene = Scene(
+            index=1, title="t", narration="n", visual_prompt="p", duration_seconds=3.0
+        )
+        assert scene.anchor_role == "absent"
+
+    def test_scene_model_accepts_valid_anchor_roles(self):
+        from ytfactory.scenes.models import Scene
+
+        for role in ("primary", "spectator", "absent"):
+            scene = Scene(
+                index=1, title="t", narration="n", visual_prompt="p",
+                duration_seconds=3.0, anchor_role=role,
+            )
+            assert scene.anchor_role == role
+
+    def test_parse_visual_prompts_preserves_anchor_role(self):
+        from ytfactory.agents.nodes.scene_planner import _parse_visual_prompts
+
+        raw = '[{"index": 1, "anchor_role": "primary", "visual_prompt": "a man at a desk"}]'
+        parsed = _parse_visual_prompts(raw)
+        assert parsed is not None
+        assert parsed[0]["anchor_role"] == "primary"

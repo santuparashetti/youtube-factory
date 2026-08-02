@@ -71,6 +71,10 @@ class Scene(BaseModel):
     asset_id: str | None = Field(default=None, description="Original asset identifier (path or ID) from brand or source config")
     faithfulness_qa: dict | None = Field(default=None, description="QA result from faithfulness validation pass")
     scene_analysis: SceneAnalysis | None = Field(default=None, description="Structured scene analysis for story-first prompt generation")
+    anchor_role: Literal["primary", "spectator", "absent"] = Field(
+        default="absent",
+        description="Kai anchor character role: primary (Kai is subject), spectator (Kai observes real figure), absent (symbolic, no Kai)",
+    )
 
 
 class ScenePlan(BaseModel):

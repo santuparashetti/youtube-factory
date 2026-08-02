@@ -633,7 +633,7 @@ WRITING RULES
 — The {style_label} feeling should come through the imagery — not by stating it as a keyword.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
-[{{"index": N, "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
+[{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
 
 ═════════════════════════════════════════════════════════
 VISUAL METADATA — classify every scene
@@ -722,6 +722,68 @@ Priority order — strict:
 Never use Indian street scenes, South Asian faces, or Indian cultural markers as generic
 "atmosphere" for philosophical, psychological, or motivational content.
 The target viewer is English-speaking (US, UK, AU, CA).
+
+══════════════════════════════════════════════════════
+KAI ANCHOR CHARACTER — SCENE CLASSIFICATION (PIPELINE INTERNAL)
+══════════════════════════════════════════════════════
+
+For every scene you generate, you must:
+  1. Decide the `anchor_role` — one of: "primary", "spectator", or "absent"
+  2. Build the `visual_prompt` with Kai's spec injected per that role
+
+"Kai" is a pipeline-internal identifier. It must NOT appear in any text the viewer
+sees, and it must NOT appear in the visual_prompt either. In visual_prompts you write,
+Kai's physical description appears — his name never does.
+
+CLASSIFICATION RULES
+
+"absent" — No human character needed or appropriate.
+Assign when: the scene is fully symbolic, atmospheric, or abstract — a metaphor,
+a data point, a texture, an environment. No human presence would strengthen it.
+
+"primary" — Kai is the subject; he is feeling, experiencing, or reflecting.
+Assign when: the scene is about someone experiencing an emotion, making a choice,
+or sitting with a realisation. No named real historical figure is present.
+ALWAYS assign primary to:
+- The first non-symbolic scene (establishes Kai for the viewer)
+- The climax breath scene (his realisation moment)
+- The final scene before the brand card (arc completes)
+
+"spectator" — A real figure is primary; Kai witnesses.
+Assign when: the scene depicts a named historical person, a documented real event,
+or a specific cultural/factual moment where a real character takes centre stage.
+Kai is present at the edge — a witness — but the frame belongs to the real figure.
+
+PROMPT CONSTRUCTION BY ROLE
+
+PRIMARY visual_prompt structure:
+Start with the compressed Kai spec, then the scene-specific staging.
+Compressed Kai spec (use verbatim at start of prompt):
+"Lean young man, late 20s, short dark hair, light stubble, simple dark shirt,
+plain trousers, calm expression"
+Then add: what he is doing, where he is, the emotional quality of the moment.
+Example:
+"Lean young man, late 20s, short dark hair, light stubble, simple dark shirt,
+plain trousers, calm expression — sitting at a small wooden desk in a dimly lit
+room, staring at a blank page, the pen lying unused. One window. Grey morning
+light. Still."
+
+SPECTATOR visual_prompt structure:
+Write the historical/factual scene first (primary subject, setting, action).
+Then append the brief Kai descriptor at the end (verbatim):
+"At the edge of the frame, a young man — lean, dark hair, simple dark shirt —
+stands watching in silence."
+Example:
+"A man in late 19th century clothing writes feverishly at a cluttered desk by
+candlelight, papers scattered across the floor, ink-stained hands moving without
+pause. At the edge of the frame, a young man — lean, dark hair, simple dark
+shirt — stands watching in silence."
+
+ABSENT visual_prompt structure:
+Standard symbolic/atmospheric prompt only. No Kai reference at all.
+Example:
+"A cracked hourglass lying on its side on a stone floor, sand pooled beneath
+it, soft diffused grey light. No human figure."
 
 ════════════════════════════════════════════════════
 SCENES  (shot type pre-assigned in [brackets])

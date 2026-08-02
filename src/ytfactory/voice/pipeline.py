@@ -8,6 +8,7 @@ from pathlib import Path
 from loguru import logger
 
 from ytfactory.config.settings import Settings
+from ytfactory.validators.kai_firewall import check_artifact
 from video_core.providers.tts.debug import TTSDebugWriter
 from video_core.providers.tts.factory import get_tts_provider
 from video_core.providers.tts.optimizer import SpeechOptimizer
@@ -256,6 +257,7 @@ class VoicePipeline:
             if not tts_skipped:
                 scene_position = idx / max(total - 1, 1)
                 original_text = scene["narration"]
+                check_artifact(original_text, "tts_input")
                 word_count = len(original_text.split())
                 scene_title = scene.get("title", "")
                 scene_type = scene.get("scene_type", "generated_image")

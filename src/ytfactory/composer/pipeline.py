@@ -28,6 +28,7 @@ from ytfactory.agents.prompts.composer import (
 )
 from ytfactory.agents.prompts.script_writer import NARRATION_WPM
 from ytfactory.config.settings import Settings
+from ytfactory.validators.kai_firewall import check_artifact
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import get_writer
 from ytfactory.shared.scripture import (
@@ -85,6 +86,10 @@ class ComposerPipeline:
 
         composed_ph = self._compose(system_prompt, placeholder_text, temperature=temperature)
         composed = restore_scripture_spans(composed_ph, placeholders)
+
+        # Anchor character firewall — the pipeline-internal name "Kai" must never
+        # reach viewer-facing output. Fail loud here rather than ship it downstream.
+        check_artifact(composed, "script.md")
 
         words = len(composed.split())
         minutes = words / NARRATION_WPM

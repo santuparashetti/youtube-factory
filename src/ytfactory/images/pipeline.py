@@ -25,6 +25,22 @@ from ytfactory.workflow.image_remediation_orchestrator import ImageRemediationOr
 from ytfactory.shared.pipeline_status import get_writer
 
 
+# Anchor character (Kai) role-fidelity clauses appended during prompt refinement.
+# See docs/pipeline/KAI_ANCHOR_CHARACTER_SPEC.md — keep the anchor's role stable so a
+# low-scoring retry does not silently drop or promote the anchor figure.
+_KAI_ROLE_REFINEMENT: dict[str, str] = {
+    "primary": (
+        "keep the lean young man with short dark hair, light stubble and simple dark "
+        "shirt as the primary subject — do not remove or replace this character"
+    ),
+    "spectator": (
+        "keep a young man — lean, dark hair, simple dark shirt — watching in silence at "
+        "the edge of the frame, without promoting him to the primary subject"
+    ),
+    "absent": "",
+}
+
+
 class ImagePipeline:
     """Generate YouTube-ready images.
 
@@ -192,7 +208,8 @@ class ImagePipeline:
             and current_overall_status != "PASS"
         ):
             refined_prompt = self._refine_prompt_from_score(
-                current_prompt, current_score, current_failure_reason
+                current_prompt, current_score, current_failure_reason,
+                anchor_role=scene.get("anchor_role", "absent"),
             )
             tier1 = self._settings.image_model_registry.for_tier(1)
             retry_request = ImageRequest(
@@ -264,7 +281,13 @@ class ImagePipeline:
 
         return output_path
 
-    def _refine_prompt_from_score(self, prompt: str, score: float, failed_constraint: str = "") -> str:
+    def _refine_prompt_from_score(
+        self,
+        prompt: str,
+        score: float,
+        failed_constraint: str = "",
+        anchor_role: str = "absent",
+    ) -> str:
         # Audience anchor: scene planner already embeds Western/symbolic preference;
         # this phrase reinforces it through refinement without overriding scene-specific
         # cultural content (Indian settings remain valid when the scene demands them).
@@ -286,6 +309,13 @@ class ImagePipeline:
             if score < 8.5:
                 adaptations.append("cinematic lighting, strong atmosphere")
             adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")
+        # Anchor character: keep Kai's presence and role stable across refinement.
+        # The original prompt is preserved in full (deterministic append), so the
+        # Kai spec already at the start of a primary prompt is never dropped; these
+        # clauses reinforce role fidelity for the image model on the retry pass.
+        anchor_clause = _KAI_ROLE_REFINEMENT.get(anchor_role)
+        if anchor_clause:
+            adaptations.append(anchor_clause)
         return f"{prompt}, {', '.join(adaptations)}"
 
     def _create_single_shot_reviewer(self) -> ImageReviewEngine | None:

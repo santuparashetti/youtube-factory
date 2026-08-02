@@ -164,6 +164,36 @@ class TestPromptBuilders:
         assert "Western" in prompt
         assert "US, UK, AU, CA" in prompt
 
+    def test_composer_prompt_contains_visual_anchor_directive(self):
+        from ytfactory.agents.prompts.composer import build_composer_system_prompt
+
+        prompt = build_composer_system_prompt({})
+        assert "VISUAL ANCHOR CHARACTER" in prompt
+        assert "Kai" in prompt
+        assert "must NEVER appear" in prompt
+
+
+class TestKaiFirewallInComposer:
+    def test_clean_composer_output_passes(self, pipeline, mock_llm, tmp_path):
+        composed = (
+            "A man once faced an impossible choice. " * 100
+            + '\n\nIf these ideas resonate with you, join us on this journey.\n\n'
+            "Clear mind. Meaningful life."
+        )
+        mock_llm.generate.return_value = _make_response(composed)
+        with patch("ytfactory.composer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            result = pipeline.run("proj-clean", script_text="Base script.")
+        assert "kai" not in result.lower()
+
+    def test_composer_raises_when_kai_leaks(self, pipeline, mock_llm, tmp_path):
+        from ytfactory.validators.kai_firewall import KaiFirewallViolation
+
+        composed = "Kai stared at the blank page, unsure. " * 20
+        mock_llm.generate.return_value = _make_response(composed)
+        with patch("ytfactory.composer.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            with pytest.raises(KaiFirewallViolation):
+                pipeline.run("proj-leak", script_text="Base script.")
+
 
 class TestGraphWiring:
     def test_composer_node_in_active_graph(self):

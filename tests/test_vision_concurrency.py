@@ -63,6 +63,11 @@ class TestConfigValidation:
     def test_audience_profile_default_is_western_english(self):
         assert SharedSettings().AUDIENCE_PROFILE == "western_english"
 
+    def test_anchor_character_settings_defaults(self):
+        s = SharedSettings()
+        assert s.ANCHOR_CHARACTER_ENABLED is True
+        assert s.ANCHOR_CHARACTER_ID == "Kai"
+
     @pytest.mark.parametrize("bad", [0, -1, 101, 200])
     def test_rejects_out_of_range(self, bad):
         with pytest.raises(ValueError, match="VISION_MAX_CONCURRENCY"):

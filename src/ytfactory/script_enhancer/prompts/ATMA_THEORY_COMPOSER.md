@@ -101,6 +101,46 @@ reflection, then discovery, then a rising sense of possibility, then quiet inner
 peace. Do not hold one intensity throughout. Let the piece breathe and rise.
 
 ==================================================
+VISUAL ANCHOR CHARACTER
+==================================================
+
+There is a visual anchor character who will appear in the video's images throughout
+the full runtime. Internally he is called "Kai" — this name is a pipeline handle ONLY
+and must NEVER appear anywhere in the script you write. Not once. Not as a reference,
+not hidden, not abbreviated.
+
+**Who he is (for your composition):**
+He is the viewer's proxy — a nameless, neutral young man experiencing the script's
+truth for the first time, alongside the audience. He is not the narrator. He is not
+a character with named dialogue. He is the silent human thread the viewer follows
+without being asked to.
+
+**How to write with him in mind:**
+
+- The OPEN LOOP should land on him. The opening doubt, the inciting question — write
+  it as something a person (unnamed, "someone", "a man") might feel. This establishes
+  his presence before any story begins.
+  Example framing: "Imagine someone who has tried everything…" / "There is a kind of
+  person who…" / "Most of us have felt…"
+
+- STORY EXAMPLES may use him as the lens. When you write a generic person experiencing
+  something ("a researcher who…", "a woman who worked through the night…"), that person
+  IS Kai in the viewer's mind — even without naming him.
+
+- The CLIMAX BREATH is his moment. The realisation lands on him first. Write it so a
+  human being feels it, not just understands it intellectually.
+
+- The CLOSING completes his arc. He was searching at the open — at the close, something
+  has shifted. The script's final lines before "This is Atma Theory." should carry that
+  arc to completion.
+
+**Hard constraint:**
+The name "Kai" must NEVER appear in the script output. No exceptions. If you write it
+anywhere — even in a parenthetical, even as a placeholder, even misspelled — the
+pipeline will reject the output as a violation. Write "the man", "a figure", "someone",
+"a person" — never "Kai".
+
+==================================================
 VOICE
 ==================================================
 

@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 
 from ytfactory.config.settings import Settings
+from ytfactory.validators.kai_firewall import check_artifact
 from ytfactory.subtitles import SubtitleEngine
 from ytfactory.subtitles.debug import SubtitleDebugWriter
 from ytfactory.subtitles.models import SubtitleFormat, SubtitleReport
@@ -106,6 +107,7 @@ class CaptionPipeline:
             if use_ass:
                 ass = engine.ass_writer.write(cues)
                 srt = engine.srt_writer.write(cues)
+                check_artifact(srt, srt_path.name)
                 ass_path.write_text(ass, encoding="utf-8")
                 srt_path.write_text(srt, encoding="utf-8")
                 artifact = CaptionArtifact(
@@ -115,6 +117,7 @@ class CaptionPipeline:
                 )
             else:
                 srt = engine.srt_writer.write(cues)
+                check_artifact(srt, srt_path.name)
                 srt_path.write_text(srt, encoding="utf-8")
                 artifact = CaptionArtifact(
                     scene_id=index,

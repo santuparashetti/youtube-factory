@@ -761,6 +761,9 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+_ANCHOR_ROLES: frozenset[str] = frozenset({"primary", "spectator", "absent"})
+
+
 def _parse_visual_prompts(text: str) -> list[dict] | None:
     """Parse Phase-2 output: [{index, visual_prompt, visual_metadata?}].
 
@@ -899,6 +902,8 @@ def scene_planner_node(state: VideoState) -> dict:
         for _scene in scenes:
             if "visual_metadata" not in _scene:
                 _scene["visual_metadata"] = {}
+            if not _scene.get("anchor_role"):
+                _scene["anchor_role"] = "absent"
 
         # Defensive: strip heading prefix from scene 1 narration if it leaked from
         # a run before this fix was in place.  Patches the cached JSON in-place so
@@ -1086,6 +1091,7 @@ def scene_planner_node(state: VideoState) -> dict:
     )
     vp_map: dict[int, str] = {}
     _vm_map: dict[int, dict] = {}
+    _ar_map: dict[int, str] = {}
     _faithfulness_qa: dict[int, dict] = {}
     visual_diary: list[
         str
@@ -1135,11 +1141,15 @@ def scene_planner_node(state: VideoState) -> dict:
                     vp_map[scene["index"]] = item["visual_prompt"]
                     if "visual_metadata" in item:
                         _vm_map[scene["index"]] = item["visual_metadata"]
+                    if item.get("anchor_role") in _ANCHOR_ROLES:
+                        _ar_map[scene["index"]] = item["anchor_role"]
             else:
                 for item in vp_list:
                     vp_map[item["index"]] = item["visual_prompt"]
                     if "visual_metadata" in item:
                         _vm_map[item["index"]] = item["visual_metadata"]
+                    if item.get("anchor_role") in _ANCHOR_ROLES:
+                        _ar_map[item["index"]] = item["anchor_role"]
 
             # Update visual diary for the next batch — first ~72 chars capture subject + environment
             for scene in batch:
@@ -1356,6 +1366,10 @@ def scene_planner_node(state: VideoState) -> dict:
             s["visual_metadata"] = _vm_map[s["index"]]
         if not s.get("visual_metadata"):
             s["visual_metadata"] = {}
+        if s["index"] in _ar_map:
+            s["anchor_role"] = _ar_map[s["index"]]
+        elif not s.get("anchor_role"):
+            s["anchor_role"] = "absent"
         if s["index"] in _faithfulness_qa:
             s["faithfulness_qa"] = _faithfulness_qa[s["index"]]
         elif s.get("scene_type") in ("asset", "brand_card"):
