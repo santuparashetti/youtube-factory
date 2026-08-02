@@ -15,7 +15,12 @@ import json
 
 import pytest
 
-from ytfactory.agents.nodes.scene_planner import _parse_visual_prompts
+from ytfactory.agents.nodes.scene_planner import (
+    _enforce_closing_scene_primary,
+    _enforce_primary_kai_spec,
+    _has_kai_markers,
+    _parse_visual_prompts,
+)
 from ytfactory.scenes.models import Scene, ScenePlan
 
 # Same markers the probe CLI checks — one must appear in a primary prompt,
@@ -111,7 +116,7 @@ class TestAnchorRoleSchema:
             "duration_seconds": 3.0,
         }
         scene = Scene.model_validate(raw)
-        assert scene.anchor_role == "absent"
+        assert scene.anchor_role == "absent", "default should be 'absent'"
         assert scene.anchor_role is not None
 
     def test_omitted_role_in_plan_resolves_to_absent(self, plan: ScenePlan):
@@ -244,3 +249,59 @@ class TestParsePreservesAnchorRole:
             }
         )
         assert scene.anchor_role == "absent"
+
+
+# ── Programmatic enforcement guards ─────────────────────────────────────────
+
+
+class TestEnforcementGuards:
+    def test_closing_scene_is_always_primary(self):
+        """Last non-asset scene is forced to primary even when LLM returned spectator."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "Lean young man, short dark hair at a desk",
+             "scene_type": "generated_image"},
+            {"index": 2, "anchor_role": "spectator",
+             "visual_prompt": "A crowd cheers in a stadium",
+             "scene_type": "generated_image"},
+        ]
+        result = _enforce_closing_scene_primary(mock_scenes)
+        assert result[-1]["anchor_role"] == "primary"
+        assert _has_kai_markers(result[-1]["visual_prompt"])
+
+    def test_primary_spec_prepended_when_missing(self):
+        """Primary scenes without Kai spec markers get the spec prepended."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary",
+             "visual_prompt": "A single human figure in an empty room."},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        assert _has_kai_markers(result[0]["visual_prompt"])
+        assert result[0]["visual_prompt"].startswith("Lean young man")
+
+    def test_primary_spec_not_doubled_when_already_present(self):
+        """Primary scenes that already have the Kai spec are not modified."""
+        original = "Lean young man, late 20s, short dark hair — sitting at a desk."
+        mock_scenes = [
+            {"index": 1, "anchor_role": "primary", "visual_prompt": original},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        assert result[0]["visual_prompt"] == original
+
+    def test_absent_scenes_unaffected_by_guards(self):
+        """Guards must not modify absent scenes that are not the closing scene."""
+        mock_scenes = [
+            {"index": 1, "anchor_role": "absent",
+             "visual_prompt": "A cracked hourglass on stone floor.",
+             "scene_type": "generated_image"},
+            {"index": 2, "anchor_role": "primary",
+             "visual_prompt": "Lean young man, late 20s, short dark hair — at a window.",
+             "scene_type": "generated_image"},
+            {"index": 3, "anchor_role": "absent",
+             "visual_prompt": "Atma Theory brand card.",
+             "scene_type": "brand_card"},
+        ]
+        result = _enforce_primary_kai_spec(mock_scenes)
+        result = _enforce_closing_scene_primary(result)
+        assert result[0]["anchor_role"] == "absent"
+        assert "dark hair" not in result[0]["visual_prompt"]

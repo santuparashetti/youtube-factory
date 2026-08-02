@@ -65,6 +65,51 @@ console = Console()
 
 _TARGET_WORDS_PER_SCENE = 35  # ~16s scenes at 130 wpm → ~30-35 scenes per 9 min video
 
+# ── Kai enforcement guards ────────────────────────────────────────────────────
+# Single source of truth for the compressed Kai spec injected into primary prompts.
+KAI_COMPRESSED_SPEC = (
+    "Lean young man, late 20s, short dark hair, light stubble, "
+    "simple dark shirt, plain trousers, calm expression"
+)
+
+_KAI_MARKERS = [
+    "dark hair", "simple dark shirt", "lean young man",
+    "light stubble", "plain trousers",
+]
+
+
+def _has_kai_markers(prompt: str) -> bool:
+    p = prompt.lower()
+    return any(m in p for m in _KAI_MARKERS)
+
+
+def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
+    """Every primary scene must open with the compressed Kai spec. Prepend if absent."""
+    for scene in scenes:
+        if scene.get("anchor_role") == "primary":
+            prompt = scene.get("visual_prompt", "")
+            if not _has_kai_markers(prompt):
+                scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+    return scenes
+
+
+def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
+    """The last non-asset scene must be anchor_role='primary'. Override + prepend spec if not."""
+    closing_idx: int | None = None
+    for i in reversed(range(len(scenes))):
+        if scenes[i].get("scene_type") not in ("asset", "brand_card"):
+            closing_idx = i
+            break
+    if closing_idx is None:
+        return scenes
+    closing = scenes[closing_idx]
+    if closing.get("anchor_role") != "primary":
+        closing["anchor_role"] = "primary"
+        prompt = closing.get("visual_prompt", "")
+        if not _has_kai_markers(prompt):
+            closing["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+    return scenes
+
 
 @dataclass
 class SceneEntities:
@@ -1381,6 +1426,10 @@ def scene_planner_node(state: VideoState) -> dict:
                 "llm_validated": False,
                 "llm_reason": "",
             }
+
+    # ── Kai enforcement guards ────────────────────────────────────────────
+    scenes = _enforce_primary_kai_spec(scenes)
+    scenes = _enforce_closing_scene_primary(scenes)
 
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:

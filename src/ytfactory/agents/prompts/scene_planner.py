@@ -756,17 +756,32 @@ Kai is present at the edge — a witness — but the frame belongs to the real f
 
 PROMPT CONSTRUCTION BY ROLE
 
-PRIMARY visual_prompt structure:
-Start with the compressed Kai spec, then the scene-specific staging.
-Compressed Kai spec (use verbatim at start of prompt):
+### PRIMARY — STRICT CONSTRUCTION RULE
+
+anchor_role = "primary" means Kai IS the subject. The visual_prompt MUST begin
+with the compressed Kai spec, verbatim, before any scene-specific staging.
+
+The compressed spec is fixed. Copy it exactly:
 "Lean young man, late 20s, short dark hair, light stubble, simple dark shirt,
 plain trousers, calm expression"
-Then add: what he is doing, where he is, the emotional quality of the moment.
-Example:
+
+Then add " — " and the scene-specific staging (what he is doing, where, the mood).
+
+CORRECT:
 "Lean young man, late 20s, short dark hair, light stubble, simple dark shirt,
-plain trousers, calm expression — sitting at a small wooden desk in a dimly lit
-room, staring at a blank page, the pen lying unused. One window. Grey morning
-light. Still."
+plain trousers, calm expression — sitting alone in an empty boardroom, hands
+flat on the table, staring at the door. Low afternoon light."
+
+WRONG (never do this):
+"A man sits alone in an empty boardroom..." [no Kai spec at the start]
+"A single human figure..." [too generic — missing the locked spec]
+
+### CLOSING SCENE RULE
+
+The last non-asset scene in every video MUST be anchor_role = "primary".
+This is the scene where Kai's arc completes — regardless of what the script
+says, Kai must be the primary subject here. Do not classify the closing scene
+as "spectator" or "absent" under any circumstances.
 
 SPECTATOR visual_prompt structure:
 Write the historical/factual scene first (primary subject, setting, action).
