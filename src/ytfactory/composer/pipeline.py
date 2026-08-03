@@ -44,6 +44,31 @@ TARGET_MIN_MINUTES = 7
 TARGET_MAX_MINUTES = 9
 
 
+class ComposerRehookMissingError(RuntimeError):
+    """Raised when the composed script has no closing echo of the opening hook."""
+
+
+_REHOOK_STOP = frozenset({
+    "that", "this", "with", "from", "have", "their", "there",
+    "where", "which", "about", "would", "could", "should",
+})
+
+
+def _validate_rehook_present(script_text: str) -> bool:
+    """
+    Heuristic: rehook exists if any line in the final 25% of the script
+    echoes a key noun/phrase from the first 15% of the script.
+    Fails fast rather than false-passing.
+    """
+    lines = [l.strip() for l in script_text.splitlines() if l.strip()]
+    if len(lines) < 8:
+        return False  # empty or too short — no rehook by definition
+    opening_window = " ".join(lines[:max(3, len(lines) // 7)]).lower()
+    closing_window = " ".join(lines[int(len(lines) * 0.75):]).lower()
+    opening_nouns = {w for w in opening_window.split() if len(w) > 4 and w not in _REHOOK_STOP}
+    return any(noun in closing_window for noun in opening_nouns)
+
+
 class ComposerPipeline:
     """Whole-cloth composition — no mode selection, no coverage floor, no
     no-reorder ban. Those belonged to the retired transform model."""
@@ -51,6 +76,10 @@ class ComposerPipeline:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._llm = get_llm_provider(settings)
+
+    @property
+    def provider(self):
+        return self._llm
 
     def run(
         self,
@@ -90,6 +119,17 @@ class ComposerPipeline:
         # Anchor character firewall — the pipeline-internal name "Kai" must never
         # reach viewer-facing output. Fail loud here rather than ship it downstream.
         check_artifact(composed, "script.md")
+
+        # Rehook gate — structural check before scene planning.
+        if not _validate_rehook_present(composed):
+            opening_lines = [l for l in composed.splitlines() if l.strip()][:3]
+            closing_lines = [l for l in composed.splitlines() if l.strip()][-3:]
+            raise ComposerRehookMissingError(
+                "Composer output missing rehook. Aborting before scene planning. "
+                "Re-run to regenerate, or add a rehook manually and resume.\n"
+                f"Opening: {opening_lines}\n"
+                f"Closing: {closing_lines}"
+            )
 
         words = len(composed.split())
         minutes = words / NARRATION_WPM

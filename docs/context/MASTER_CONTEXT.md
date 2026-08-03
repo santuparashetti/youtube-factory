@@ -11,7 +11,63 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3127 passing, 4 skipped, 0 failures (as of 2026-08-01)
+**Test count:** 3268 passing, 4 skipped, 0 failures (as of 2026-08-03)
+
+## 2026-08-03 — Visual Anchor two-model fallback; Script Judge + Guided Recomposer; Composer Craft addition
+
+### 0 — Visual Anchor two-model fallback (`_build_visual_anchors`)
+
+**File:** `src/ytfactory/agents/nodes/scene_planner.py` — `_build_visual_anchors(scenes, cheap_llm_client, settings=None)`
+
+**Change:** Replaced single `cheap_llm_client.generate(...)` call with a fallback loop over `[settings.VISUAL_ANCHOR_MODEL, settings.VISUAL_ANCHOR_FALLBACK_MODEL]`. First model is tried; on any exception (timeout, bad JSON, quota error), the loop continues to the fallback model. If both fail, logs a warning and returns `{}` (non-blocking, same as before). `settings` is optional (defaults to `None`) for backward compatibility — when `None`, a single `model=None` call is made (provider default).
+
+**New settings** (`src/video_core/config/shared_settings.py`):
+- `VISUAL_ANCHOR_MODEL: str = "google/gemini-2.5-flash-lite"` — primary (cheap/fast)
+- `VISUAL_ANCHOR_FALLBACK_MODEL: str = "deepseek/deepseek-v4-pro"` — fallback
+
+**`.env.example`:** `VISUAL_ANCHOR_MODEL` and `VISUAL_ANCHOR_FALLBACK_MODEL` block added.
+
+**Call site** (`scene_planner.py` line ~1667): `_build_visual_anchors(generated_scenes, _llm_validation_client, settings)` — settings now threaded through.
+
+**Test:** `TestVisualAnchorFallback.test_visual_anchor_falls_back_to_second_model_on_first_failure` in `tests/test_scene_planner.py` — mocks first model raising, asserts second model called and its parsed result returned.
+
+## 2026-08-03 — Script Judge + Guided Recomposer; Composer Craft addition
+
+### 1 — Script Judge + Guided Recomposer (SCRIPT_JUDGE_RECOMPOSER_SPEC.md)
+
+**Flow:** Both A/B composer variants run → `judge_scripts()` evaluates them with a dedicated model → if hybrid recommended, `guided_recompose()` writes a new whole-cloth script → rehook validated → `judge-report.json` written to project workspace → human review gate always fires (shows verdict + section table).
+
+**Fallback chain (never raises to pipeline):** recomposed (if passes) → judge winner → Script A (if judge fails) → Script A (if Script B fails rehook).
+
+**New files:**
+- `composer/judge.py` — `SectionVerdict`, `JudgeVerdict` Pydantic models; `judge_scripts(script_a, script_b, provider, settings) → Optional[JudgeVerdict]`
+- `composer/recomposer.py` — `guided_recompose(script_a, script_b, verdict, provider, settings) → Optional[str]`
+- `prompts/SCRIPT_JUDGE_PROMPT.md` — 7-criterion evaluation, JSON-only output
+- `prompts/GUIDED_RECOMPOSER_PROMPT.md` — whole-cloth recompose rules (6 critical rules, rehook mandatory)
+
+**Modified files:**
+- `openai_provider.py` — `model: Optional[str] = None` override added to `generate()`; falls back to `settings.anthropic_model` when not passed
+- `shared_settings.py` — 4 new settings: `SCRIPT_JUDGE_ENABLED`, `SCRIPT_JUDGE_MODEL`, `GUIDED_RECOMPOSE_ENABLED`, `GUIDED_RECOMPOSER_MODEL` (all default `deepseek/deepseek-v3.2`)
+- `composer/pipeline.py` — `provider` property exposing `self._llm`
+- `composer/selection.py` — full refactor: `questionary` interactive prompt replaced by judge → recompose flow; `_write_final`, `_write_judge_report`, `_log_verdict` helpers
+- `editorial_qa/review_gate.py` — `_load_judge_report`, `_format_judge_summary` helpers; auto_mode forced off when `outcome == "recomposed"` (human eyes required on recomposed output)
+- `.env.example` — 4 new env vars documented
+
+**Tests:** 14 new tests in `test_composer.py` — `TestScriptJudge` (5), `TestGuidedRecomposer` (4), `TestABSelectionJudgeIntegration` (4), `TestAutoModeRecomposedGuard` (1).
+
+### 2 — Composer Craft addition (COMPOSER_CRAFT_ADDITION.md)
+
+**File:** `src/ytfactory/script_enhancer/prompts/ATMA_THEORY_COMPOSER.md`
+
+Added new section **SENTENCE-LEVEL CRAFT — QUALITY STANDARDS** between the CHARACTERS & EXAMPLES section and the LENGTH section. Six rules:
+1. **SPECIFICITY** — every scene/character specific enough to visualise as a single cinematic frame; test: can the scene planner frame it?
+2. **COUNTERINTUITION** — find the less obvious angle; 9.5 creates cognitive arrest, 8.5 confirms what viewer knows
+3. **ECONOMY** — every sentence earns its place; banned transitional filler phrases listed; rhythm rule: short sentences land insight
+4. **EARN** — never state the emotion or the lesson; build the scene, let examples make the conclusion inevitable
+5. **OPENING LINE** — 3 non-negotiable criteria: creates an unknown question, visualisable as one frame, promises what the video delivers
+6. **ENDING LINE** — 3 non-negotiable criteria: echoes opening (not repeats), feels earned, leaves viewer seeing something new
+
+Target: judge scores consistently above 8.8 within 3 runs (baseline 8.5).
 
 ## 2026-08-01 — Research/script-writer nodes removed; editorial QA→polisher feedback loop; faithfulness-gate retry injection; subject-position drift detection
 

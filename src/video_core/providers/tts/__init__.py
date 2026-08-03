@@ -1,6 +1,7 @@
 from .base import TTSProvider
 from .cartesia import CartesiaTTSProvider
 from .edge_tts import EdgeTTSProvider
+from .elevenlabs import ElevenLabsProvider
 from .factory import get_tts_provider
 from .voice_profiles import (
     Emotion,
@@ -16,6 +17,7 @@ __all__ = [
     "TTSProvider",
     "EdgeTTSProvider",
     "CartesiaTTSProvider",
+    "ElevenLabsProvider",
     "get_tts_provider",
     "VoiceProfile",
     "NarrationStyle",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from loguru import logger
 from openai import OpenAI
 
@@ -28,8 +30,10 @@ class OpenAICompatibleProvider(LLMProvider):
         temperature: float = 0.2,
         json_mode: bool = False,
         json_schema: dict | None = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> LLMResponse:
-        model = self._settings.anthropic_model
+        model = model or self._settings.anthropic_model
         logger.info(
             "Generating response via OpenAI-compatible proxy — model: {} json_mode={}",
             model,
@@ -43,15 +47,16 @@ class OpenAICompatibleProvider(LLMProvider):
 
         # Reasoning models (DeepSeek, etc.) consume tokens for thinking/reasoning
         # before producing visible output. 8192 is too tight — they burn through
-        # it on reasoning alone and return empty content. Bumped to 65536 which
-        # gives most models ~32K+ tokens for actual output after reasoning.
-        max_tokens = 65536
+        # it on reasoning alone and return empty content. 65536 gives most models
+        # ~32K+ tokens for actual output after reasoning. Callers generating
+        # open-ended long text (e.g. recomposer) can override with max_tokens.
+        effective_max_tokens = max_tokens or 65536
 
         request_params: dict = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
         }
 
         if json_mode:
@@ -71,7 +76,26 @@ class OpenAICompatibleProvider(LLMProvider):
                 # Loose JSON mode — guarantees syntactically valid JSON, not schema.
                 request_params["response_format"] = {"type": "json_object"}
 
-        response = self._client.chat.completions.create(**request_params)
+        try:
+            response = self._client.chat.completions.create(**request_params)
+        except Exception as e:
+            # The OpenAI SDK raises before we can inspect the raw HTTP response,
+            # but the exception message usually contains the status code and body.
+            logger.error(
+                "Provider API call failed — model={} error={}: {}",
+                model,
+                type(e).__name__,
+                str(e)[:500],
+            )
+            raise
+
+        if not response.choices:
+            logger.error(
+                "LLM returned no choices — model={} usage={}",
+                model,
+                response.usage,
+            )
+            raise RuntimeError(f"LLM returned no choices for model={model!r}")
 
         choice = response.choices[0]
         content = choice.message.content

@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from loguru import logger
 from rich.console import Console
@@ -43,7 +43,7 @@ from ytfactory.images.validators import (
     parse_retry_response,
     run_validators,
 )
-from ytfactory.scenes.models import FaithfulnessStatus
+from ytfactory.scenes.models import FaithfulnessStatus, StructuredImagePrompt, VisualBible
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.artifact_repository import ArtifactRepository
@@ -271,6 +271,329 @@ def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
+# ── Scene Planner V2 — Visual Bible + Structured Prompts ─────────────────────
+
+def _load_prompt_file(filename: str) -> str:
+    """Load a .md prompt file from src/ytfactory/prompts/."""
+    prompt_dir = Path(__file__).parent.parent.parent / "prompts"
+    return (prompt_dir / filename).read_text(encoding="utf-8")
+
+
+def _stub_visual_bible() -> VisualBible:
+    return VisualBible(
+        dominant_metaphor="A lone figure in a vast world",
+        anchor_environments=[
+            "Interior space with natural light",
+            "Outdoor landscape at golden hour",
+        ],
+        color_arc={
+            "opening": "cool desaturated grey-blue",
+            "build": "warming amber tones",
+            "climax": "deep gold, shallow depth of field",
+            "resolution": "cool blue with one warm accent",
+        },
+        visual_motifs=["threshold/doorway", "open hands"],
+        shot_arc={
+            "opening_scenes": "establishing wide",
+            "build_scenes": "medium with depth",
+            "climax_scene": "tight close-up",
+            "resolution_scenes": "medium wide",
+        },
+    )
+
+
+def _generate_visual_bible(script_text: str, llm: LLMProvider, settings: Settings) -> VisualBible:
+    """Single LLM call to produce a VisualBible. Falls back to stub on failure."""
+    if not settings.VISUAL_BIBLE_ENABLED:
+        return _stub_visual_bible()
+
+    prompt_text = _load_prompt_file("VISUAL_BIBLE_PROMPT.md")
+    full_prompt = f"{prompt_text}\n\nSCRIPT:\n{script_text}"
+    try:
+        response = llm.generate(full_prompt, temperature=0.4)
+        raw = response.text.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            lines = raw.splitlines()
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+        data = json.loads(raw)
+        return VisualBible(**data)
+    except Exception as e:
+        logger.warning("VisualBible generation failed: {} — using stub", e)
+        return _stub_visual_bible()
+
+
+def _get_arc_phase(scene_index: int, total_scenes: int) -> str:
+    """Map scene position to emotional arc phase."""
+    ratio = scene_index / max(total_scenes - 1, 1)
+    if ratio < 0.20:
+        return "opening"
+    elif ratio < 0.65:
+        return "build"
+    elif ratio < 0.80:
+        return "climax"
+    else:
+        return "resolution"
+
+
+def _arc_to_shot_key(arc_phase: str) -> str:
+    mapping = {
+        "opening": "opening_scenes",
+        "build": "build_scenes",
+        "climax": "climax_scene",
+        "resolution": "resolution_scenes",
+    }
+    return mapping.get(arc_phase, "build_scenes")
+
+
+_CAMERA_ANGLE_BY_PHASE = {
+    "opening": (
+        "eye_level or high_angle — frame characters small against large environments, "
+        "emphasise isolation and the scale of the constructed world around them"
+    ),
+    "build": (
+        "eye_level or low_angle — character begins to have presence and agency; "
+        "low_angle when a moment of realisation or authority is depicted"
+    ),
+    "climax": (
+        "low_angle or eye_level — maximum character agency; "
+        "low_angle for the peak moment of clarity or choice"
+    ),
+    "resolution": (
+        "high_angle easing to eye_level — earned distance; "
+        "the world is the same but the character's relationship to it has changed"
+    ),
+}
+
+
+def _build_structured_prompt(
+    scene: dict,
+    visual_bible: VisualBible,
+    scene_index: int,
+    total_scenes: int,
+    llm: LLMProvider,
+    settings: Settings,
+    prev_scene: dict | None = None,
+) -> StructuredImagePrompt:
+    """LLM call per scene to produce a StructuredImagePrompt."""
+    arc_phase = _get_arc_phase(scene_index, total_scenes)
+
+    style_directive = _load_prompt_file("CINEMATIC_HYBRID_STYLE.md") if settings.HYBRID_STYLE_ENABLED else ""
+    anchor_role = scene.get("anchor_role", "absent")
+    pose_rules = _load_prompt_file("KAI_POSE_RULES.md") if (anchor_role != "absent" and settings.KAI_POSE_DISCIPLINE_ENABLED) else ""
+    kai_profile = _load_prompt_file("KAI_PROFILE.md") if anchor_role != "absent" else ""
+
+    camera_angle_guidance = _CAMERA_ANGLE_BY_PHASE.get(arc_phase, "eye_level")
+
+    bible_context = (
+        f"VISUAL BIBLE (apply to this scene):\n"
+        f"- Dominant metaphor: {visual_bible.dominant_metaphor}\n"
+        f"- Anchor environments: {'; '.join(visual_bible.anchor_environments)}\n"
+        f"- This scene's color phase ({arc_phase}): {visual_bible.color_arc.get(arc_phase, '')}\n"
+        f"- Recommended shot type: {visual_bible.shot_arc.get(_arc_to_shot_key(arc_phase), '')}\n"
+        f"- Recommended camera angle for {arc_phase} phase: {camera_angle_guidance}\n"
+        f"- Visual motifs available: {', '.join(visual_bible.visual_motifs)}\n"
+    )
+
+    prev_context = ""
+    if prev_scene and prev_scene.get("structured_prompt"):
+        sp = prev_scene["structured_prompt"]
+        prev_context = (
+            f"PREVIOUS SCENE (scene {scene_index}):\n"
+            f"- Environment: {sp.get('environment_prompt', '')[:120]}\n"
+            f"- Shot type: {sp.get('shot_type', '')}\n"
+            f"- Color palette: {sp.get('color_palette_phase', '')[:80]}\n"
+            f"Reference or contrast with this to maintain continuity.\n"
+        )
+
+    compiled_prompt_rules = (
+        "COMPILED_PROMPT ASSEMBLY RULES:\n"
+        "1. First line: HYBRID STYLE compressed directive (100 tokens max)\n"
+        "2. Shot type and camera angle\n"
+        "3. environment_prompt verbatim\n"
+        "4. If character_staging is not null: character_staging + lighting_match\n"
+        "5. color_palette_phase\n"
+        "6. continuity_ref (brief)\n"
+        "7. If Kai scene: one-line pose rule reminder\n"
+        '8. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+    ) if settings.HYBRID_STYLE_ENABLED else (
+        "COMPILED_PROMPT ASSEMBLY RULES:\n"
+        "1. Shot type and camera angle\n"
+        "2. environment_prompt verbatim\n"
+        "3. If character_staging is not null: character_staging + lighting_match\n"
+        "4. color_palette_phase\n"
+        "5. continuity_ref (brief)\n"
+        '6. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+    )
+
+    system_prompt = (
+        "You are a cinematographer writing image generation prompts for a philosophical documentary.\n\n"
+        + (f"{style_directive}\n\n" if style_directive else "")
+        + (f"{pose_rules}\n\n" if pose_rules else "")
+        + f"{bible_context}\n\n"
+        + (f"{prev_context}\n\n" if prev_context else "")
+        + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
+        + 'OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n'
+        + '{\n'
+        + '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette|aerial>",\n'
+        + '  "camera_angle": "<one of: eye_level|low_angle|high_angle|dutch_tilt>",\n'
+        + '  "environment_prompt": "<photorealistic environment description — no character details>",\n'
+        + '  "character_staging": "<illustrated character description, or null if no character>",\n'
+        + '  "lighting_match": "<one sentence: how character lighting matches environment>",\n'
+        + '  "color_palette_phase": "<arc phase + specific palette for this scene>",\n'
+        + '  "continuity_ref": "<reference to prev/next scene environment and Kai clothing if applicable>",\n'
+        + '  "compiled_prompt": "<full merged prompt for image generator — see assembly rules below>"\n'
+        + '}\n\n'
+        + compiled_prompt_rules
+        + "\nNo preamble. No markdown fences. Output only valid JSON."
+    )
+
+    # Fix 2: inject allowed_characters from scene_analysis
+    scene_analysis = scene.get("scene_analysis") or {}
+    if isinstance(scene_analysis, dict):
+        allowed = scene_analysis.get("allowed_characters", []) or []
+        forbidden = scene_analysis.get("forbidden_characters", []) or []
+        required_env = scene_analysis.get("environment", "") or ""
+    else:
+        allowed = getattr(scene_analysis, "allowed_characters", []) or []
+        forbidden = getattr(scene_analysis, "forbidden_characters", []) or []
+        required_env = getattr(scene_analysis, "environment", "") or ""
+
+    character_block = ""
+    if allowed:
+        character_block = (
+            "\nIMMUTABLE CHARACTER CONSTRAINTS — follow exactly, no exceptions:\n"
+            f"- Allowed characters: {', '.join(allowed)}\n"
+            f"- Forbidden characters: {', '.join(forbidden) if forbidden else 'none'}\n"
+            f"- Required environment: {required_env if required_env else 'as narrated'}\n"
+            "- NEVER substitute \"man\", \"woman\", \"person\", \"figure\", or \"people\" for a named entity\n"
+            "- Use the EXACT names from the allowed list in character_staging\n"
+            "- If a character name feels generic (e.g. \"villager\"), use it verbatim — do not upgrade\n"
+            "  to \"man\" or \"woman\"\n"
+        )
+
+    user_prompt = (
+        f"SCENE NARRATION:\n{scene.get('narration', '')}\n\n"
+        f"KAI ROLE IN THIS SCENE: {anchor_role}\n"
+        + (kai_profile if anchor_role != "absent" else "")
+        + character_block
+    )
+
+    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+    try:
+        response = llm.generate(full_prompt, temperature=0.5)
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            lines = raw.splitlines()
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+        data = json.loads(raw)
+        return StructuredImagePrompt(**data)
+    except Exception as e:
+        logger.warning("StructuredImagePrompt build failed for scene {}: {} — using fallback", scene_index + 1, e)
+        return StructuredImagePrompt(
+            shot_type="medium",
+            camera_angle="eye_level",
+            environment_prompt=scene.get("visual_prompt", "cinematic environment"),
+            character_staging=None,
+            lighting_match="Natural cinematic lighting matching the environment.",
+            color_palette_phase=f"{arc_phase}: neutral tones",
+            continuity_ref="",
+            compiled_prompt=scene.get("visual_prompt", "cinematic environment. 16:9 aspect ratio. No text, no watermark, no subtitle, no logo."),
+        )
+
+
+def _validate_visual_continuity(
+    scenes: list[dict],
+    visual_bible: VisualBible,
+) -> list[str]:
+    """Post-planning continuity check. Flag-and-log only — never blocks pipeline."""
+    warnings: list[str] = []
+    scene_count = len(scenes)
+
+    # Check 1: Anchor environment reuse
+    anchor_refs = 0
+    for scene in scenes:
+        if scene.get("structured_prompt"):
+            env = scene["structured_prompt"].get("environment_prompt", "").lower() if isinstance(scene["structured_prompt"], dict) else getattr(scene["structured_prompt"], "environment_prompt", "").lower()
+            for anchor in visual_bible.anchor_environments:
+                key_words = anchor.lower().split()[:4]
+                if any(w in env for w in key_words):
+                    anchor_refs += 1
+                    break
+    if anchor_refs < max(2, scene_count // 5):
+        warnings.append(
+            f"CONTINUITY: Anchor environments appear in only {anchor_refs}/{scene_count} scenes. "
+            f"Target ≥{max(2, scene_count // 5)} for visual coherence."
+        )
+
+    # Check 2: Shot type variety
+    shot_types = []
+    for s in scenes:
+        sp = s.get("structured_prompt")
+        if sp:
+            st = sp.get("shot_type") if isinstance(sp, dict) else getattr(sp, "shot_type", None)
+            if st:
+                shot_types.append(st)
+    if shot_types:
+        most_common = max(set(shot_types), key=shot_types.count)
+        ratio = shot_types.count(most_common) / len(shot_types)
+        if ratio > 0.60:
+            warnings.append(
+                f"CONTINUITY: '{most_common}' used in {shot_types.count(most_common)}/{len(shot_types)} scenes "
+                f"({ratio:.0%}). Recommend diversifying shot types."
+            )
+
+    # Check 3: Climax scene has tight shot
+    climax_index = int(scene_count * 0.70)
+    climax_scene = scenes[climax_index] if climax_index < scene_count else None
+    if climax_scene:
+        sp = climax_scene.get("structured_prompt")
+        if sp:
+            st = sp.get("shot_type") if isinstance(sp, dict) else getattr(sp, "shot_type", None)
+            if st and st not in ("close_up", "insert", "medium"):
+                warnings.append(
+                    f"CONTINUITY: Scene {climax_index + 1} (climax position) has shot_type "
+                    f"'{st}'. Expected close_up or medium for emotional peak."
+                )
+
+    # Check 4: Kai front-facing overuse
+    front_facing_count = 0
+    for scene in scenes:
+        sp = scene.get("structured_prompt")
+        if sp and scene.get("anchor_role") == "primary":
+            staging = sp.get("character_staging") if isinstance(sp, dict) else getattr(sp, "character_staging", None)
+            if staging:
+                staging_lower = staging.lower()
+                if "facing forward" in staging_lower or "front-facing" in staging_lower or "looking directly" in staging_lower:
+                    front_facing_count += 1
+    if front_facing_count > 1:
+        warnings.append(
+            f"CONTINUITY: Kai is front-facing in {front_facing_count} scenes. "
+            f"Pose discipline allows maximum 1 (climax only)."
+        )
+
+    # Check 5: Camera angle variety
+    camera_angles = []
+    for s in scenes:
+        sp = s.get("structured_prompt")
+        if sp:
+            ca = sp.get("camera_angle") if isinstance(sp, dict) else getattr(sp, "camera_angle", None)
+            if ca:
+                camera_angles.append(ca)
+    if camera_angles:
+        most_common_angle = max(set(camera_angles), key=camera_angles.count)
+        angle_ratio = camera_angles.count(most_common_angle) / len(camera_angles)
+        if angle_ratio > 0.75:
+            warnings.append(
+                f"CONTINUITY: camera_angle '{most_common_angle}' used in "
+                f"{camera_angles.count(most_common_angle)}/{len(camera_angles)} scenes "
+                f"({angle_ratio:.0%}). Add low_angle and high_angle variety per arc phase."
+            )
+
+    for w in warnings:
+        logger.warning(w)
+    return warnings
+
 
 @dataclass
 class SceneEntities:
@@ -493,11 +816,14 @@ def _run_llm_validation(
     human_classification: HumanClassification,
     visual_prompt: str,
     llm_client: LLMProvider,
+    settings: "Settings | None" = None,
 ) -> tuple[bool, str]:
     """Binary environment+human check via a cheap LLM call.
 
-    Returns (passed, reason). Never blocks on failure — a parse error is
-    treated as a pass so a flaky validator call can't stall the retry loop.
+    Tries FAITHFULNESS_VALIDATOR_MODEL first, falls back to
+    FAITHFULNESS_VALIDATOR_FALLBACK_MODEL on error or invalid JSON.
+    Never blocks on total failure — treated as pass so a flaky model
+    can't stall the retry loop.
     """
     prompt = build_llm_validation_prompt(
         scene_category=scene_analysis.get("scene_category", "abstract"),
@@ -505,17 +831,32 @@ def _run_llm_validation(
         environment=scene_analysis.get("environment", ""),
         visual_prompt=visual_prompt,
     )
-    try:
-        response = llm_client.generate(prompt, json_mode=True, temperature=0.0)
-        data = _parse_json_response(response.text)
-        if not data:
-            logger.warning("LLM validation returned invalid JSON — accepting prompt")
-            return True, "llm_parse_failed: invalid JSON"
-        passed = bool(data.get("environment_ok", True)) and bool(data.get("human_ok", True))
-        return passed, data.get("reason", "")
-    except Exception as exc:
-        logger.warning("LLM validation call failed: {} — accepting prompt", exc)
-        return True, f"llm_parse_failed: {exc}"
+    models: list[str | None]
+    if settings is not None:
+        primary = getattr(settings, "faithfulness_validator_model", None)
+        fallback = getattr(settings, "FAITHFULNESS_VALIDATOR_FALLBACK_MODEL", None)
+        models = [m for m in [primary, fallback] if m]
+    else:
+        models = [None]
+
+    for model in models:
+        try:
+            response = llm_client.generate(prompt, json_mode=True, temperature=0.0, model=model)
+            data = _parse_json_response(response.text)
+            if not data:
+                logger.warning(
+                    "LLM validation returned invalid JSON (model={}) — trying fallback", model
+                )
+                continue
+            passed = bool(data.get("environment_ok", True)) and bool(data.get("human_ok", True))
+            return passed, data.get("reason", "")
+        except Exception as exc:
+            logger.warning(
+                "LLM validation call failed (model={}): {} — trying fallback", model, exc
+            )
+
+    logger.warning("LLM validation failed on all models — accepting prompt")
+    return True, "llm_parse_failed: all models exhausted"
 
 
 # ── Task 2.7 — Narrative-Visual Bridge ────────────────────────────────────────
@@ -568,25 +909,45 @@ No explanation, no markdown, no preamble."""
 def _build_visual_anchors(
     scenes: list[dict],
     cheap_llm_client: LLMProvider,
+    settings: "Settings | None" = None,
 ) -> dict[int, str]:
     """Batch call: narration → visual_anchor per scene index.
 
-    Falls back to an empty dict on any failure (non-blocking) — scenes then
-    generate exactly as they did before this task.
+    Tries VISUAL_ANCHOR_MODEL first, falls back to VISUAL_ANCHOR_FALLBACK_MODEL
+    on any failure. Falls back to an empty dict if both fail (non-blocking).
     """
     prompt = _build_anchor_batch_prompt(scenes)
-    try:
-        response = cheap_llm_client.generate(prompt, json_mode=True, temperature=0.0)
-        data = _parse_json_response(response.text)
-        if not data:
-            logger.warning("Visual anchor batch returned invalid JSON — proceeding without anchors")
-            return {}
-        return {
-            int(k): v for k, v in data.items() if isinstance(v, str) and v.strip()
-        }
-    except Exception as exc:
-        logger.warning("Visual anchor batch failed: {} — proceeding without anchors", exc)
-        return {}
+    models: list[str | None]
+    if settings is not None:
+        models = [
+            getattr(settings, "VISUAL_ANCHOR_MODEL", None),
+            getattr(settings, "VISUAL_ANCHOR_FALLBACK_MODEL", None),
+        ]
+    else:
+        models = [None]
+
+    for model in models:
+        try:
+            response = cheap_llm_client.generate(
+                prompt, json_mode=True, temperature=0.0, model=model
+            )
+            data = _parse_json_response(response.text)
+            if not data:
+                logger.warning(
+                    "Visual anchor batch returned invalid JSON (model={}) — trying fallback",
+                    model,
+                )
+                continue
+            return {
+                int(k): v for k, v in data.items() if isinstance(v, str) and v.strip()
+            }
+        except Exception as exc:
+            logger.warning(
+                "Visual anchor attempt failed (model={}): {} — trying fallback", model, exc
+            )
+
+    logger.warning("Visual anchor batch failed on all models — proceeding without anchors")
+    return {}
 
 
 def _attach_emotional_metadata(project_id: str, scenes: list[dict]) -> None:
@@ -869,25 +1230,34 @@ def _write_prompts_file(
         lines += [
             "## Step 0 — Before You Start (Image Generator Setup)",
             "",
-            "**ChatGPT / DALL-E 3:** Paste this message ONCE at the start of a new",
-            "conversation, before pasting any scene prompt:",
+            "**ChatGPT / DALL-E 3:** Paste this message ONCE at the start of a new conversation,",
+            "before pasting any scene prompt:",
             "",
             "```",
-            f"I'm generating a {total_scenes}-scene documentary storyboard. One consistent",
-            f"character appears throughout: {KAI_COMPRESSED_SPEC}. Keep his appearance",
-            "identical across every image. I'll paste each scene prompt one by one now.",
+            f"I am generating a {total_scenes}-scene philosophical documentary storyboard in a specific",
+            "hybrid visual style. Keep this style consistent across every image.",
+            "",
+            "VISUAL STYLE: The environment in every image must be 100% photorealistic — architecture,",
+            "nature, interiors, props, lighting, and shadows rendered as cinema photography. Human",
+            "characters only are illustrated — premium hand-painted storybook style with clean ink",
+            "outlines, soft cel shading, and graphic novel quality. Characters are composited into the",
+            "photorealistic environment with matching lighting and realistic shadows.",
+            "",
+            f"ANCHOR CHARACTER (KAI): Appears in scenes {primary_scenes_str}. Kai is a young man,",
+            "late 20s, lean build, short dark hair, simple clothing. Render Kai as an illustrated",
+            "storybook character (NOT photorealistic) — ink outlines, cel shading, painterly texture.",
+            "Kai is almost always shown from behind, in silhouette, or in profile — almost never",
+            "full front-facing.",
+            "",
+            "Keep Kai's illustrated appearance identical across all his scenes. I will paste each",
+            "scene prompt one by one now.",
             "```",
             "",
-            f"Scenes where this character is the primary subject: {primary_scenes_str}",
-            "All other scenes are symbolic or observational — no character needed.",
+            f"Keep all {total_scenes} generations in ONE conversation window. If style drifts, paste",
+            f"scene 1 back and say \"same hybrid style — continue with scene [X]\".",
             "",
-            f"Keep all {total_scenes} generations in ONE conversation window.",
-            f"If the character's appearance drifts, paste Scene {first_primary} back",
-            "into the chat and say \"same character as this — continue with scene [X]\".",
-            "",
-            f"**Midjourney / Leonardo:** Generate Scene {first_primary} first.",
-            "Use that image as your character reference (--cref / character reference)",
-            "for all primary scenes listed above.",
+            f"**Midjourney / Leonardo:** Generate scene {first_primary} first. Use that as your style",
+            "reference (--sref) for all subsequent scenes. For Kai-primary scenes, also use --cref.",
             "",
             "---",
             "",
@@ -936,9 +1306,15 @@ def _write_prompts_file(
         filename = f"scene-{idx:03d}.png"
         save_path = abs_images_dir / filename
         vm = scene.get("visual_metadata", {})
-        prompt_text = scene.get("visual_prompt", "")
-        if scene.get("scene_type") != "brand_card":
-            prompt_text = prepend_storyboard_header(prompt_text)
+        # V2: use structured_prompt.compiled_prompt if available; fall back to visual_prompt.
+        # No "Storyboard Mode" language — compiled_prompt is self-contained.
+        sp = scene.get("structured_prompt")
+        if sp and not isinstance(sp, dict):
+            prompt_text = sp.compiled_prompt
+        elif isinstance(sp, dict):
+            prompt_text = sp.get("compiled_prompt") or scene.get("visual_prompt", "")
+        else:
+            prompt_text = scene.get("visual_prompt", "")
 
         lines += [
             f"## Scene {idx} — `{filename}`",
@@ -949,7 +1325,7 @@ def _write_prompts_file(
             "",
             "**Image Prompt:**",
             "",
-            f"> {prompt_text}",
+            prompt_text,
             "",
             f"**Visual Metadata:** era={vm.get('era', '—')} role={vm.get('narrative_role', '—')} "
             f"env={vm.get('environment', '—')} mood={vm.get('mood', '—')} "
@@ -1230,6 +1606,15 @@ def scene_planner_node(state: VideoState) -> dict:
                 deduped.append(line)
         script_md = "\n".join(deduped)
 
+    # ── V2: Generate Visual Bible once before per-scene planning ─────────────
+    if settings.VISUAL_BIBLE_ENABLED:
+        console.print("  [cyan]→[/cyan] V2: generating visual bible...")
+    visual_bible = _generate_visual_bible(script_md, llm, settings)
+    if settings.VISUAL_BIBLE_ENABLED:
+        console.print(
+            f"  [green]✓[/green] Visual Bible: \"{visual_bible.dominant_metaphor[:60]}...\""
+        )
+
     # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
     # The LLM was reliably failing to return 25+ scenes in one JSON response —
     # Groq cuts off mid-stream when output tokens get large. Python splitting is
@@ -1317,7 +1702,7 @@ def scene_planner_node(state: VideoState) -> dict:
     # generate exactly as before this task.
     _llm_validation_client = _get_cheap_llm(settings, "llm_validation")
     if settings.visual_anchor_enabled:
-        visual_anchors = _build_visual_anchors(generated_scenes, _llm_validation_client)
+        visual_anchors = _build_visual_anchors(generated_scenes, _llm_validation_client, settings)
     else:
         visual_anchors = {}
     for scene in generated_scenes:
@@ -1494,7 +1879,8 @@ def scene_planner_node(state: VideoState) -> dict:
                 critical_error_codes
             ):
                 llm_passed, llm_reason = _run_llm_validation(
-                    scene_analysis, entities.human_classification, current_prompt, _llm_validation_client
+                    scene_analysis, entities.human_classification, current_prompt,
+                    _llm_validation_client, settings,
                 )
                 if llm_passed:
                     logger.info(
@@ -1631,6 +2017,31 @@ def scene_planner_node(state: VideoState) -> dict:
     scenes = _propagate_environment_anchors(scenes)
     scenes = _enforce_style_footer(scenes)
 
+    # ── V2: Per-scene structured prompt generation ────────────────────────
+    if settings.HYBRID_STYLE_ENABLED or settings.VISUAL_BIBLE_ENABLED:
+        console.print(
+            f"  [cyan]→[/cyan] V2: building structured prompts for "
+            f"{len([s for s in scenes if s.get('scene_type') != 'brand_card'])} scenes..."
+        )
+        gen_scenes = [s for s in scenes if s.get("scene_type") != "brand_card"]
+        for i, scene in enumerate(gen_scenes):
+            prev = gen_scenes[i - 1] if i > 0 else None
+            sp = _build_structured_prompt(
+                scene=scene,
+                visual_bible=visual_bible,
+                scene_index=i,
+                total_scenes=len(gen_scenes),
+                llm=llm,
+                settings=settings,
+                prev_scene=prev,
+            )
+            scene["structured_prompt"] = sp.model_dump()
+            scene["visual_prompt"] = sp.compiled_prompt  # backward compat
+        console.print(f"  [green]✓[/green] V2 structured prompts: {len(gen_scenes)} scenes")
+
+    # ── V2: Continuity validation (flag-and-log only) ─────────────────────
+    continuity_warnings = _validate_visual_continuity(scenes, visual_bible)
+
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:
         vm = s.get("visual_metadata", {})
@@ -1670,7 +2081,13 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(f"  [green]✓[/green] V4 debug output: [dim]{debug_dir}[/dim]")
 
     # ── Persist artifacts ─────────────────────────────────────────────────
-    scene_plan = {"topic": topic, "total_duration_seconds": total, "scenes": scenes}
+    scene_plan = {
+        "topic": topic,
+        "total_duration_seconds": total,
+        "scenes": scenes,
+        "visual_bible": visual_bible.model_dump(),
+        "continuity_warnings": continuity_warnings,
+    }
     artifact_repo.write_json(project_id, "scenes", "scene-plan.json", scene_plan)
 
     # Human-readable markdown summary

@@ -158,6 +158,39 @@ class SharedSettings(BaseSettings):
     cartesia_emotion: str = "contemplative"
 
     # ------------------------------------------------------------------
+    # Fish Audio TTS Provider
+    # ------------------------------------------------------------------
+
+    fish_api_key: str = Field(default="")
+    fish_model: str = "s2.1-pro-free"
+    fish_reference_id: str = ""
+    fish_format: str = "mp3"
+    fish_timeout: int = 60
+    fish_max_retries: int = 3
+    fish_max_chars: int = 2000
+    fish_cache_enabled: bool = True
+    fish_speed: float = 1.0
+    fish_sample_rate: int = 44100
+    fish_temperature: float = 0.7
+    fish_top_p: float = 0.7
+    fish_repetition_penalty: float = 1.2
+    fish_max_new_tokens: int = 1024
+    fish_normalize: bool = True
+
+    # ------------------------------------------------------------------
+    # ElevenLabs TTS Provider
+    # ------------------------------------------------------------------
+
+    elevenlabs_api_key: str = Field(default="")
+    elevenlabs_model: str = "eleven_flash_v2_5"
+    elevenlabs_voice_id: str = ""
+    elevenlabs_output_format: str = "mp3_44100_128"
+    elevenlabs_timeout: int = 60
+    elevenlabs_max_chars: int = 2000
+    elevenlabs_cache_enabled: bool = True
+    elevenlabs_sample_rate: int = 44100
+
+    # ------------------------------------------------------------------
     # TTS Retry Control
     # ------------------------------------------------------------------
 
@@ -222,6 +255,24 @@ class SharedSettings(BaseSettings):
     # It must NEVER appear in viewer-facing output. KaiFirewallViolation enforces this.
     ANCHOR_CHARACTER_ENABLED: bool = True
     ANCHOR_CHARACTER_ID: str = "Kai"
+
+    # Scene Planner V2
+    VISUAL_BIBLE_ENABLED: bool = True
+    HYBRID_STYLE_ENABLED: bool = True
+    KAI_POSE_DISCIPLINE_ENABLED: bool = True
+
+    # Script Judge + Guided Recomposer
+    SCRIPT_JUDGE_ENABLED: bool = True
+    SCRIPT_JUDGE_MODEL: str = "deepseek/deepseek-v3.2"
+    GUIDED_RECOMPOSE_ENABLED: bool = True
+    GUIDED_RECOMPOSER_MODEL: str = "deepseek/deepseek-v3.2"
+
+    # Visual Anchor generation — primary + fallback model
+    VISUAL_ANCHOR_MODEL: str = "google/gemini-2.5-flash-lite"
+    VISUAL_ANCHOR_FALLBACK_MODEL: str = "deepseek/deepseek-v4-pro"
+
+    # Faithfulness validator — primary + fallback model
+    FAITHFULNESS_VALIDATOR_FALLBACK_MODEL: str = "deepseek/deepseek-v4-flash"
 
     # ------------------------------------------------------------------
     # Post-processing: Video Split

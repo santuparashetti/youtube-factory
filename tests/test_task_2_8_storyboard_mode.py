@@ -95,7 +95,8 @@ class TestDownstreamOutputs:
         assert scenes[1]["visual_prompt"].startswith("16:9 aspect ratio. Storyboard Mode")
         assert not scenes[2]["visual_prompt"].startswith("16:9 aspect ratio. Storyboard Mode")
 
-    def test_image_prompts_md_prepends_header_to_non_brand_card(self, tmp_path, monkeypatch):
+    def test_image_prompts_md_uses_compiled_prompt_no_storyboard_mode(self, tmp_path, monkeypatch):
+        """V2: IMAGE_PROMPTS.md uses visual_prompt directly — no Storyboard Mode wrapper."""
         from ytfactory.agents.nodes.scene_planner import _write_prompts_file
         from ytfactory.config.settings import Settings
 
@@ -108,5 +109,7 @@ class TestDownstreamOutputs:
         _write_prompts_file(project_id, scenes, None, Settings())
 
         content = (tmp_path / "workspace" / "jobs" / project_id / "images" / "IMAGE_PROMPTS.md").read_text()
-        assert "> 16:9 aspect ratio. Storyboard Mode." in content
-        assert "> Brand Card prompt" in content
+        # V2: no Storyboard Mode language, no blockquote wrapper
+        assert "Storyboard Mode" not in content
+        assert "A cliff at dawn." in content
+        assert "Brand Card prompt" in content

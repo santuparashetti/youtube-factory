@@ -40,13 +40,25 @@ def get_tts_provider(
             )
 
         case "elevenlabs":
-            raise ValueError(
-                "ElevenLabs TTS is not implemented. "
-                "Valid options: edge, kokoro, cartesia"
+            from .elevenlabs import ElevenLabsProvider
+
+            profile = get_voice_profile(getattr(settings, "voice_profile", ""))
+            return ElevenLabsProvider(
+                settings,
+                profile=profile,
+                analytics=analytics,
+            )
+
+        case "fish":
+            from .fish_provider import FishProvider
+
+            return FishProvider(
+                settings,
+                analytics=analytics,
             )
 
         case _:
             raise ValueError(
                 f"Unsupported TTS provider: {settings.tts_provider!r}. "
-                "Valid options: edge, kokoro, cartesia"
+                "Valid options: edge, kokoro, cartesia, elevenlabs, fish"
             )

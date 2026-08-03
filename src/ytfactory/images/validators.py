@@ -200,24 +200,61 @@ def _normalize_char(s: str) -> str:
     return s
 
 
+# Generic human tokens that can visually represent ANY human role noun or group.
+# "a man" → "instructor", "villager"; "people" → "Laughing group", "crowd".
+_GENERIC_GENDER_TOKENS: frozenset[str] = frozenset({"man", "woman", "person", "people", "crowd"})
+
+# Bare pronouns — not role nouns, cannot count as "human role allowed".
+_BARE_PRONOUNS: frozenset[str] = frozenset({
+    "he", "she", "they", "it", "him", "her", "them", "his", "hers", "their", "we", "us"
+})
+
+
+def _allowed_has_human_role(allowed_chars: list[str]) -> bool:
+    """True if any allowed character is a human role noun (not a bare pronoun)."""
+    for c in allowed_chars:
+        norm = _normalize_char(c.lower())
+        # Strip parenthetical qualifiers: "them (group of people)" → "them"
+        norm = norm.split("(")[0].strip()
+        if norm and norm not in _BARE_PRONOUNS:
+            return True
+    return False
+
+
 def is_equivalent_character(detected: str, allowed_chars: list[str]) -> bool:
     """Return True if `detected` is a semantic equivalent of any character in
-    `allowed_chars`. Case-insensitive, article-insensitive ("a man" ~ "man")."""
+    `allowed_chars`. Case-insensitive, article-insensitive ("a man" ~ "man").
+
+    Three equivalence paths:
+    1. Exact match after article normalization ("a man" ~ "man").
+    2. CHARACTER_EQUIVALENTS map ("woman" ~ "she", "man" ~ "him", etc.).
+    3. Substring: detected token is contained within an allowed character
+       description ("people" ~ "Them (group of people)").
+    4. Generic gender: "man"/"woman"/"person" is a valid visual way to refer
+       to any human role noun (instructor, villager, artist, …).
+    """
     detected_norm = _normalize_char(detected)
     allowed_norm = [_normalize_char(c) for c in allowed_chars]
 
+    # Path 1: exact match
     if detected_norm in allowed_norm:
         return True
 
+    # Path 2: CHARACTER_EQUIVALENTS forward (detected → equivalents)
     for eq in CHARACTER_EQUIVALENTS.get(detected_norm, []):
-        eq_norm = _normalize_char(eq)
-        if eq_norm in allowed_norm:
+        if _normalize_char(eq) in allowed_norm:
             return True
 
+    # Path 2b: CHARACTER_EQUIVALENTS reverse (allowed → equivalents)
     for allowed in allowed_norm:
         for eq in CHARACTER_EQUIVALENTS.get(allowed, []):
             if _normalize_char(eq) == detected_norm:
                 return True
+
+    # Path 3: substring — e.g. "people" inside "them (group of people)"
+    for c in allowed_chars:
+        if detected_norm in _normalize_char(c.lower()):
+            return True
 
     return False
 
@@ -465,6 +502,10 @@ class StoryFidelityValidator:
                         token,
                     )
                     continue
+                # If the token appears verbatim in the narration it came from
+                # the source — it is not an invented character.
+                if re.search(r"\b" + re.escape(token) + r"\b", required_visual_lower):
+                    continue
                 if is_equivalent_character(token, scene_analysis.get("allowed_characters", [])):
                     logger.debug(
                         "UNSUPPORTED_CHARACTER check: '{}' is equivalent to an allowed "
@@ -472,6 +513,16 @@ class StoryFidelityValidator:
                         token,
                         scene_analysis.get("allowed_characters", []),
                     )
+                    continue
+                # Generic gender token (man/woman/person) is a valid visual way
+                # to depict any human role noun — but only when human presence
+                # is not explicitly forbidden (NO_HUMAN_ALLOWED scenes must
+                # still reject these tokens).
+                if (
+                    token in _GENERIC_GENDER_TOKENS
+                    and human_classification != HumanClassification.NO_HUMAN_ALLOWED
+                    and _allowed_has_human_role(scene_analysis.get("allowed_characters", []))
+                ):
                     continue
                 errors.append(
                     ValidationError(
@@ -1065,6 +1116,16 @@ def build_retry_prompt(
     env_str = environment if environment else "unspecified"
 
     retry_block = f"""\
+REPAIR CONTRACT — read before fixing:
+1. Fix ONLY the violation type listed below. Touch nothing else.
+2. CHARACTER NAMES ARE IMMUTABLE. Do not rename, remove, or substitute any character.
+   If the violation is UNSUPPORTED_CHARACTER, remove the offending generic term
+   ("man", "woman", "person") and replace with the allowed character name — do not
+   remove the character from the scene.
+3. ENVIRONMENT IS IMMUTABLE. Do not change the setting, location, or time of day.
+4. You may rephrase descriptions freely as long as rules 2 and 3 are preserved.
+5. Return only the repaired prompt. No explanation.
+
 FAILED — REGENERATE THIS SCENE ONLY
 
 SCENE ID: {scene.get('index')}

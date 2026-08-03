@@ -102,33 +102,49 @@ _VIEWER_ADDRESS_RE = re.compile(
 )
 
 
+_BRAND_CARD_RE = re.compile(
+    r"^(this\s+is\s+the\s+atma\s+theory|if\s+these\s+ideas\s+resonate|clear\s+mind)",
+    re.IGNORECASE,
+)
+
+
 def _is_rehook(text: str, index: int, total: int) -> bool:
     """Structural rehook detection for documentary scripts.
 
-    A re-engagement beat typically lands in the opening 60% of a
-    documentary script, is short (<= 60 words), and contains either:
-    1. A viewer-address word (you/your/we/us) near a sentence boundary, OR
-    2. An early strong pivot phrase (and yet, but here's the thing, etc.)
-       within the first 50 characters of the paragraph.
+    Recognises two distinct positions:
+    1. Mid-script rehook (index < 60%): short paragraph with a viewer-address
+       word (you/your/we/us) or an early pivot phrase — the classic YouTube
+       re-engagement beat.
+    2. Closing callback (index >= 75%): a short paragraph immediately before
+       the brand card that closes the narrative loop opened by the hook.
+       Atma Theory scripts always place the closing echo here.
 
-    Segment 0 is always the opening hook and is excluded.
+    Segment 0 is always the opening hook and is excluded. Brand-card lines
+    ("This is the Atma Theory.", "Clear mind. Meaningful life.", etc.) are
+    never rehooks regardless of position.
     """
     if index == 0:
-        return False
-    if index >= total * 0.6:
         return False
     if len(text.split()) > 60:
         return False
 
     low = text.lower().strip()
 
-    # Signal 1: viewer address near a sentence boundary
-    has_viewer = bool(_VIEWER_ADDRESS_RE.search(low))
+    # Brand-card lines are never rehooks
+    if _BRAND_CARD_RE.match(low):
+        return False
 
-    # Signal 2: early strong pivot phrase in the first ~50 characters
-    early_pivot = bool(_REHOOK_RICH_RE.search(low[:50]))
+    # Mid-script rehook: viewer address or strong pivot phrase in first 60%
+    if index < total * 0.6:
+        has_viewer = bool(_VIEWER_ADDRESS_RE.search(low))
+        early_pivot = bool(_REHOOK_RICH_RE.search(low[:50]))
+        return has_viewer or early_pivot
 
-    return has_viewer or early_pivot
+    # Closing callback: short paragraph in last 25% (not a brand card)
+    if index >= int(total * 0.75):
+        return True
+
+    return False
 
 
 # ── Script parsing ────────────────────────────────────────────────────────────

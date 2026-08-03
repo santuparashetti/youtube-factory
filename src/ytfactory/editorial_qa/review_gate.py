@@ -101,6 +101,38 @@ def _format_qa_summary(project_id: str) -> str:
     return "\n".join(lines)
 
 
+def _load_judge_report(project_id: str) -> dict | None:
+    report_path = Path(WORKSPACE_DIR) / project_id / "judge-report.json"
+    if not report_path.exists():
+        return None
+    try:
+        return json.loads(report_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _format_judge_summary(report: dict | None) -> str:
+    if not report:
+        return ""
+    outcome = report.get("outcome", "unknown")
+    winner = report.get("winner", "?")
+    a_score = report.get("script_a_score", "?")
+    b_score = report.get("script_b_score", "?")
+    summary = report.get("verdict_summary", "")
+    lines = [
+        f"[bold]Script Judge Report[/bold] — outcome: {outcome}",
+        f"  Script A: {a_score}/10  |  Script B: {b_score}/10  |  Winner: Script {winner}",
+    ]
+    if summary:
+        lines.append(f"  {summary}")
+    sections = report.get("sections") or []
+    if sections:
+        lines.append("  Sections:")
+        for s in sections:
+            lines.append(f"    {s.get('name', '?')} → Script {s.get('winner', '?')}: {s.get('reason', '')}")
+    return "\n".join(lines)
+
+
 class FinalScriptReviewGate:
     """Presents the finalized script + its QA report; hash-guards against a
     hand-edit since the last review. Never rewrites the script — continue /
@@ -135,15 +167,25 @@ class FinalScriptReviewGate:
                 project_id, script_text, qa_report, self._settings
             )
 
+        # Judge report — load once and force review for recomposed scripts.
+        judge_report = _load_judge_report(project_id)
+        if judge_report and judge_report.get("outcome") == "recomposed" and auto_mode:
+            logger.warning(
+                "Auto-mode disabled for recomposed scripts — human review required."
+            )
+            auto_mode = False
+
         if auto_mode:
             qa_checkpoint.record_hash(project_id, script_text)
             return script_text
 
         word_count = len(script_text.split())
+        judge_summary = _format_judge_summary(judge_report)
         console.print(
             Panel(
                 f"[bold]Final Script Review[/bold]\nWords: {word_count}\n\n"
-                f"{_format_qa_summary(project_id)}",
+                f"{_format_qa_summary(project_id)}"
+                + (f"\n\n{judge_summary}" if judge_summary else ""),
                 title="Human Review Gate",
                 border_style="yellow",
             )

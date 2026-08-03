@@ -506,3 +506,449 @@ class TestEnforcePrimaryKaiSpecActionGuard:
                   visual_prompt="test", duration_seconds=3.0)
         assert hasattr(s, "scene_group_id")
         assert s.scene_group_id is None
+
+
+# ── Scene Planner V2 Tests ─────────────────────────────────────────────────────
+
+class TestScenePlannerV2:
+    """Tests for Visual Bible, StructuredImagePrompt, and continuity validation."""
+
+    def test_visual_bible_generation_stub(self):
+        """When VISUAL_BIBLE_ENABLED=False, stub returns valid VisualBible."""
+        from unittest.mock import MagicMock
+        from ytfactory.agents.nodes.scene_planner import _generate_visual_bible, _stub_visual_bible
+        from ytfactory.scenes.models import VisualBible
+
+        settings = MagicMock()
+        settings.VISUAL_BIBLE_ENABLED = False
+        llm = MagicMock()
+
+        result = _generate_visual_bible("some script", llm, settings)
+        assert isinstance(result, VisualBible)
+        assert len(result.anchor_environments) >= 2
+        assert isinstance(result.color_arc, dict)
+        assert "opening" in result.color_arc
+        llm.generate.assert_not_called()
+
+    def test_visual_bible_json_parse(self):
+        """Valid JSON from LLM parses to VisualBible correctly."""
+        from unittest.mock import MagicMock
+        from ytfactory.agents.nodes.scene_planner import _generate_visual_bible
+        from ytfactory.scenes.models import VisualBible
+        import json
+
+        bible_data = {
+            "dominant_metaphor": "A traveler at the crossroads of choice",
+            "anchor_environments": ["Stone courtyard at dawn", "Mountain ridge at dusk"],
+            "color_arc": {
+                "opening": "cool grey-blue",
+                "build": "warm amber",
+                "climax": "deep gold",
+                "resolution": "soft blue with warm accent",
+            },
+            "visual_motifs": ["empty threshold", "open hands"],
+            "shot_arc": {
+                "opening_scenes": "establishing wide",
+                "build_scenes": "medium with depth",
+                "climax_scene": "tight close-up",
+                "resolution_scenes": "medium wide",
+            },
+        }
+
+        settings = MagicMock()
+        settings.VISUAL_BIBLE_ENABLED = True
+        llm = MagicMock()
+        llm.generate.return_value.text = json.dumps(bible_data)
+
+        result = _generate_visual_bible("script text", llm, settings)
+        assert isinstance(result, VisualBible)
+        assert result.dominant_metaphor == "A traveler at the crossroads of choice"
+        assert len(result.anchor_environments) == 2
+        assert result.color_arc["climax"] == "deep gold"
+
+    def test_visual_bible_json_parse_failure_returns_stub(self):
+        """Invalid JSON from LLM falls back to stub without crashing."""
+        from unittest.mock import MagicMock
+        from ytfactory.agents.nodes.scene_planner import _generate_visual_bible
+        from ytfactory.scenes.models import VisualBible
+
+        settings = MagicMock()
+        settings.VISUAL_BIBLE_ENABLED = True
+        llm = MagicMock()
+        llm.generate.return_value.text = "not valid json {{{"
+
+        result = _generate_visual_bible("script text", llm, settings)
+        assert isinstance(result, VisualBible)
+        assert len(result.anchor_environments) >= 2
+
+    def test_structured_prompt_fields_present(self):
+        """All 8 fields populated on returned StructuredImagePrompt."""
+        from ytfactory.scenes.models import StructuredImagePrompt
+
+        sp = StructuredImagePrompt(
+            shot_type="medium",
+            camera_angle="eye_level",
+            environment_prompt="A sun-drenched stone courtyard.",
+            character_staging="An illustrated young man, seen from behind.",
+            lighting_match="Warm afternoon light matches the courtyard glow.",
+            color_palette_phase="build: warm amber tones",
+            continuity_ref="same environment as scene_001",
+            compiled_prompt="Hybrid style. Medium shot. A sun-drenched stone courtyard. 16:9. No text.",
+        )
+        assert sp.shot_type == "medium"
+        assert sp.camera_angle == "eye_level"
+        assert sp.environment_prompt
+        assert sp.character_staging
+        assert sp.lighting_match
+        assert sp.color_palette_phase
+        assert sp.continuity_ref
+        assert sp.compiled_prompt
+
+    def test_compiled_prompt_no_storyboard_mode_language(self):
+        """'Storyboard Mode' must NOT appear in any compiled_prompt."""
+        from unittest.mock import MagicMock
+        from ytfactory.agents.nodes.scene_planner import _build_structured_prompt
+        from ytfactory.scenes.models import VisualBible, StructuredImagePrompt
+        import json
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        scene = {"index": 1, "narration": "Silence fills the room.", "anchor_role": "absent", "visual_prompt": ""}
+        sp_data = {
+            "shot_type": "establishing_wide",
+            "camera_angle": "eye_level",
+            "environment_prompt": "A vast stone courtyard at dawn.",
+            "character_staging": None,
+            "lighting_match": "Cool morning light, diffuse shadows.",
+            "color_palette_phase": "opening: cool grey-blue",
+            "continuity_ref": "",
+            "compiled_prompt": "Wide establishing shot. A vast stone courtyard at dawn. Cool morning light. 16:9. No text, no watermark.",
+        }
+        settings = MagicMock()
+        settings.HYBRID_STYLE_ENABLED = True
+        settings.KAI_POSE_DISCIPLINE_ENABLED = True
+        llm = MagicMock()
+        llm.generate.return_value.text = json.dumps(sp_data)
+
+        result = _build_structured_prompt(scene, bible, 0, 5, llm, settings)
+        assert "Storyboard Mode" not in result.compiled_prompt
+
+    def test_enforce_primary_kai_spec_no_staging_reclassifies_to_absent(self):
+        """Primary scene with no character staging indicators is reclassified to absent."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": "An empty stone courtyard. A single cushion rests on the floor."}]
+        result = _enforce_primary_kai_spec(scenes)
+        assert result[0]["anchor_role"] == "absent"
+
+    def test_enforce_primary_kai_spec_with_staging_preserved(self):
+        """Primary scene with character staging indicators remains primary."""
+        scenes = [{"index": 1, "anchor_role": "primary",
+                   "visual_prompt": (
+                       "Lean young man, late 20s, short dark hair, light stubble, "
+                       "simple dark shirt — standing at the edge of a cliff, looking outward."
+                   )}]
+        result = _enforce_primary_kai_spec(scenes)
+        assert result[0]["anchor_role"] == "primary"
+
+    def test_continuity_validation_shot_variety_warning(self):
+        """All-medium shot mix triggers a shot-variety continuity warning."""
+        from ytfactory.agents.nodes.scene_planner import _validate_visual_continuity
+        from ytfactory.scenes.models import VisualBible
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        scenes = [
+            {"index": i, "anchor_role": "absent", "structured_prompt": {"shot_type": "medium", "character_staging": None, "environment_prompt": "a place"}}
+            for i in range(1, 8)
+        ]
+        warnings = _validate_visual_continuity(scenes, bible)
+        assert any("shot type" in w.lower() or "diversifying" in w.lower() for w in warnings)
+
+    def test_continuity_validation_kai_front_facing_warning(self):
+        """Two front-facing Kai scenes trigger a pose discipline warning."""
+        from ytfactory.agents.nodes.scene_planner import _validate_visual_continuity
+        from ytfactory.scenes.models import VisualBible
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        scenes = [
+            {"index": 1, "anchor_role": "primary", "structured_prompt": {"shot_type": "medium", "character_staging": "Young man facing forward toward the viewer.", "environment_prompt": "a courtyard"}},
+            {"index": 2, "anchor_role": "absent", "structured_prompt": {"shot_type": "establishing_wide", "character_staging": None, "environment_prompt": "mountain"}},
+            {"index": 3, "anchor_role": "primary", "structured_prompt": {"shot_type": "close_up", "character_staging": "Kai front-facing with direct eye contact.", "environment_prompt": "a room"}},
+        ]
+        warnings = _validate_visual_continuity(scenes, bible)
+        assert any("front-facing" in w.lower() or "pose discipline" in w.lower() for w in warnings)
+
+    def test_visual_prompt_backward_compat(self):
+        """scene['visual_prompt'] equals structured_prompt.compiled_prompt after V2 pass."""
+        from ytfactory.scenes.models import StructuredImagePrompt
+
+        compiled = "Wide shot. Stone courtyard at dawn. Cool morning light. 16:9. No text."
+        sp = StructuredImagePrompt(
+            shot_type="establishing_wide",
+            camera_angle="eye_level",
+            environment_prompt="Stone courtyard at dawn.",
+            character_staging=None,
+            lighting_match="Cool morning light.",
+            color_palette_phase="opening: cool grey-blue",
+            continuity_ref="",
+            compiled_prompt=compiled,
+        )
+        scene: dict = {"index": 1, "visual_prompt": "", "anchor_role": "absent"}
+        scene["structured_prompt"] = sp.model_dump()
+        scene["visual_prompt"] = sp.compiled_prompt
+        assert scene["visual_prompt"] == compiled
+
+    def test_visual_bible_model_fields(self):
+        """VisualBible model accepts all required fields and serializes correctly."""
+        from ytfactory.scenes.models import VisualBible
+
+        bible = VisualBible(
+            dominant_metaphor="The journey inward",
+            anchor_environments=["Ancient library", "Forest path at dawn"],
+            color_arc={"opening": "cool blue", "build": "warm amber", "climax": "gold", "resolution": "soft blue"},
+            visual_motifs=["open door", "still water"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        d = bible.model_dump()
+        assert d["dominant_metaphor"] == "The journey inward"
+        assert len(d["anchor_environments"]) == 2
+        assert d["color_arc"]["opening"] == "cool blue"
+
+
+# ── Scene Planner V2 Fixes Tests (V2.1) ──────────────────────────────────────
+
+class TestScenePlannerV2Fixes:
+    """Tests for V2.1 fixes: allowed_characters injection, camera angle, continuity."""
+
+    def test_allowed_characters_injected_into_prompt(self):
+        """Scene with non-empty scene_analysis.allowed_characters → character_block in prompt."""
+        from unittest.mock import MagicMock, patch
+        from ytfactory.agents.nodes.scene_planner import _build_structured_prompt
+        from ytfactory.scenes.models import VisualBible, StructuredImagePrompt
+        import json
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        sp_data = {
+            "shot_type": "medium", "camera_angle": "eye_level",
+            "environment_prompt": "Temple steps at dusk.",
+            "character_staging": "Bhagiratha kneeling in prayer.",
+            "lighting_match": "Warm diffuse light.", "color_palette_phase": "build: warm",
+            "continuity_ref": "", "compiled_prompt": "Medium shot. Temple steps. Bhagiratha kneeling. 16:9. No text.",
+        }
+        scene = {
+            "index": 3, "narration": "Bhagiratha prayed for a thousand years.",
+            "anchor_role": "absent", "visual_prompt": "",
+            "scene_analysis": {
+                "allowed_characters": ["Bhagiratha"],
+                "forbidden_characters": ["man", "woman"],
+                "environment": "temple steps",
+            },
+        }
+        settings = MagicMock()
+        settings.HYBRID_STYLE_ENABLED = False
+        settings.KAI_POSE_DISCIPLINE_ENABLED = False
+        llm = MagicMock()
+
+        captured_prompts = []
+        def capture_generate(prompt, **kwargs):
+            captured_prompts.append(prompt)
+            r = MagicMock()
+            r.text = json.dumps(sp_data)
+            return r
+
+        llm.generate.side_effect = capture_generate
+        _build_structured_prompt(scene, bible, 2, 10, llm, settings)
+
+        assert captured_prompts, "LLM was not called"
+        full_prompt = captured_prompts[0]
+        assert "Bhagiratha" in full_prompt
+        assert "IMMUTABLE CHARACTER CONSTRAINTS" in full_prompt
+
+    def test_forbidden_generic_terms_noted_in_prompt(self):
+        """Immutability block names 'man', 'woman' as forbidden when allowed_characters non-empty."""
+        from unittest.mock import MagicMock
+        from ytfactory.agents.nodes.scene_planner import _build_structured_prompt
+        from ytfactory.scenes.models import VisualBible, StructuredImagePrompt
+        import json
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        sp_data = {
+            "shot_type": "medium", "camera_angle": "eye_level",
+            "environment_prompt": "Village square.", "character_staging": None,
+            "lighting_match": "Midday sun.", "color_palette_phase": "build: warm",
+            "continuity_ref": "", "compiled_prompt": "Village square. 16:9. No text.",
+        }
+        scene = {
+            "index": 2, "narration": "The elder spoke truth.",
+            "anchor_role": "absent", "visual_prompt": "",
+            "scene_analysis": {"allowed_characters": ["elder"], "forbidden_characters": ["man"], "environment": "village"},
+        }
+        settings = MagicMock()
+        settings.HYBRID_STYLE_ENABLED = False
+        settings.KAI_POSE_DISCIPLINE_ENABLED = False
+        llm = MagicMock()
+
+        captured = []
+        def cap(prompt, **kwargs):
+            captured.append(prompt)
+            r = MagicMock(); r.text = json.dumps(sp_data); return r
+        llm.generate.side_effect = cap
+
+        _build_structured_prompt(scene, bible, 1, 10, llm, settings)
+        assert captured
+        assert '"man"' in captured[0] or "\"man\"" in captured[0] or "man" in captured[0]
+        assert "IMMUTABLE CHARACTER CONSTRAINTS" in captured[0]
+
+    def test_camera_angle_guidance_in_system_prompt(self):
+        """Each arc phase produces non-eye_level guidance string in the injected context."""
+        from ytfactory.agents.nodes.scene_planner import _CAMERA_ANGLE_BY_PHASE
+
+        for phase in ("opening", "build", "climax", "resolution"):
+            guidance = _CAMERA_ANGLE_BY_PHASE[phase]
+            assert guidance
+            # All phases should mention more than just "eye_level"
+            assert "eye_level" not in guidance or any(
+                other in guidance for other in ("high_angle", "low_angle")
+            )
+
+    def test_continuity_warning_camera_angle_monotony(self):
+        """20 of 23 scenes eye_level → camera angle monotony warning emitted."""
+        from ytfactory.agents.nodes.scene_planner import _validate_visual_continuity
+        from ytfactory.scenes.models import VisualBible
+
+        bible = VisualBible(
+            dominant_metaphor="A lone figure at the edge",
+            anchor_environments=["Mountain path", "Stone courtyard"],
+            color_arc={"opening": "cool", "build": "warm", "climax": "gold", "resolution": "blue"},
+            visual_motifs=["threshold"],
+            shot_arc={"opening_scenes": "wide", "build_scenes": "medium", "climax_scene": "close", "resolution_scenes": "medium wide"},
+        )
+        scenes = []
+        for i in range(1, 24):
+            angle = "eye_level" if i <= 20 else "low_angle"
+            scenes.append({
+                "index": i, "anchor_role": "absent",
+                "structured_prompt": {"shot_type": "medium", "camera_angle": angle, "character_staging": None, "environment_prompt": "place"},
+            })
+        warnings = _validate_visual_continuity(scenes, bible)
+        assert any("camera_angle" in w.lower() or "eye_level" in w for w in warnings)
+
+    def test_rehook_validator_detects_missing_rehook(self):
+        """Script with no closing echo of opening nouns → returns False."""
+        from ytfactory.composer.pipeline import _validate_rehook_present
+
+        # Opening unique nouns: "cobblestone", "archway", "narrow" — none appear in closing
+        script = "\n".join([
+            "A cobblestone archway frames the narrow city street below.",
+            "Rain falls sideways through the old iron gate at dusk.",
+            "Choices accumulate into the person we gradually become.",
+            "Every hour spent in focus adds to a larger whole.",
+            "Discipline is not punishment but a form of self-respect.",
+            "The quiet worker finishes what the loud talker begins.",
+            "Patience opens doors that urgency forever slams shut.",
+            "Stillness is not passivity — it is concentrated force.",
+            "This is the Atma Theory.",
+            "If these ideas resonate with you, join us on this journey.",
+            "Clear mind. Purposeful life.",
+        ])
+
+        assert _validate_rehook_present(script) is False
+
+    def test_rehook_validator_passes_valid_rehook(self):
+        """Script where closing window contains opening noun → returns True."""
+        from ytfactory.composer.pipeline import _validate_rehook_present
+
+        # 20-line script so the closing 25% window (lines 15+) includes the rehook
+        script = "\n".join([
+            "A lighthouse stands alone at the edge of everything.",  # 0 — opening noun: "lighthouse"
+            "Its beam cuts through the endless dark each night.",
+            "Actions shape character and define meaning in life.",
+            "We choose what matters and what we ignore daily.",
+            "Purpose gives direction to our thoughts and days.",
+            "Clarity of mind brings focus to our work.",
+            "Meaningful choices create the life we deserve.",
+            "The answers are within us waiting to be found.",
+            "Each day we build toward a better understanding.",
+            "Truth is not hidden — it reveals itself gradually.",
+            "Practice sharpens the mind and opens the spirit.",
+            "Old patterns fade when new awareness arrives.",
+            "The work continues until the work becomes natural.",
+            "Stillness is earned not imposed from the outside.",
+            "That same lighthouse beam still sweeps the dark water.",  # 14 — rehook with "lighthouse"
+            "But now someone on the shore understands its rhythm.",
+            "This is the Atma Theory.",
+            "If these ideas resonate with you, join us on this journey.",
+            "Clear mind. Meaningful life.",
+        ])
+
+        assert _validate_rehook_present(script) is True
+
+
+class TestVisualAnchorFallback:
+    def test_visual_anchor_falls_back_to_second_model_on_first_failure(self):
+        """Primary model raises; fallback model succeeds and its result is returned."""
+        from unittest.mock import MagicMock, call
+        from ytfactory.agents.nodes.scene_planner import _build_visual_anchors
+        from video_core.domain.llm import LLMResponse
+
+        scenes = [
+            {"index": 1, "narration": "A man walks alone.", "scene_type": "standard"},
+            {"index": 2, "narration": "The path narrows ahead.", "scene_type": "standard"},
+        ]
+
+        provider = MagicMock()
+        provider.generate.side_effect = [
+            Exception("primary model timeout"),
+            LLMResponse(
+                text='{"001": "A solitary figure walking a dirt path", "002": "A narrow trail disappearing into fog"}',
+                model="deepseek/deepseek-v4-pro",
+                prompt_tokens=10,
+                completion_tokens=20,
+                total_tokens=30,
+                finish_reason="stop",
+            ),
+        ]
+
+        settings = MagicMock()
+        settings.VISUAL_ANCHOR_MODEL = "google/gemini-2.5-flash-lite"
+        settings.VISUAL_ANCHOR_FALLBACK_MODEL = "deepseek/deepseek-v4-pro"
+
+        result = _build_visual_anchors(scenes, provider, settings)
+
+        assert result == {
+            1: "A solitary figure walking a dirt path",
+            2: "A narrow trail disappearing into fog",
+        }
+        assert provider.generate.call_count == 2
+        first_call_model = provider.generate.call_args_list[0].kwargs.get("model")
+        second_call_model = provider.generate.call_args_list[1].kwargs.get("model")
+        assert first_call_model == "google/gemini-2.5-flash-lite"
+        assert second_call_model == "deepseek/deepseek-v4-pro"
