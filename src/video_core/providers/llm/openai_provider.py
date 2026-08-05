@@ -20,6 +20,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self._client = OpenAI(
             base_url=settings.anthropic_base_url,
             api_key=settings.anthropic_api_key,
+            timeout=120.0,
         )
 
     def generate(

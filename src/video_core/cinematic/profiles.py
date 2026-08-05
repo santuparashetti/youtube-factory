@@ -19,10 +19,11 @@ from enum import Enum
 class RenderProfile(str, Enum):
     """Named rendering quality profiles."""
 
-    DRAFT = "draft"  # Static — fastest render, no motion
+    DRAFT = "draft"        # Static — fastest render, no motion
     BALANCED = "balanced"  # Simple 3-category motion, linear easing
     CINEMATIC = "cinematic"  # Full 8-type emotion-aware motion, smooth easing
-    PREMIUM = "premium"  # Full motion + wider scale range + long easing
+    PREMIUM = "premium"    # Full motion + wider scale range + long easing
+    PAN_ONLY = "pan_only"  # Pure pan/drift — no zoom-in or zoom-out, preserves full frame
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,25 @@ _BALANCED_MAP: dict[str, tuple[str, str]] = {
 # Each emotion maps to a small ranked set of alternatives appropriate to its
 # emotional register.  The rebalancer falls back within the same emotion rather
 # than substituting an unrelated motion type.
+# Pan-only: all motions are constant-zoom drift/pan — no push-in or pull-out.
+# drift       → horizontal pan, zoom = 1.0 + drift_amount (headroom only)
+# drift_vertical_up → upward tilt pan, constant zoom
+# hold_tripod → very slow lateral drift, near-static (breathing filter, constant z)
+_PAN_ONLY_MAP: dict[str, tuple[str, str]] = {
+    "curiosity":   ("drift",             "medium"),
+    "wonder":      ("drift_vertical_up", "small"),
+    "reflection":  ("hold_tripod",       "small"),
+    "mystery":     ("drift",             "small"),
+    "peace":       ("hold_tripod",       "small"),
+    "hope":        ("drift_vertical_up", "small"),
+    "compassion":  ("hold_tripod",       "small"),
+    "urgency":     ("drift",             "medium"),
+    "sadness":     ("hold_tripod",       "small"),
+    "awe":         ("drift_vertical_up", "medium"),
+    "determination": ("drift",           "medium"),
+    "revelation":  ("drift_vertical_up", "small"),
+}
+
 _ACCEPTABLE_MOTIONS: dict[str, list[str]] = {
     "curiosity": ["push_slow", "push_in", "push_reveal", "drift_float"],
     "wonder": ["drift_float", "drift_horizon", "pull_out", "pull_wide"],
@@ -168,19 +188,30 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         scale_range_small=(1.0, 1.22),
         scale_range_medium=(1.0, 1.35),
         scale_range_large=(1.0, 1.48),
-        drift_amount=0.12,
+        drift_amount=0.06,        # was 0.12 — halved to reduce pan crop headroom
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
-        max_drift_scale_factor=1.7,
+        max_drift_scale_factor=1.2,  # was 1.7 — capped so long scenes don't over-zoom pan
     ),
     RenderProfile.PREMIUM: ProfileConfig(
         scale_range_small=(1.0, 1.22),
         scale_range_medium=(1.0, 1.35),
         scale_range_large=(1.0, 1.48),
-        drift_amount=0.14,
+        drift_amount=0.07,        # was 0.14 — halved
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
-        max_drift_scale_factor=1.7,
+        max_drift_scale_factor=1.2,  # was 1.7
+    ),
+    # Pan-only: drift motions with minimal constant zoom (headroom only).
+    # No push-in or pull-out — the full frame composition is always preserved.
+    RenderProfile.PAN_ONLY: ProfileConfig(
+        scale_range_small=(1.0, 1.08),
+        scale_range_medium=(1.0, 1.10),
+        scale_range_large=(1.0, 1.12),
+        drift_amount=0.08,
+        easing="ease_in_out",
+        motion_map=_PAN_ONLY_MAP,
+        max_drift_scale_factor=1.2,
     ),
 }
 

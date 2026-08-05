@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from video_core.domain.visual_metadata import VisualMetadata
 
@@ -14,7 +14,7 @@ class VisualBible(BaseModel):
     dominant_metaphor: str
     anchor_environments: list[str] = Field(min_length=2, max_length=4)
     color_arc: dict[str, str]  # keys: opening, build, climax, resolution
-    visual_motifs: list[str] = Field(min_length=1, max_length=3)
+    visual_motifs: list[str] = Field(min_length=1, max_length=5)
     shot_arc: dict[str, str]  # keys: opening_scenes, build_scenes, climax_scene, resolution_scenes
 
 
@@ -39,9 +39,27 @@ class StructuredImagePrompt(BaseModel):
     ]
     environment_prompt: str
     character_staging: Optional[str] = None
-    lighting_match: str
-    color_palette_phase: str
-    continuity_ref: str
+    lighting_match: str = Field(default="Natural cinematic lighting matching the environment.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_none_strings(cls, data: dict) -> dict:
+        """LLMs sometimes return null for string fields — coerce to defaults."""
+        if not isinstance(data, dict):
+            return data
+        _defaults = {
+            "lighting_match": "Natural cinematic lighting matching the environment.",
+            "focal_length": "",
+            "color_palette_phase": "",
+            "continuity_ref": "",
+        }
+        for k, default in _defaults.items():
+            if k in data and data[k] is None:
+                data[k] = default
+        return data
+    focal_length: str = ""
+    color_palette_phase: str = ""
+    continuity_ref: str = ""
     compiled_prompt: str
 
 

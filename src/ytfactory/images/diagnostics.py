@@ -171,12 +171,17 @@ def build_report(scenes: list[dict], shot_plan: list[str]) -> DiagnosticsReport:
         report.unique_prompt_ratio = report.unique_prompts / report.total_prompts
 
     # ── Repetitive objects ────────────────────────────────────────────────
+    # Threshold is proportional to video length: flag when a prop appears in
+    # >15% of scenes (floor 2, ceiling 5). A book in 3/24 scholar scenes is
+    # thematic; a book in 3/10 scenes is genuinely repetitive.
+    total_generated = max(1, len(prompts))
+    _repeat_threshold = max(2, min(5, int(total_generated * 0.15) + 1))
     object_scenes: dict[str, list[int]] = {}
     for obj in _REPETITIVE_OBJECTS:
         matches = [
             indices[i] for i, p in enumerate(prompts) if obj.lower() in p.lower()
         ]
-        if len(matches) >= 2:
+        if len(matches) >= _repeat_threshold:
             object_scenes[obj.strip()] = matches
     report.repeated_objects = object_scenes
 

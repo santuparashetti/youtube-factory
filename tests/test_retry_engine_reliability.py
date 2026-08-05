@@ -265,6 +265,10 @@ class TestNoBatchRetryPhase:
         assert "Retrying {} failed prompt" not in source
         assert "deterministic_retries" not in source
 
-    def test_only_parse_retry_response_used_for_retry_parsing(self):
+    def test_plain_text_retry_extraction_used(self):
+        # Retries return plain text (no JSON parsing) — the response is
+        # extracted via _strip_fences(retry_resp.text) to clean any
+        # markdown fences the LLM wraps around the corrected prompt.
         source = inspect.getsource(scene_planner_module)
-        assert "parse_retry_response(" in source
+        assert "_strip_fences(retry_resp.text)" in source
+        assert "parse_retry_response(" not in source

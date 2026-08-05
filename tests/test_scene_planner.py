@@ -494,7 +494,7 @@ class TestEnforcePrimaryKaiSpecActionGuard:
                    "visual_prompt": (
                        "Lean young man, late 20s, short dark hair, light stubble, "
                        "simple dark shirt, plain trousers, calm expression — "
-                       "A wide shot of a dim, empty room. A single chair sits unused."
+                       "A wide shot of a dim, empty room. Dust motes drift in the air."
                    )}]
         result = _enforce_primary_kai_spec(scenes)
         assert result[0]["anchor_role"] == "absent"

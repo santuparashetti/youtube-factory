@@ -19,7 +19,6 @@ from enum import Enum
 
 from loguru import logger
 
-from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 
 
 class HumanClassification(str, Enum):
@@ -540,75 +539,76 @@ class StoryFidelityValidator:
             c for c in scene_analysis.get("forbidden_characters", []) if c
         ]
         for forbidden in forbidden_chars:
-            if forbidden.lower() in prompt_lower:
-                # Task 2.6 Part 3: a term can end up in BOTH forbidden_characters
-                # and allowed_characters (an entity-extraction inconsistency,
-                # e.g. allowed=["boy","mother"], forbidden accidentally includes
-                # "boy"). Forbidden must never override an explicit allow.
-                if is_equivalent_character(forbidden, scene_analysis.get("allowed_characters", [])):
-                    logger.debug(
-                        "FORBIDDEN_CHARACTER check: '{}' is also an allowed "
-                        "character {} — skipping",
-                        forbidden,
-                        scene_analysis.get("allowed_characters", []),
-                    )
-                    continue
-                # Task 2.4 Fix 7 (Option A): a wise-figure archetype ("sage",
-                # "elder") in a philosophical abstract scene with no extracted
-                # characters is a borderline creative choice, not a hard
-                # violation — warn only, let downstream human QA catch it if
-                # it's genuinely a problem.
-                if scene_category == "abstract" and no_chars_extracted and forbidden.lower() in SYMBOLIC_HUMAN_FIGURES:
-                    logger.warning(
-                        "symbolic figure '{}' in abstract scene (no characters extracted) "
-                        "— allowing (warning only)",
-                        forbidden,
-                    )
-                    continue
-                # When the scene requires a human presence (human_symbolic /
-                # human_required / named_person_required), blocking generic human
-                # tokens like "man" or "person" is self-contradictory — entity
-                # extraction can produce this inconsistency. The human-presence
-                # check above already gates quality; don't also forbid the words
-                # that satisfy it.
-                if (
-                    human_classification in (
-                        HumanClassification.HUMAN_SYMBOLIC,
-                        HumanClassification.HUMAN_REQUIRED,
-                        HumanClassification.NAMED_PERSON_REQUIRED,
-                    )
-                    and forbidden.lower() in _GENERIC_HUMAN_TOKENS
-                ):
-                    logger.debug(
-                        "FORBIDDEN_CHARACTER check: '{}' is a generic human token "
-                        "but human_classification=%s requires human presence — skipping",
-                        forbidden,
-                        human_classification.value,
-                    )
-                    continue
-                errors.append(
-                    ValidationError(
-                        code="FORBIDDEN_CHARACTER",
-                        message=f"Forbidden character present in prompt: '{forbidden}'.",
-                        severity="critical",
-                        allowed_values=scene_analysis.get("scene_characters", []),
-                        hint="Remove forbidden character from the visual prompt.",
-                        violated_item=forbidden,
-                    )
+            if not re.search(r"\b" + re.escape(forbidden.lower()) + r"\b", prompt_lower):
+                continue
+            # Task 2.6 Part 3: a term can end up in BOTH forbidden_characters
+            # and allowed_characters (an entity-extraction inconsistency,
+            # e.g. allowed=["boy","mother"], forbidden accidentally includes
+            # "boy"). Forbidden must never override an explicit allow.
+            if is_equivalent_character(forbidden, scene_analysis.get("allowed_characters", [])):
+                logger.debug(
+                    "FORBIDDEN_CHARACTER check: '{}' is also an allowed "
+                    "character {} — skipping",
+                    forbidden,
+                    scene_analysis.get("allowed_characters", []),
                 )
-                break
+                continue
+            # Task 2.4 Fix 7 (Option A): a wise-figure archetype ("sage",
+            # "elder") in a philosophical abstract scene with no extracted
+            # characters is a borderline creative choice, not a hard
+            # violation — warn only, let downstream human QA catch it if
+            # it's genuinely a problem.
+            if scene_category == "abstract" and no_chars_extracted and forbidden.lower() in SYMBOLIC_HUMAN_FIGURES:
+                logger.warning(
+                    "symbolic figure '{}' in abstract scene (no characters extracted) "
+                    "— allowing (warning only)",
+                    forbidden,
+                )
+                continue
+            # When the scene requires a human presence (human_symbolic /
+            # human_required / named_person_required), blocking generic human
+            # tokens like "man" or "person" is self-contradictory — entity
+            # extraction can produce this inconsistency. The human-presence
+            # check above already gates quality; don't also forbid the words
+            # that satisfy it.
+            if (
+                human_classification in (
+                    HumanClassification.HUMAN_SYMBOLIC,
+                    HumanClassification.HUMAN_REQUIRED,
+                    HumanClassification.NAMED_PERSON_REQUIRED,
+                )
+                and forbidden.lower() in _GENERIC_HUMAN_TOKENS
+            ):
+                logger.debug(
+                    "FORBIDDEN_CHARACTER check: '{}' is a generic human token "
+                    "but human_classification=%s requires human presence — skipping",
+                    forbidden,
+                    human_classification.value,
+                )
+                continue
+            errors.append(
+                ValidationError(
+                    code="FORBIDDEN_CHARACTER",
+                    message=f"Forbidden character present in prompt: '{forbidden}'.",
+                    severity="critical",
+                    allowed_values=scene_analysis.get("scene_characters", []),
+                    hint="Remove forbidden character from the visual prompt.",
+                    violated_item=forbidden,
+                )
+            )
+            break
 
         forbidden_objs = [
             o for o in scene_analysis.get("forbidden_objects", []) if o
         ]
         for forbidden_obj in forbidden_objs:
-            if forbidden_obj.lower() in prompt_lower:
+            if re.search(r"\b" + re.escape(forbidden_obj.lower()) + r"\b", prompt_lower):
                 # Metaphor guard: entity extraction can wrongly forbid an object
                 # that is the scene's OWN core metaphor / required visual (e.g.
                 # "canvas" forbidden on a scene about painting a life onto a
                 # canvas). If the object appears in the scene's narration or
                 # visual_anchor, it is required, not forbidden — skip it.
-                if forbidden_obj.lower() in required_visual_lower:
+                if re.search(r"\b" + re.escape(forbidden_obj.lower()) + r"\b", required_visual_lower):
                     logger.debug(
                         "FORBIDDEN_OBJECT check: '{}' is part of the scene's own "
                         "required visual / narration — skipping",
@@ -756,7 +756,7 @@ class StoryFidelityValidator:
                 )
         elif human_classification == HumanClassification.HUMAN_REQUIRED:
             if not any(
-                ind in prompt_lower
+                re.search(r"\b" + re.escape(ind) + r"\b", prompt_lower)
                 for ind in [
                     "man", "woman", "person", "people", "child", "face", "figure", "body"
                 ]
@@ -796,20 +796,23 @@ class SymbolismValidator:
       Narration: "The mother eagle encourages the chick."
       Reject: old man, weathered hand, candle, symbolic traveller
       Accept: mother eagle encouraging the chick
+
+    Context-aware: terms that match allowed_characters from scene_analysis
+    are real characters, not symbolic stand-ins, and are skipped.
+    Uses word-boundary matching to avoid substring false positives
+    (e.g. "candlelit" should not match "candle").
     """
 
     _SYMBOLIC_REPLACEMENTS: tuple[str, ...] = (
         "old man",
         "weathered hand",
-        "candle",
         "symbolic traveller",
         "symbolic traveler",
         "lone figure",
         "mysterious stranger",
         "wise elder",
         "ancient sage",
-        " faceless ",
-        "silhouette of a",
+        "faceless",
         "shadowy figure",
         "ethereal being",
         "spirit guide",
@@ -820,28 +823,35 @@ class SymbolismValidator:
         "master",
     )
 
-    def validate(self, narration: str, prompt: str) -> ValidationResult:
+    def validate(
+        self,
+        narration: str,
+        prompt: str,
+        allowed_characters: list[str] | None = None,
+    ) -> ValidationResult:
         errors: list[ValidationError] = []
         prompt_lower = prompt.lower()
-
-        # Extract key nouns from narration (simple heuristic: words > 3 chars)
-        narration_keywords = set(re.findall(r"\b[a-z]{4,}\b", narration.lower()))
-
-        # Check for symbolic replacements that don't appear in narration
         narration_lower = narration.lower()
+        allowed_lower = {c.lower() for c in (allowed_characters or [])}
+
         for symbol in self._SYMBOLIC_REPLACEMENTS:
-            if symbol in prompt_lower:
-                # If the symbolic term appears in narration, it's OK
-                if symbol not in narration_lower:
-                    errors.append(
-                        ValidationError(
-                            code="SYMBOLIC_REPLACEMENT",
-                            message=f"Symbolic replacement detected: '{symbol}'.",
-                            severity="critical",
-                            hint="Symbolism may enhance but must never replace the literal story.",
-                        )
-                    )
-                    break
+            sym_clean = symbol.strip()
+            pattern = r"\b" + re.escape(sym_clean) + r"\b"
+            if not re.search(pattern, prompt_lower):
+                continue
+            if re.search(pattern, narration_lower):
+                continue
+            if any(sym_clean in ac for ac in allowed_lower):
+                continue
+            errors.append(
+                ValidationError(
+                    code="SYMBOLIC_REPLACEMENT",
+                    message=f"Symbolic replacement detected: '{sym_clean}'.",
+                    severity="critical",
+                    hint="Symbolism may enhance but must never replace the literal story.",
+                )
+            )
+            break
 
         passed = len(errors) == 0
         return ValidationResult(passed=passed, errors=errors)
@@ -953,9 +963,144 @@ class RealismValidator:
 # ── Feedback composition ───────────────────────────────────────────────────────
 
 
+class ValidationErrorFormatter:
+    """Converts ValidationError objects into human-readable repair instructions.
+
+    Each error code produces a structured block that tells the model exactly
+    WHAT went wrong, WHY, and HOW to fix it — instead of just a terse code.
+    """
+
+    _CAMERA_EXAMPLES = (
+        "- Wide shot\n"
+        "- Medium shot\n"
+        "- Close-up\n"
+        "- Low angle\n"
+        "- High angle\n"
+        "- Over-the-shoulder\n"
+        "- Aerial shot"
+    )
+
+    @classmethod
+    def format_error(cls, error: ValidationError) -> str:
+        code = error.code
+        item = error.violated_item or ""
+        allowed = error.allowed_values or []
+
+        if code == "SYMBOLIC_REPLACEMENT":
+            return (
+                "Rule:\nSYMBOLIC_REPLACEMENT\n\n"
+                "Reason:\nThe prompt emphasizes symbolism instead of the literal narrated event.\n\n"
+                "Fix:\nKeep the narrated event as the primary subject.\n"
+                "Move symbolic imagery into the background."
+            )
+
+        if code == "CAMERA_MISSING":
+            return (
+                "Rule:\nCAMERA_MISSING\n\n"
+                "Fix:\nAdd one explicit cinematic shot type.\n\n"
+                f"Examples:\n{cls._CAMERA_EXAMPLES}"
+            )
+
+        if code == "FORBIDDEN_OBJECT":
+            obj = item or "the forbidden object"
+            return (
+                f"Rule:\nFORBIDDEN_OBJECT\n\n"
+                f"Forbidden object:\n{obj}\n\n"
+                f'Fix:\nRemove every reference to "{obj}" while preserving the scene.'
+            )
+
+        if code == "UNSUPPORTED_CHARACTER":
+            char = item or "the unsupported character"
+            return (
+                f"Rule:\nUNSUPPORTED_CHARACTER\n\n"
+                f"Character:\n{char}\n\n"
+                f'Fix:\nReplace "{char}" with a generic description such as "older person".\n'
+                "Never use named or unsupported characters."
+            )
+
+        if code == "FORBIDDEN_CHARACTER":
+            char = item or "the forbidden character"
+            allowed_str = ", ".join(str(v) for v in allowed) if allowed else "none"
+            return (
+                f"Rule:\nFORBIDDEN_CHARACTER\n\n"
+                f"Character:\n{char}\n\n"
+                f'Fix:\nRemove "{char}" from the prompt.\n'
+                f"Allowed characters: {allowed_str}"
+            )
+
+        if code == "ENVIRONMENT_MISMATCH":
+            env = allowed[0] if allowed else "the required environment"
+            return (
+                f"Rule:\nENVIRONMENT_MISMATCH\n\n"
+                f"Required environment:\n{env}\n\n"
+                f"Fix:\nThe scene must be set in: {env}.\n"
+                "Do not change any other scene elements."
+            )
+
+        if code == "CAMERA_CONSTRAINT_VIOLATED":
+            constraint = allowed[0] if allowed else error.hint or "the camera constraint"
+            return (
+                f"Rule:\nCAMERA_CONSTRAINT_VIOLATED\n\n"
+                f"Constraint:\n{constraint}\n\n"
+                f"Fix:\nThe camera instruction must satisfy: {constraint}."
+            )
+
+        if code == "HUMAN_CLASSIFICATION_VIOLATED":
+            return (
+                "Rule:\nHUMAN_CLASSIFICATION_VIOLATED\n\n"
+                "Reason:\nThe prompt contains human elements that are not permitted in this scene.\n\n"
+                "Fix:\nRemove all human figures, body parts, and references to people."
+            )
+
+        if code == "NAMED_PERSON_MISSING":
+            required = ", ".join(str(v) for v in allowed) if allowed else item or "the required character"
+            return (
+                f"Rule:\nNAMED_PERSON_MISSING\n\n"
+                f"Required character:\n{required}\n\n"
+                f"Fix:\nEnsure {required} is clearly depicted in the scene."
+            )
+
+        if code in ("UNREALISTIC_PROPORTIONS", "UNREALISTIC_BIRD_SIZE", "UNREALISTIC_PERSPECTIVE"):
+            reason = error.message or "The prompt describes physically implausible elements."
+            return (
+                f"Rule:\n{code}\n\n"
+                f"Reason:\n{reason}\n\n"
+                "Fix:\nUse only physically plausible descriptions."
+            )
+
+        if code == "DUPLICATE_PROMPT":
+            earlier = error.violated_item or "an earlier scene"
+            snippet = f"\n\nDo not reuse:\n{error.hint}" if error.hint else ""
+            return (
+                f"Rule:\nDUPLICATE_PROMPT\n\n"
+                f"Reason:\nThis prompt is visually near-identical to {earlier}.\n\n"
+                f"Fix:\nGenerate a completely fresh visual for this scene.\n"
+                f"The setting, framing, subjects, and composition must be entirely distinct "
+                f"from all previous scenes.{snippet}"
+            )
+
+        # Fallback for unknown codes — preserve the original compact format.
+        line = f"Rule:\n{code}"
+        if item:
+            line += f"\n\nViolation:\n{item}"
+        if error.message:
+            line += f"\n\nReason:\n{error.message}"
+        if error.hint:
+            line += f"\n\nFix:\n{error.hint}"
+        return line
+
+    @classmethod
+    def format_errors(cls, errors: list[ValidationError]) -> str:
+        """Format a list of errors into a multi-block repair section."""
+        separator = "\n\n" + "-" * 22 + "\n\n"
+        return separator.join(cls.format_error(e) for e in errors)
+
+
 def compose_feedback(result: ValidationResult) -> str:
-    """Build the structured retry feedback block from a ValidationResult."""
-    return result.feedback_text
+    """Build structured repair instructions from a ValidationResult."""
+    if not result.errors:
+        return ""
+    return ValidationErrorFormatter.format_errors(result.errors)
 
 
 def run_validators(
@@ -965,13 +1110,23 @@ def run_validators(
     human_classification: HumanClassification | None = None,
     scene_category: str = "",
     visual_anchor: str = "",
+    story_characters: set[str] | None = None,
 ) -> ValidationResult:
     """Run all story-fidelity validators and return the combined result."""
     fidelity = StoryFidelityValidator().validate(
         scene_analysis, prompt, narration, human_classification,
         scene_category, visual_anchor,
     )
-    symbolism = SymbolismValidator().validate(narration, prompt)
+    # Merge per-scene allowed_characters with story-wide characters so a
+    # recurring character (e.g. "old man") isn't flagged as symbolic in
+    # scenes where the entity extractor didn't explicitly list it.
+    all_characters = list(scene_analysis.get("allowed_characters") or [])
+    if story_characters:
+        all_characters.extend(story_characters)
+    symbolism = SymbolismValidator().validate(
+        narration, prompt,
+        allowed_characters=all_characters,
+    )
     realism = RealismValidator().validate(prompt)
 
     all_errors = fidelity.errors + symbolism.errors + realism.errors
@@ -1088,82 +1243,99 @@ def build_retry_prompt(
     entity_constraints_section: str = "",
     scene_analysis_section: str = "",
     human_classification: HumanClassification | None = None,
+    current_prompt: str | None = None,
 ) -> str:
-    """Build a strict-JSON retry prompt for a single scene."""
-    # Hard constraints pinned at top of the retry block so the model reads them
-    # as rules before anything else.  The human_classification rule is expanded
-    # to plain English so the model knows e.g. that "hands" count as human under
-    # NO_HUMAN_ALLOWED.
-    hc_value = (
-        human_classification.value
-        if human_classification is not None
-        else scene_analysis.get("human_requirement", "forbidden")
-    )
-    human_rule = (
-        HUMAN_CLASSIFICATION_RULES.get(human_classification, "")
-        if human_classification is not None
-        else ""
-    )
-    allowed_chars = (
-        scene_analysis.get("allowed_characters") or scene_analysis.get("scene_characters") or []
-    )
-    allowed_chars_str = (
-        ", ".join(allowed_chars)
-        if allowed_chars
-        else "NONE — introduce no named person or figure"
-    )
-    environment = scene_analysis.get("environment", "")
-    env_str = environment if environment else "unspecified"
+    """Build a validator-aware edit prompt for a single scene retry.
 
-    retry_block = f"""\
-REPAIR CONTRACT — read before fixing:
-1. Fix ONLY the violation type listed below. Touch nothing else.
-2. CHARACTER NAMES ARE IMMUTABLE. Do not rename, remove, or substitute any character.
-   If the violation is UNSUPPORTED_CHARACTER, remove the offending generic term
-   ("man", "woman", "person") and replace with the allowed character name — do not
-   remove the character from the scene.
-3. ENVIRONMENT IS IMMUTABLE. Do not change the setting, location, or time of day.
-4. You may rephrase descriptions freely as long as rules 2 and 3 are preserved.
-5. Return only the repaired prompt. No explanation.
+    The model is instructed to make the MINIMUM possible changes to the
+    existing prompt rather than generate a new one — preserving creative
+    intent while fixing only the flagged violations.
 
-FAILED — REGENERATE THIS SCENE ONLY
+    Pass *current_prompt* to show the most recently updated version of the
+    prompt (from a prior retry attempt) rather than the original from scene dict.
+    """
+    current_prompt = current_prompt if current_prompt is not None else scene.get("visual_prompt", "")
+    return f"""\
+You are editing an existing image prompt.
 
-SCENE ID: {scene.get('index')}
-NARRATION: {narration}
+Your goal is NOT to generate a new prompt.
 
-HARD CONSTRAINTS (non-negotiable):
-  Characters: ONLY {allowed_chars_str}
-  Environment: MUST be one of [{env_str}]; no substitution.
-  human_classification={hc_value}: {human_rule}
+Your goal is to make the smallest possible changes required for the prompt to pass every validator while preserving the original creative intent.
 
-VIOLATION TO FIX:
+=========================
+VALIDATION FAILURES
+=========================
+
 {violation_feedback}
 
-ORIGINAL PROMPT (contains violation):
-{scene.get('visual_prompt', '')}
+=========================
+SCENE
+=========================
 
-REQUIRED CHANGES:
-- Fix every violation listed above.
-- Keep the same cinematic quality, shot type, mood, and era.
-- Introduce no new violations.
+Narration:
 
-Return ONLY valid JSON matching this exact structure. No explanation, no markdown,
-no code fences, no preamble, no apology. Begin your response with {{ and end with }}.
+{narration}
 
-{{
-  "scene_id": {scene.get('index')},
-  "visual_prompt": "your rewritten prompt here",
-  "changes_made": ["change 1", "change 2"],
-  "violation_addressed": "brief description of what you fixed"
-}}"""
-    base_prompt = build_visual_prompts_prompt(
-        [scene],
-        style,
-        prev_context=None,
-        entity_constraints_section=entity_constraints_section,
-        scene_analysis_section=scene_analysis_section,
-    )
-    return f"{base_prompt}\n\n{retry_block}"
+=========================
+CURRENT IMAGE PROMPT
+=========================
+
+{current_prompt}
+
+=========================
+RULES
+=========================
+
+1. Preserve the literal story exactly as described by the narration.
+
+2. Never replace the story with symbolism.
+
+Symbolism may exist only as a secondary visual layer.
+
+The literal event must always remain the main subject.
+
+3. Preserve:
+
+- environment
+- location
+- architecture
+- props
+- lighting
+- mood
+- composition
+- color palette
+- time of day
+
+4. Respect the required human classification.
+
+5. Remove every forbidden object.
+
+6. Replace unsupported characters with generic descriptions.
+
+7. Always include one explicit cinematic camera instruction.
+
+Examples:
+
+Wide shot
+Medium shot
+Close-up
+Low angle
+High angle
+Bird's-eye view
+Over-the-shoulder
+
+8. Never invent new story elements.
+
+9. Make only the minimum edits necessary.
+
+10. Return ONLY the corrected prompt.
+
+No explanations.
+
+No markdown.
+
+No JSON.\
+"""
 
 
 class RetryCoordinator:

@@ -340,6 +340,19 @@ STORY-FIRST RULES (highest priority — never override these)
 ═════════════════════════════════════════════════════
 
 1. The visual must describe what is LITERALLY in the narration — not a rewrite of the story.
+
+METAPHOR-LITERAL RULE — when the narration contains figurative language, depict the LITERAL
+story moment, never the figure of speech as a physical object:
+  ✗  "it is a map of a mind that has lost its way" → a leather map on a table
+  ✓  "it is a map of a mind that has lost its way" → the literal scene: the crowd dispersing
+     from the riverbank, the untouched coins, the still water — whatever the story moment is
+  ✗  "a sea of grief" → an ocean
+  ✓  "a sea of grief" → the person experiencing grief, in their actual setting
+  ✗  "he burned every bridge" → literal flames on a bridge
+  ✓  "he burned every bridge" → the person walking alone from a door that is closing
+  The literal story moment always takes priority. Metaphors in narration are prose devices —
+  never render them as physical objects.
+
 2. Characters may ONLY come from the narration or Scene Analysis below.
    NEVER invent: man, woman, monk, traveller, sage, observer, narrator, silhouette, child
    unless explicitly present. NEVER replace animals with humans.

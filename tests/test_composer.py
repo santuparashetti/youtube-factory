@@ -429,7 +429,7 @@ class TestGuidedRecomposer:
         guided_recompose("Script A", "Script B", verdict, mock_provider, settings)
 
         call_kwargs = mock_provider.generate.call_args.kwargs
-        assert call_kwargs.get("max_tokens") == 6000
+        assert call_kwargs.get("max_tokens") == 16000
 
     def test_recomposer_returns_none_on_empty_provider_response(self):
         from ytfactory.composer.recomposer import guided_recompose

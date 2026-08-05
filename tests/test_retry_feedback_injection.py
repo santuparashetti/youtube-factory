@@ -137,8 +137,10 @@ def _minimal_scene_analysis(
 
 
 class TestBuildRetryPromptConstraints:
-    def test_violation_text_in_prompt(self):
-        feedback = "FAILED: FORBIDDEN_OBJECT — remove 'smartphone'"
+    """Verify the new validator-aware edit prompt structure."""
+
+    def test_violation_feedback_embedded_verbatim(self):
+        feedback = "Rule:\nFORBIDDEN_OBJECT\n\nForbidden object:\nsmartphone"
         prompt = build_retry_prompt(
             scene=_minimal_scene(),
             scene_analysis=_minimal_scene_analysis(),
@@ -147,65 +149,64 @@ class TestBuildRetryPromptConstraints:
         )
         assert "FORBIDDEN_OBJECT" in prompt
         assert "smartphone" in prompt
-        assert "VIOLATION TO FIX" in prompt
+        assert "VALIDATION FAILURES" in prompt
 
-    def test_character_constraint_present(self):
+    def test_narration_embedded(self):
+        narration = "Wealthy executives walk past a lone man."
         prompt = build_retry_prompt(
             scene=_minimal_scene(),
             scene_analysis=_minimal_scene_analysis(allowed_characters=["wealthy executives", "a man"]),
-            narration="Wealthy executives walk past a lone man.",
-            violation_feedback="FAILED: UNSUPPORTED_CHARACTER — 'monk' detected",
+            narration=narration,
+            violation_feedback="Rule:\nUNSUPPORTED_CHARACTER",
             human_classification=HumanClassification.HUMAN_REQUIRED,
         )
-        assert "wealthy executives" in prompt
-        assert "ONLY" in prompt
-        assert "HARD CONSTRAINTS" in prompt
+        assert narration in prompt
 
-    def test_environment_constraint_present(self):
+    def test_current_prompt_embedded(self):
+        visual = "A city park at dawn."
         prompt = build_retry_prompt(
-            scene=_minimal_scene(),
+            scene=_minimal_scene(visual_prompt=visual),
             scene_analysis=_minimal_scene_analysis(environment="auction houses abroad"),
             narration="Paintings are sold at auction.",
-            violation_feedback="FAILED: ENVIRONMENT_MISMATCH — allowed: auction houses abroad",
+            violation_feedback="Rule:\nENVIRONMENT_MISMATCH",
             human_classification=HumanClassification.NO_HUMAN_ALLOWED,
         )
-        assert "auction houses abroad" in prompt
-        assert "MUST be one of" in prompt
+        assert visual in prompt
+        assert "CURRENT IMAGE PROMPT" in prompt
 
-    def test_no_human_allowed_rule_mentions_hands(self):
+    def test_edit_framing_not_generate(self):
+        # The prompt must instruct "edit" not "generate a new prompt"
         prompt = build_retry_prompt(
             scene=_minimal_scene(),
             scene_analysis=_minimal_scene_analysis(),
             narration="Empty marketplace at dawn.",
-            violation_feedback="FAILED: HUMAN_CLASSIFICATION_VIOLATED — remove 'hands'",
+            violation_feedback="Rule:\nHUMAN_CLASSIFICATION_VIOLATED",
             human_classification=HumanClassification.NO_HUMAN_ALLOWED,
         )
-        rule_text = HUMAN_CLASSIFICATION_RULES[HumanClassification.NO_HUMAN_ALLOWED]
-        assert "hands" in rule_text
-        assert "no_human_allowed" in prompt
-        assert "hands" in prompt  # both from violated_item and from the rule
+        assert "editing an existing image prompt" in prompt
+        assert "NOT to generate a new prompt" in prompt
 
-    def test_human_symbolic_rule_in_prompt(self):
+    def test_minimum_edits_instruction_present(self):
         prompt = build_retry_prompt(
             scene=_minimal_scene(),
             scene_analysis=_minimal_scene_analysis(),
             narration="A lone figure stands at the crossroads.",
-            violation_feedback="FAILED: HUMAN_CLASSIFICATION_VIOLATED — Include a symbolic human figure",
+            violation_feedback="Rule:\nSYMBOLIC_REPLACEMENT",
             human_classification=HumanClassification.HUMAN_SYMBOLIC,
         )
-        assert "human_symbolic" in prompt
-        assert "stylized" in prompt or "abstract" in prompt
+        assert "minimum" in prompt.lower()
 
-    def test_empty_allowed_chars_produces_invent_none(self):
+    def test_plain_text_output_instruction(self):
+        # New prompt must NOT ask for JSON
         prompt = build_retry_prompt(
             scene=_minimal_scene(),
             scene_analysis=_minimal_scene_analysis(allowed_characters=[]),
             narration="The market stalls are empty.",
-            violation_feedback="FAILED: UNSUPPORTED_CHARACTER — 'man' detected",
+            violation_feedback="Rule:\nUNSUPPORTED_CHARACTER",
             human_classification=HumanClassification.NO_HUMAN_ALLOWED,
         )
-        assert "NONE" in prompt
-        assert "introduce no named person or figure" in prompt
+        assert "No JSON" in prompt
+        assert "Return ONLY the corrected prompt" in prompt
 
 
 # ── HUMAN_CLASSIFICATION_RULES completeness ───────────────────────────────────

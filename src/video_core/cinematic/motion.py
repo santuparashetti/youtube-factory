@@ -530,19 +530,16 @@ def _resolve_motion(
         # perpendicular component at 30% of the primary magnitude.
 
         case "drift_float":
-            # z-deviation and dx both scaled by _wide_shot_scale so wide/
-            # establishing scenes get a gentle float (z≈1.32, dx≈0.072) rather
-            # than a 1.9x zoom that destroys the wide composition. Both are
-            # scaled together to keep dx within _clamp_drift's crop-safety room.
-            # _close_up_scale halves dx further for close-up/macro shots.
-            z = 1.0 + (1.5385 - 1.0) * duration_factor * _wide_shot_scale
-            dx = 0.12 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
+            # z capped at 1.12 (was 1.5385) — keeps pan headroom minimal so
+            # wide/establishing compositions are not cropped.
+            z = 1.0 + (1.12 - 1.0) * duration_factor * _wide_shot_scale
+            dx = 0.06 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
             dy = 0.0
             result = (z, z, 0.5, 0.5, dx, dy)
 
         case "drift_horizon":
-            z = 1.0 + (1.5385 - 1.0) * duration_factor * _wide_shot_scale
-            dx = 0.15 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
+            z = 1.0 + (1.12 - 1.0) * duration_factor * _wide_shot_scale
+            dx = 0.08 * duration_factor * drift_sign * _close_up_scale * _wide_shot_scale
             dy = 0.0
             result = (z, z, 0.5, 0.5, dx, dy)
 

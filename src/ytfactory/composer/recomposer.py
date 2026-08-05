@@ -44,7 +44,7 @@ def guided_recompose(
             system_prompt=prompt,
             temperature=0.5,
             model=getattr(settings, "GUIDED_RECOMPOSER_MODEL", None),
-            max_tokens=6000,
+            max_tokens=16000,
         )
         recomposed = response.text.strip()
     except Exception as e:

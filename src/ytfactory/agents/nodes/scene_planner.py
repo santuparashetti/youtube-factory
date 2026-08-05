@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dc_replace
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from loguru import logger
 from rich.console import Console
@@ -27,7 +27,6 @@ from ytfactory.agents.prompts.scene_planner import (
     build_scene_analysis_prompt,
     build_scene_analysis_section,
     build_visual_prompts_prompt,
-    prepend_storyboard_header,
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.branding.config import get_brand_config
@@ -36,15 +35,19 @@ from ytfactory.images.faithfulness_gate import evaluate_faithfulness_gate
 from ytfactory.images.prompt_engine import ImagePromptEngineV4
 from ytfactory.images.validators import (
     HUMAN_CLASSIFICATION_RULES,
-    RETRY_RESPONSE_SCHEMA,
     HumanClassification,
+    ValidationError,
+    ValidationResult,
     build_retry_prompt,
     compose_feedback,
-    parse_retry_response,
     run_validators,
 )
 from ytfactory.scenes.models import FaithfulnessStatus, StructuredImagePrompt, VisualBible
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.story_bible.composer import compose_scene_context
+from ytfactory.story_bible.generator import load_or_generate_story_bible
+from ytfactory.story_bible.models import StoryBible
+from ytfactory.story_bible.writer import write_story_bible
 from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
@@ -64,6 +67,14 @@ _OPENING_TRIGGERS: frozenset[str] = frozenset(
 console = Console()
 
 _TARGET_WORDS_PER_SCENE = 35  # ~16s scenes at 130 wpm → ~30-35 scenes per 9 min video
+
+# Compressed hybrid style prefix injected when the LLM omits the style header.
+# Kept under 40 words so it doesn't bloat short-scene prompts.
+_HYBRID_COMPRESSED_PREFIX = (
+    "HYBRID CINEMATIC STYLE: 100% photorealistic environment, hand-painted storybook "
+    "illustrated characters with clean ink outlines and soft cel shading, composited "
+    "with matching lighting and shadows."
+)
 
 # ── Kai enforcement guards ────────────────────────────────────────────────────
 # Single source of truth for the compressed Kai spec injected into primary prompts.
@@ -100,9 +111,17 @@ def _has_character_staging(prompt: str) -> bool:
 
 
 _ACTION_VERBS = [
+    # Gerund forms (pre-V2 prompt style)
     "sitting", "seated", "standing", "walking", "looking", "facing",
     "leaning", "kneeling", "watching", "holding", "reaching", "turning",
     "positioned", "gazing", "staring", "moving", "stepping",
+    # Simple present forms (V2 compiled_prompt style)
+    "sits", "stands", "walks", "looks", "faces",
+    "leans", "kneels", "watches", "holds", "reaches", "turns",
+    "gazes", "stares", "moves", "steps",
+    # Past tense forms
+    "stood", "sat", "walked", "looked", "faced", "leaned", "knelt",
+    "watched", "held", "reached", "turned", "gazed", "stared",
 ]
 
 
@@ -112,8 +131,25 @@ def _has_action_staging(prompt: str) -> bool:
     return any(v in p for v in _ACTION_VERBS)
 
 
+# Camera angles where a standing character cannot logically be placed.
+# "looking straight down" is a common false positive for _has_character_staging.
+_AERIAL_INDICATORS = [
+    "aerial", "drone shot", "bird's eye", "looking straight down",
+    "top-down", "overhead shot", "straight down on",
+]
+
+
+def _is_aerial_shot(prompt: str) -> bool:
+    """True if the prompt describes an overhead/aerial camera angle."""
+    p = prompt.lower()
+    return any(ind in p for ind in _AERIAL_INDICATORS)
+
+
 def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
     """For primary scenes:
+    - Aerial/overhead shots: reclassify to 'absent' — Kai cannot stand in a
+      bird's-eye or straight-down drone shot. Also strips any previously
+      injected Kai spec so the prompt is clean.
     - Kai markers present AND action verb present: leave unchanged (correct).
     - Kai markers present but NO action verb: reclassify to 'absent' — the spec
       was prepended by the LLM but the staging is atmospheric, creating a
@@ -126,9 +162,20 @@ def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
         if scene.get("anchor_role") != "primary":
             continue
         prompt = scene.get("visual_prompt", "")
+
+        # Aerial/overhead shots: Kai cannot be placed meaningfully — drop to absent.
+        if _is_aerial_shot(prompt):
+            for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
+                prompt = prompt.replace(marker, "").strip()
+            scene["visual_prompt"] = prompt
+            scene["anchor_role"] = "absent"
+            continue
+
         if _has_kai_markers(prompt):
             if _has_action_staging(prompt):
                 continue  # spec present AND character is acting — correct
+            if scene.get("structured_prompt"):
+                continue  # V2 generated Kai staging — trust it
             # Spec present but staging is atmospheric — reclassify to absent.
             # Strip any prepended Kai spec so the prompt is clean.
             for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
@@ -142,10 +189,17 @@ def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
+# Used in non-hybrid (pure documentary) mode — photorealistic characters.
 _STYLE_FOOTER_HUMAN = (
     "Documentary-quality realism, highly detailed human face, realistic eyes, "
     "authentic skin texture, seamless integration with the environment, "
     "no text, no watermark, photorealistic."
+)
+
+# Used in hybrid mode — characters are illustrated, never photorealistic.
+_STYLE_FOOTER_ILLUSTRATED = (
+    "Illustrated character: clean ink outlines, soft cel shading, painterly storybook "
+    "texture — NOT photorealistic. No text, no watermark, no subtitle, no logo."
 )
 
 _STYLE_FOOTER_SYMBOLIC = (
@@ -158,6 +212,8 @@ _FOOTER_INDICATORS = [
     "documentary-quality realism",
     "no text, no watermark",
     "highly detailed human face",
+    "ink outlines",
+    "cel shading",
 ]
 
 
@@ -169,7 +225,11 @@ def _has_footer(prompt: str) -> bool:
 
 def _strip_partial_footer(prompt: str) -> str:
     """Strip any partial footer indicator phrases to prevent doubling on re-append."""
-    for indicator in ["documentary-quality realism", "no text, no watermark", "photorealistic"]:
+    for indicator in [
+        "documentary-quality realism", "no text, no watermark", "photorealistic",
+        "ink outlines", "cel shading", "painterly storybook texture",
+        "not photorealistic", "no subtitle", "no logo",
+    ]:
         prompt = re.sub(
             rf'[,.]?\s*{re.escape(indicator)}[^.]*\.?',
             '',
@@ -211,32 +271,34 @@ def _propagate_environment_anchors(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
-def _enforce_style_footer(scenes: list[dict]) -> list[dict]:
+def _enforce_style_footer(scenes: list[dict], hybrid: bool = False) -> list[dict]:
     """
     Ensures every visual_prompt ends with the correct style/quality footer.
-    primary / spectator → full human quality footer
-    absent              → symbolic footer (no human quality instructions)
+    primary / spectator + hybrid  → illustrated character footer (ink outlines, cel shading)
+    primary / spectator + non-hybrid → photorealistic human quality footer
+    absent                         → symbolic footer (no human quality instructions)
 
-    Partial footer phrases (e.g. only "documentary-quality realism") are stripped
-    before the full footer is appended so phrases never appear twice.
-    The prompt is left unchanged only when it already has both the full footer
-    indicator count AND the human quality block (for primary/spectator).
+    Partial footer phrases are stripped before the full footer is appended so
+    phrases never appear twice.
     """
     for scene in scenes:
         role = scene.get("anchor_role", "absent")
         prompt = scene.get("visual_prompt", "").rstrip()
 
-        footer = (
-            _STYLE_FOOTER_HUMAN
-            if role in ("primary", "spectator")
-            else _STYLE_FOOTER_SYMBOLIC
-        )
+        if role in ("primary", "spectator"):
+            footer = _STYLE_FOOTER_ILLUSTRATED if hybrid else _STYLE_FOOTER_HUMAN
+            # Marker phrase that signals the correct footer is already present.
+            char_marker = "ink outlines" if hybrid else "highly detailed human face"
+        else:
+            footer = _STYLE_FOOTER_SYMBOLIC
+            char_marker = None
 
         has_full_footer = _has_footer(prompt)
-        has_human_block = "highly detailed human face" in prompt.lower()
-        needs_human_upgrade = role in ("primary", "spectator") and not has_human_block
+        needs_upgrade = (
+            char_marker is not None and char_marker not in prompt.lower()
+        )
 
-        if has_full_footer and not needs_human_upgrade:
+        if has_full_footer and not needs_upgrade:
             continue  # already complete and correct
 
         # Strip any partial indicator phrases before appending the full footer.
@@ -268,6 +330,204 @@ def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
                     f"looking outward with quiet resolve. "
                     f"{prompt}"
                 )
+    return scenes
+
+
+def _enforce_kai_distribution(
+    scenes: list[dict],
+    entity_map: dict[int, "SceneEntities"],
+) -> list[dict]:
+    """Ensure Kai appears in at least 30% of non-asset scenes, spread across arc phases.
+
+    Runs AFTER _enforce_primary_kai_spec and _enforce_closing_scene_primary so it
+    accounts for scenes that were downgraded to absent by those guards.  Newly
+    promoted scenes get the Kai spec prepended via a follow-up
+    _enforce_primary_kai_spec call in the main pipeline.
+    """
+    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    total = len(gen_scenes)
+    if total < 4:
+        return scenes
+
+    kai_count = sum(1 for s in gen_scenes if s.get("anchor_role") in ("primary", "spectator"))
+    target = max(3, int(total * 0.30))
+    if kai_count >= target:
+        return scenes
+
+    needed = target - kai_count
+
+    candidates: list[tuple[dict, int]] = []
+    for s in gen_scenes:
+        if s.get("anchor_role") in ("primary", "spectator"):
+            continue
+        if _is_aerial_shot(s.get("visual_prompt", "")):
+            continue
+        idx = s.get("index", 0)
+        ents = entity_map.get(idx)
+        if ents and ents.human_classification == HumanClassification.NO_HUMAN_ALLOWED:
+            continue
+        priority = 2 if (ents and ents.human_classification in (
+            HumanClassification.HUMAN_REQUIRED,
+            HumanClassification.HUMAN_OPTIONAL,
+            HumanClassification.HUMAN_SYMBOLIC,
+        )) else 1
+        candidates.append((s, priority))
+
+    if not candidates:
+        return scenes
+
+    # Spread evenly across arc phases so Kai isn't clustered in one section.
+    phase_buckets: dict[str, list[tuple[dict, int]]] = {
+        "opening": [], "build": [], "climax": [], "resolution": [],
+    }
+    for s, prio in candidates:
+        phase = _get_arc_phase(s.get("index", 1), total)
+        phase_buckets[phase].append((s, prio))
+
+    # Sort each bucket: higher priority first, then by scene index for stability.
+    for bucket in phase_buckets.values():
+        bucket.sort(key=lambda x: (-x[1], x[0].get("index", 0)))
+
+    promoted = 0
+    # Round-robin across phases to distribute evenly.
+    phase_order = ["opening", "build", "climax", "resolution"]
+    while promoted < needed:
+        advanced = False
+        for phase in phase_order:
+            if promoted >= needed:
+                break
+            bucket = phase_buckets[phase]
+            if bucket:
+                scene, _ = bucket.pop(0)
+                scene["anchor_role"] = "primary"
+                prompt = scene.get("visual_prompt", "")
+                if not _has_kai_markers(prompt):
+                    if _has_character_staging(prompt):
+                        scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+                    else:
+                        scene["visual_prompt"] = (
+                            f"{KAI_COMPRESSED_SPEC} — standing still, facing forward, "
+                            f"looking outward with quiet resolve. {prompt}"
+                        )
+                promoted += 1
+                advanced = True
+        if not advanced:
+            break
+
+    if promoted > 0:
+        logger.info(
+            "Kai distribution: promoted {} scenes to primary (total {}/{})",
+            promoted, kai_count + promoted, total,
+        )
+    return scenes
+
+
+def _enforce_era_consistency(scenes: list[dict]) -> list[dict]:
+    """Harmonize era metadata to the dominant era across all generated scenes.
+
+    Prevents visual whiplash from mixing ANCIENT/HISTORICAL/MODERN styles
+    in a single video.  TRANSITIONAL scenes are intentional bridges and are
+    never overridden.  SYMBOLIC scenes are era-neutral and are left alone.
+    """
+    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    era_counts: dict[str, int] = {}
+    for s in gen_scenes:
+        vm = s.get("visual_metadata") or {}
+        era = (vm.get("era") if isinstance(vm, dict) else getattr(vm, "era", "")) or ""
+        if era:
+            era_counts[era] = era_counts.get(era, 0) + 1
+
+    if not era_counts:
+        return scenes
+
+    dominant_era = max(era_counts, key=era_counts.get)
+    if dominant_era in ("SYMBOLIC", "TRANSITIONAL"):
+        return scenes
+
+    harmonized = 0
+    for s in gen_scenes:
+        vm = s.get("visual_metadata") or {}
+        if not isinstance(vm, dict):
+            continue
+        era = vm.get("era", "")
+        if era and era != dominant_era and era not in ("TRANSITIONAL", "SYMBOLIC"):
+            old_era = era
+            vm["era"] = dominant_era
+            s["visual_metadata"] = vm
+            harmonized += 1
+            logger.info(
+                "Era consistency: scene {} harmonized {} → {}",
+                s.get("index"), old_era, dominant_era,
+            )
+
+    if harmonized > 0:
+        logger.info(
+            "Era consistency: harmonized {}/{} scenes to dominant era '{}'",
+            harmonized, len(gen_scenes), dominant_era,
+        )
+    return scenes
+
+
+# Environment keyword mapping for metadata sync from V2 prompts.
+_ENVIRONMENT_KEYWORDS: dict[str, list[str]] = {
+    "FOREST": ["forest", "woods", "trees", "grove", "jungle", "woodland", "canopy"],
+    "TEMPLE": ["temple", "shrine", "cathedral", "church", "mosque", "chapel", "sanctuary"],
+    "ASHRAM": ["ashram", "monastery", "hermitage", "retreat", "meditation hall"],
+    "KINGDOM": ["palace", "throne", "castle", "court", "kingdom", "fortress", "citadel"],
+    "BATTLEFIELD": ["battlefield", "battle", "combat", "army", "siege", "warzone"],
+    "CITY": ["city", "street", "urban", "downtown", "skyline", "skyscraper", "alley", "boulevard"],
+    "OFFICE": ["office", "desk", "boardroom", "corporate", "cubicle", "conference room"],
+    "HOME": ["home", "house", "apartment", "kitchen", "bedroom", "living room", "domestic", "cottage", "hearth"],
+    "MOUNTAIN": ["mountain", "cliff", "peak", "summit", "hill", "ridge", "highland", "alpine"],
+    "RIVER": ["river", "stream", "lake", "pond", "water", "shore", "bank", "ghat", "riverbank"],
+    "ABSTRACT": ["abstract", "void", "emptiness", "geometric", "surreal"],
+    "COSMIC": ["cosmos", "universe", "stars", "galaxy", "celestial", "space", "nebula"],
+}
+
+
+def _sync_metadata_from_v2(scenes: list[dict]) -> list[dict]:
+    """Re-derive visual_metadata.environment from the V2 structured prompt.
+
+    After V2, the compiled_prompt may describe a completely different
+    environment than the Phase 1 metadata classified.  This pass uses
+    keyword matching on environment_prompt to realign the metadata.
+    """
+    synced = 0
+    for scene in scenes:
+        sp = scene.get("structured_prompt")
+        if not sp:
+            continue
+        env_prompt = (
+            (sp.get("environment_prompt", "") if isinstance(sp, dict)
+             else getattr(sp, "environment_prompt", ""))
+        ).lower()
+        if not env_prompt:
+            continue
+
+        vm = scene.get("visual_metadata") or {}
+        if not isinstance(vm, dict):
+            continue
+
+        best_match = None
+        best_count = 0
+        for env_type, keywords in _ENVIRONMENT_KEYWORDS.items():
+            count = sum(1 for kw in keywords if kw in env_prompt)
+            if count > best_count:
+                best_count = count
+                best_match = env_type
+
+        if best_match and best_count >= 1 and vm.get("environment") != best_match:
+            old_env = vm.get("environment", "—")
+            vm["environment"] = best_match
+            scene["visual_metadata"] = vm
+            synced += 1
+            logger.debug(
+                "Metadata sync: scene {} environment {} → {}",
+                scene.get("index"), old_env, best_match,
+            )
+
+    if synced > 0:
+        logger.info("Metadata sync: updated environment for {}/{} scenes from V2 prompts", synced, len(scenes))
     return scenes
 
 
@@ -374,6 +634,7 @@ def _build_structured_prompt(
     llm: LLMProvider,
     settings: Settings,
     prev_scene: dict | None = None,
+    story_bible: StoryBible | None = None,
 ) -> StructuredImagePrompt:
     """LLM call per scene to produce a StructuredImagePrompt."""
     arc_phase = _get_arc_phase(scene_index, total_scenes)
@@ -382,6 +643,46 @@ def _build_structured_prompt(
     anchor_role = scene.get("anchor_role", "absent")
     pose_rules = _load_prompt_file("KAI_POSE_RULES.md") if (anchor_role != "absent" and settings.KAI_POSE_DISCIPLINE_ENABLED) else ""
     kai_profile = _load_prompt_file("KAI_PROFILE.md") if anchor_role != "absent" else ""
+
+    audience_profile = getattr(settings, "AUDIENCE_PROFILE", "western_english")
+    if audience_profile == "western_english":
+        audience_block = (
+            "AUDIENCE & VISUAL CHARACTER RULE (strict — apply to every scene):\n"
+            "Target viewer: English-speaking (US, UK, AU, CA).\n"
+            "1. Characters default to European or Western appearance — clothing, setting, props.\n"
+            "   Indian/South Asian ethnic markers (kurta, dhoti, bindi, tilak, charpai, clay pot\n"
+            "   arranged in Indian style, Sanskrit scrolls) are FORBIDDEN as generic atmosphere.\n"
+            "2. Use Indian/South Asian aesthetic ONLY when the narration explicitly names a specific\n"
+            "   Indian person, historical event, or India-specific setting.\n"
+            "3. For scholar/sage scenes: use a European academic or monastery aesthetic —\n"
+            "   stone study, candlelit library, oak desk, leather-bound books — not a pandit's\n"
+            "   home with Sanskrit texts.\n"
+            "4. For village/cottage/humble-home scenes: use a Mediterranean, European countryside,\n"
+            "   or universally rustic aesthetic — not specifically Indian village architecture.\n"
+            "5. Environment and characters must share the same cultural register (no mixing).\n"
+        )
+    else:
+        audience_block = ""
+
+    # Era constraint — prevents modern environments for ancient/historical scenes
+    era = (scene.get("visual_metadata") or {}).get("era", "") if isinstance(scene.get("visual_metadata"), dict) else (getattr(scene.get("visual_metadata"), "era", "") or "")
+    _ERA_FORBIDDEN = {
+        "ANCIENT": (
+            "ERA CONSTRAINT — ANCIENT: Environment MUST pre-date recorded history.\n"
+            "Allowed: primordial wilderness, cave interiors, stone-age settlements, open sky, rivers, forests, cliffs.\n"
+            "FORBIDDEN: any building with cut stone walls, parchment scrolls, metals, writing, markets, temples,\n"
+            "modern architecture, contemporary interiors, offices, electric lighting, or any post-neolithic technology.\n"
+        ),
+        "HISTORICAL": (
+            "ERA CONSTRAINT — HISTORICAL (pre-industrial, medieval or earlier):\n"
+            "Allowed: earthen cottages, stone halls, forest clearings, river banks, dirt roads, torch/candle lighting,\n"
+            "handmade cloth, wooden furniture, clay/iron vessels.\n"
+            "FORBIDDEN: modern architecture, contemporary interiors, corporate offices, glass buildings,\n"
+            "electric lighting, current-era technology, modern clothing styles, paved roads, or anything\n"
+            "that places the scene after ~1800 CE. This is an absolute hard rule — no exceptions.\n"
+        ),
+    }
+    era_block = _ERA_FORBIDDEN.get(str(era).upper(), "")
 
     camera_angle_guidance = _CAMERA_ANGLE_BY_PHASE.get(arc_phase, "eye_level")
 
@@ -398,52 +699,106 @@ def _build_structured_prompt(
     prev_context = ""
     if prev_scene and prev_scene.get("structured_prompt"):
         sp = prev_scene["structured_prompt"]
+        prev_env = sp.get("environment_prompt", "") if isinstance(sp, dict) else getattr(sp, "environment_prompt", "")
+        prev_lighting = (sp.get("lighting_match", "") if isinstance(sp, dict) else getattr(sp, "lighting_match", ""))[:80]
+        prev_focal = (sp.get("focal_length", "") if isinstance(sp, dict) else getattr(sp, "focal_length", ""))[:40]
         prev_context = (
             f"PREVIOUS SCENE (scene {scene_index}):\n"
-            f"- Environment: {sp.get('environment_prompt', '')[:120]}\n"
-            f"- Shot type: {sp.get('shot_type', '')}\n"
-            f"- Color palette: {sp.get('color_palette_phase', '')[:80]}\n"
-            f"Reference or contrast with this to maintain continuity.\n"
+            f"- Environment: {prev_env[:120]}\n"
+            f"- Shot type: {sp.get('shot_type', '') if isinstance(sp, dict) else getattr(sp, 'shot_type', '')}\n"
+            f"- Color palette: {(sp.get('color_palette_phase', '') if isinstance(sp, dict) else getattr(sp, 'color_palette_phase', ''))[:80]}\n"
+            f"- Lighting: {prev_lighting}\n"
+            + (f"- Lens: {prev_focal}\n" if prev_focal else "")
+            + "⚠ ENVIRONMENT VARIETY RULE (mandatory): This scene MUST use a visually DISTINCT "
+            "environment from the scene above. Do NOT repeat the same location type, "
+            "dominant setting element, or interior/exterior. If the narration requires the "
+            "same physical space, change the framing radically — extreme close-up detail, "
+            "a different room, opposite time of day, or a symbolic object within that space.\n"
+            "⚠ LIGHTING CONTINUITY RULE: Transition naturally from the previous scene's lighting. "
+            "If the previous scene was dawn, do not jump to night unless the narration explicitly "
+            "indicates a time change. Natural progression: dawn → morning → midday → afternoon → "
+            "golden hour → dusk → night.\n"
         )
 
     compiled_prompt_rules = (
         "COMPILED_PROMPT ASSEMBLY RULES:\n"
-        "1. First line: HYBRID STYLE compressed directive (100 tokens max)\n"
-        "2. Shot type and camera angle\n"
-        "3. environment_prompt verbatim\n"
-        "4. If character_staging is not null: character_staging + lighting_match\n"
+        "1. First line: HYBRID CINEMATIC STYLE compressed directive (≤40 words). MANDATORY — never omit.\n"
+        "   Do NOT embed detailed anatomy/lighting/negative-prompt boilerplate inside compiled_prompt —\n"
+        "   those live in the style block above. Keep technical rendering words out of individual scenes.\n"
+        "2. Shot type, camera angle, and focal_length (e.g. 'Medium shot, eye level, 50mm')\n"
+        "3. environment_prompt verbatim — environment must be directly inspired by the scene narration\n"
+        "   and respect the AUDIENCE rule above (Western/universal aesthetic unless narration says otherwise).\n"
+        "   Do NOT default to an office interior unless narration explicitly describes one.\n"
+        "4. If character_staging is not null: write 'Illustrated in hand-painted storybook style — '\n"
+        "   then the staging description, then lighting_match. The rendering prefix is MANDATORY so the\n"
+        "   image model knows these figures are NOT photorealistic.\n"
         "5. color_palette_phase\n"
-        "6. continuity_ref (brief)\n"
+        "6. continuity_ref (brief) — if same environment as a previous scene, describe HOW this scene\n"
+        "   differs visually (framing, time-of-day, detail focus, mood) so each scene is unique.\n"
         "7. If Kai scene: one-line pose rule reminder\n"
         '8. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
     ) if settings.HYBRID_STYLE_ENABLED else (
         "COMPILED_PROMPT ASSEMBLY RULES:\n"
-        "1. Shot type and camera angle\n"
-        "2. environment_prompt verbatim\n"
+        "1. Shot type, camera angle, and focal_length (e.g. 'Wide shot, high angle, 24mm')\n"
+        "2. environment_prompt verbatim — derive from the narration's central idea, not a generic default.\n"
         "3. If character_staging is not null: character_staging + lighting_match\n"
         "4. color_palette_phase\n"
         "5. continuity_ref (brief)\n"
         '6. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
     )
 
+    # ── Story Bible context (locked character/location/world descriptions) ──
+    story_bible_block = ""
+    if story_bible and story_bible.characters:
+        scene_analysis_data = scene.get("scene_analysis") or {}
+        sb_chars = (
+            scene_analysis_data.get("allowed_characters", [])
+            if isinstance(scene_analysis_data, dict)
+            else getattr(scene_analysis_data, "allowed_characters", [])
+        ) or []
+        sb_env = (
+            scene_analysis_data.get("environment", "")
+            if isinstance(scene_analysis_data, dict)
+            else getattr(scene_analysis_data, "environment", "")
+        ) or ""
+        story_bible_block = compose_scene_context(
+            bible=story_bible,
+            scene_characters=sb_chars,
+            scene_environment=sb_env,
+            arc_phase=arc_phase,
+        )
+
     system_prompt = (
         "You are a cinematographer writing image generation prompts for a philosophical documentary.\n\n"
         + (f"{style_directive}\n\n" if style_directive else "")
         + (f"{pose_rules}\n\n" if pose_rules else "")
+        + (f"{audience_block}\n" if audience_block else "")
+        + (f"{era_block}\n" if era_block else "")
         + f"{bible_context}\n\n"
+        + (f"{story_bible_block}\n\n" if story_bible_block else "")
         + (f"{prev_context}\n\n" if prev_context else "")
         + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
         + 'OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n'
         + '{\n'
-        + '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette|aerial>",\n'
+        + ('  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette>",\n'
+           if anchor_role in ("primary", "spectator")
+           else '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette|aerial>",\n')
         + '  "camera_angle": "<one of: eye_level|low_angle|high_angle|dutch_tilt>",\n'
         + '  "environment_prompt": "<photorealistic environment description — no character details>",\n'
         + '  "character_staging": "<illustrated character description, or null if no character>",\n'
         + '  "lighting_match": "<one sentence: how character lighting matches environment>",\n'
+        + '  "focal_length": "<lens — e.g. 24mm wide-angle, 35mm, 50mm standard, 85mm portrait, 135mm telephoto>",\n'
         + '  "color_palette_phase": "<arc phase + specific palette for this scene>",\n'
         + '  "continuity_ref": "<reference to prev/next scene environment and Kai clothing if applicable>",\n'
         + '  "compiled_prompt": "<full merged prompt for image generator — see assembly rules below>"\n'
         + '}\n\n'
+        + 'FOCAL LENGTH GUIDE (match to shot_type):\n'
+        + '  establishing_wide / aerial → 24mm wide-angle (expansive, environmental scale)\n'
+        + '  medium / over_shoulder → 50mm standard (natural perspective, no distortion)\n'
+        + '  close_up / insert → 85mm portrait or 100mm macro (shallow DOF, subject isolation)\n'
+        + '  POV → 35mm (natural human perspective)\n'
+        + '  silhouette → 35mm or 50mm (clean silhouette edges)\n'
+        + '  Vary focal length across consecutive scenes — avoid repeating the same lens.\n\n'
         + compiled_prompt_rules
         + "\nNo preamble. No markdown fences. Output only valid JSON."
     )
@@ -459,6 +814,12 @@ def _build_structured_prompt(
         forbidden = getattr(scene_analysis, "forbidden_characters", []) or []
         required_env = getattr(scene_analysis, "environment", "") or ""
 
+    human_req = (
+        scene_analysis.get("human_requirement", "forbidden")
+        if isinstance(scene_analysis, dict)
+        else getattr(scene_analysis, "human_requirement", "forbidden")
+    )
+
     character_block = ""
     if allowed:
         character_block = (
@@ -471,11 +832,61 @@ def _build_structured_prompt(
             "- If a character name feels generic (e.g. \"villager\"), use it verbatim — do not upgrade\n"
             "  to \"man\" or \"woman\"\n"
         )
+    elif forbidden and human_req == "forbidden":
+        # No allowed characters + forbidden list + confirmed forbidden = no-character scene.
+        # Explicit instruction required — without it the LLM invents characters.
+        character_block = (
+            "\nIMMUTABLE CHARACTER CONSTRAINTS — follow exactly, no exceptions:\n"
+            "- character_staging MUST be null. This scene has NO human characters.\n"
+            f"- Do NOT depict: {', '.join(forbidden[:6])}{'…' if len(forbidden) > 6 else ''}\n"
+            f"- Focus ONLY on the environment: {required_env if required_env else 'as narrated'}\n"
+            "- Any human figure, silhouette, or implied presence is a critical violation.\n"
+        )
+    elif human_req in ("required", "optional", "permitted_symbolic"):
+        character_block = (
+            "\nCHARACTER GUIDANCE:\n"
+            "- The narration describes human characters. Include them in character_staging.\n"
+            "- Derive character appearance and action from the narration — do not invent.\n"
+            f"- Forbidden characters: {', '.join(forbidden[:6]) if forbidden else 'none'}\n"
+            f"- Required environment: {required_env if required_env else 'as narrated'}\n"
+        )
+
+    kai_placement_block = ""
+    if anchor_role == "spectator":
+        kai_placement_block = (
+            "\nKAI SPATIAL PLACEMENT (CRITICAL — spectator scene):\n"
+            "Kai must be INSIDE the same physical space as the main action.\n"
+            "If the scene is indoors: Kai stands inside the room, near a wall or at the back — "
+            "NOT outside a doorway or window looking in.\n"
+            "If the scene is outdoors: Kai stands in the same outdoor space — "
+            "NOT inside a building looking out.\n"
+            "One environment. Kai is a witness from within, not a viewer from another location.\n"
+        )
+
+    # Extract emotional beat for Kai posture selection
+    _vm = scene.get("visual_metadata") or {}
+    _emotional_beat = (
+        (_vm.get("mood") if isinstance(_vm, dict) else getattr(_vm, "mood", "")) or ""
+    )
+    _scene_analysis = scene.get("scene_analysis") or {}
+    if not _emotional_beat and _scene_analysis:
+        _emotional_beat = (
+            (_scene_analysis.get("emotional_beat") if isinstance(_scene_analysis, dict)
+             else getattr(_scene_analysis, "emotional_beat", "")) or ""
+        )
+    _posture_variant = ("A", "B", "C")[scene.get("index", scene_index) % 3]
+    kai_emotion_hint = (
+        f"\nSCENE EMOTIONAL BEAT: {_emotional_beat} — "
+        f"use POSTURE VARIANT {_posture_variant} from the EMOTION-RESPONSIVE BODY LANGUAGE table above. "
+        "Variant letters rotate A→B→C across scenes to prevent consecutive Kai scenes from sharing the same posture.\n"
+    ) if _emotional_beat and anchor_role != "absent" else ""
 
     user_prompt = (
         f"SCENE NARRATION:\n{scene.get('narration', '')}\n\n"
         f"KAI ROLE IN THIS SCENE: {anchor_role}\n"
+        + kai_emotion_hint
         + (kai_profile if anchor_role != "absent" else "")
+        + kai_placement_block
         + character_block
     )
 
@@ -487,18 +898,31 @@ def _build_structured_prompt(
             lines = raw.splitlines()
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
         data = json.loads(raw)
-        return StructuredImagePrompt(**data)
+        sp = StructuredImagePrompt(**data)
+        # Guard: LLM sometimes omits the hybrid header for EXPLANATION/ANALOGY/CTA roles.
+        # Inject it deterministically so no role ever slips through without it.
+        if settings.HYBRID_STYLE_ENABLED and not sp.compiled_prompt.lstrip().upper().startswith("HYBRID"):
+            data["compiled_prompt"] = _HYBRID_COMPRESSED_PREFIX + " " + sp.compiled_prompt
+            sp = StructuredImagePrompt(**data)
+        return sp
     except Exception as e:
         logger.warning("StructuredImagePrompt build failed for scene {}: {} — using fallback", scene_index + 1, e)
+        fallback_prompt = scene.get(
+            "visual_prompt",
+            "cinematic environment. 16:9 aspect ratio. No text, no watermark, no subtitle, no logo.",
+        )
+        if settings.HYBRID_STYLE_ENABLED and not fallback_prompt.lstrip().upper().startswith("HYBRID"):
+            fallback_prompt = _HYBRID_COMPRESSED_PREFIX + " " + fallback_prompt
         return StructuredImagePrompt(
             shot_type="medium",
             camera_angle="eye_level",
             environment_prompt=scene.get("visual_prompt", "cinematic environment"),
             character_staging=None,
             lighting_match="Natural cinematic lighting matching the environment.",
+            focal_length="50mm standard",
             color_palette_phase=f"{arc_phase}: neutral tones",
             continuity_ref="",
-            compiled_prompt=scene.get("visual_prompt", "cinematic environment. 16:9 aspect ratio. No text, no watermark, no subtitle, no logo."),
+            compiled_prompt=fallback_prompt,
         )
 
 
@@ -588,6 +1012,56 @@ def _validate_visual_continuity(
                 f"CONTINUITY: camera_angle '{most_common_angle}' used in "
                 f"{camera_angles.count(most_common_angle)}/{len(camera_angles)} scenes "
                 f"({angle_ratio:.0%}). Add low_angle and high_angle variety per arc phase."
+            )
+
+    # Check 6: Consecutive environment duplicates
+    _STOP_WORDS = {
+        "a", "an", "the", "of", "in", "on", "at", "by", "with", "and", "or",
+        "is", "are", "to", "from", "as", "that", "this", "it", "for", "its",
+        "into", "over", "under", "through", "across", "between", "around",
+    }
+    env_keywords: list[set[str]] = []
+    for scene in scenes:
+        sp = scene.get("structured_prompt")
+        if sp:
+            env = (
+                sp.get("environment_prompt", "")
+                if isinstance(sp, dict)
+                else getattr(sp, "environment_prompt", "")
+            )
+            words = {w for w in re.sub(r"[^\w\s]", " ", env.lower()).split()
+                     if w not in _STOP_WORDS and len(w) > 3}
+            env_keywords.append(words)
+        else:
+            env_keywords.append(set())
+
+    for i in range(1, len(env_keywords)):
+        a, b = env_keywords[i - 1], env_keywords[i]
+        if not a or not b:
+            continue
+        overlap = len(a & b) / min(len(a), len(b))
+        if overlap >= 0.50:
+            warnings.append(
+                f"CONTINUITY: Scenes {i} and {i + 1} share {overlap:.0%} environment "
+                f"keyword overlap — likely duplicate visuals. "
+                f"Common words: {', '.join(sorted(a & b)[:6])}"
+            )
+
+    # Check 7: Focal length variety
+    focal_lengths = []
+    for s in scenes:
+        sp = s.get("structured_prompt")
+        if sp:
+            fl = sp.get("focal_length") if isinstance(sp, dict) else getattr(sp, "focal_length", None)
+            if fl:
+                focal_lengths.append(fl.split()[0] if fl else "")  # e.g. "50mm"
+    if focal_lengths:
+        unique_lenses = set(focal_lengths)
+        if len(unique_lenses) <= 2 and len(focal_lengths) >= 6:
+            warnings.append(
+                f"CONTINUITY: Only {len(unique_lenses)} unique focal lengths used across "
+                f"{len(focal_lengths)} scenes ({', '.join(sorted(unique_lenses))}). "
+                f"Vary lenses: 24mm for wides, 50mm for mediums, 85mm for close-ups."
             )
 
     for w in warnings:
@@ -986,6 +1460,16 @@ def _attach_emotional_metadata(project_id: str, scenes: list[dict]) -> None:
             scene["linked_segment"] = segments[best_idx]
 
 
+def _extract_all_narrations(script: str) -> list[str]:
+    """Extract narration segments from a script for Story Bible generation.
+
+    Reuses the same splitting logic as _split_script_to_scenes but returns
+    only the narration text list (no scene dicts).
+    """
+    scenes = _split_script_to_scenes(script)
+    return [s.get("narration", "") for s in scenes if s.get("narration")]
+
+
 def _split_script_to_scenes(
     script: str, target_words: int = _TARGET_WORDS_PER_SCENE
 ) -> list[dict]:
@@ -1191,6 +1675,27 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
+_BOILERPLATE_SUFFIXES = [
+    "16:9 aspect ratio. No text, no watermark, no subtitle, no logo.",
+    "No text, no watermark, no subtitle, no logo.",
+    "No text, no watermark, photorealistic.",
+    "16:9 aspect ratio.",
+]
+
+
+def _strip_image_prompt_boilerplate(prompt: str) -> str:
+    """Strip repeated boilerplate suffixes from a prompt for cleaner IMAGE_PROMPTS.md.
+
+    The global instructions header in IMAGE_PROMPTS.md tells the user to
+    append these to every prompt, so per-scene repetition is noise.
+    """
+    result = prompt.rstrip()
+    for suffix in _BOILERPLATE_SUFFIXES:
+        if result.endswith(suffix):
+            result = result[: -len(suffix)].rstrip(" ,.")
+    return result
+
+
 def _write_prompts_file(
     project_id: str,
     scenes: list[dict],
@@ -1213,7 +1718,7 @@ def _write_prompts_file(
     style_label = style or "documentary"
 
     primary_scene_ids = [
-        s["index"] for s in scenes if s.get("anchor_role") == "primary"
+        s["index"] for s in scenes if s.get("anchor_role") in ("primary", "spectator")
     ]
     first_primary = primary_scene_ids[0] if primary_scene_ids else 1
     primary_scenes_str = ", ".join(str(i) for i in primary_scene_ids)
@@ -1254,7 +1759,7 @@ def _write_prompts_file(
             "```",
             "",
             f"Keep all {total_scenes} generations in ONE conversation window. If style drifts, paste",
-            f"scene 1 back and say \"same hybrid style — continue with scene [X]\".",
+            "scene 1 back and say \"same hybrid style — continue with scene [X]\".",
             "",
             f"**Midjourney / Leonardo:** Generate scene {first_primary} first. Use that as your style",
             "reference (--sref) for all subsequent scenes. For Kai-primary scenes, also use --cref.",
@@ -1264,6 +1769,17 @@ def _write_prompts_file(
         ]
 
     lines += [
+        "## Global Instructions (apply to ALL prompts below)",
+        "",
+        "Append these to every prompt when pasting into a generator:",
+        "- **Aspect ratio:** 16:9",
+        "- **Negative:** No text, no watermark, no subtitle, no logo",
+        "- **Rendering:** Photorealistic environment (unless the prompt specifies otherwise)",
+        "",
+        "These lines are stripped from individual prompts below to reduce repetition.",
+        "",
+        "---",
+        "",
         "## How to Use",
         "",
         "1. Copy each prompt below into your preferred image generator.",
@@ -1316,6 +1832,7 @@ def _write_prompts_file(
         else:
             prompt_text = scene.get("visual_prompt", "")
 
+        prompt_display = _strip_image_prompt_boilerplate(prompt_text)
         lines += [
             f"## Scene {idx} — `{filename}`",
             "",
@@ -1325,7 +1842,7 @@ def _write_prompts_file(
             "",
             "**Image Prompt:**",
             "",
-            prompt_text,
+            prompt_display,
             "",
             f"**Visual Metadata:** era={vm.get('era', '—')} role={vm.get('narrative_role', '—')} "
             f"env={vm.get('environment', '—')} mood={vm.get('mood', '—')} "
@@ -1381,6 +1898,283 @@ def _strip_fences(text: str) -> str:
 
 
 _ANCHOR_ROLES: frozenset[str] = frozenset({"primary", "spectator", "absent"})
+
+# Words stripped before comparing prompts for duplication — style boilerplate and
+# structural filler that appears in every prompt regardless of scene content.
+_VP_BOILERPLATE: frozenset[str] = frozenset({
+    "hybrid", "cinematic", "style", "photorealistic", "environment",
+    "illustrated", "hand", "painted", "storybook", "characters", "composited",
+    "matching", "lighting", "shadows", "shot", "angle", "color", "colour",
+    "palette", "continuity", "aspect", "ratio", "text", "watermark", "subtitle",
+    "logo", "documentary", "quality", "realism", "depth", "field", "natural",
+    "film", "grain", "image", "visual", "scene", "background", "foreground",
+    "light", "warm", "cool", "camera", "wide", "medium", "close", "level",
+    "cast", "shadow", "glow", "soft", "dark", "deep", "long", "high", "inch",
+    # English stop words
+    "this", "that", "with", "from", "into", "over", "under", "through",
+    "across", "between", "around", "their", "there", "where", "which",
+    "have", "been", "each", "same", "both", "will", "also", "more",
+})
+
+
+_CHARACTER_STRIP_RE = re.compile(
+    r"illustrated\s+in\s+hand[- ]painted.*?(?:16[:\s]*9|no text|no watermark|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Words specific to character descriptions — stripped when comparing environments.
+_CHARACTER_BOILERPLATE: frozenset[str] = frozenset({
+    "lean", "young", "stubble", "shirt", "trousers", "clothing",
+    "hair", "dark", "late", "20s", "plain", "simple", "wearing",
+    "standing", "sitting", "facing", "profile", "posture", "pose",
+    "variant", "back", "behind", "front", "shoulders", "arms",
+    "hands", "pockets", "weight", "foot", "expression", "calm",
+    "quiet", "determined", "reflective", "thoughtful", "peaceful",
+    "storybook", "illustrated", "character", "composited", "outlines",
+    "shading", "painterly", "realistic", "consistent", "previous",
+})
+
+
+def _extract_env_words(prompt: str) -> frozenset[str]:
+    """Extract environment-describing words from a prompt, stripping
+    character descriptions and boilerplate."""
+    cleaned = _CHARACTER_STRIP_RE.sub(" ", prompt.lower())
+    return frozenset(
+        w for w in re.sub(r"[^\w\s]", " ", cleaned).split()
+        if len(w) > 3
+        and w not in _VP_BOILERPLATE
+        and w not in _CHARACTER_BOILERPLATE
+    )
+
+
+def _is_prompt_duplicate(
+    prompt: str,
+    earlier_prompts: dict[int, str],
+    threshold: float = 0.65,
+) -> int | None:
+    """Return the index of the first earlier scene whose prompt has ≥ threshold
+    word-overlap with *prompt*, or None if no duplicate is found.
+
+    Uses an overlap coefficient (intersection / min-set-size) so short prompts
+    don't trivially match long ones.  Boilerplate terms are stripped first so
+    shared style headers don't inflate the score.
+
+    Threshold is 65% — high enough that scenes sharing a story setting (river,
+    palace) don't false-positive on shared vocabulary, but low enough to catch
+    near-copy-paste duplicates. Environment diversity is handled separately by
+    ``_is_environment_duplicate`` (strips characters, checks cluster count).
+    """
+    words = frozenset(
+        w for w in re.sub(r"[^\w\s]", " ", prompt.lower()).split()
+        if len(w) > 3 and w not in _VP_BOILERPLATE
+    )
+    if not words:
+        return None
+    for earlier_idx, earlier_prompt in sorted(earlier_prompts.items()):
+        earlier_words = frozenset(
+            w for w in re.sub(r"[^\w\s]", " ", earlier_prompt.lower()).split()
+            if len(w) > 3 and w not in _VP_BOILERPLATE
+        )
+        if not earlier_words:
+            continue
+        overlap = len(words & earlier_words) / min(len(words), len(earlier_words))
+        if overlap >= threshold:
+            logger.debug(
+                "Prompt duplication: {:.0%} overlap with scene {:03d}",
+                overlap,
+                earlier_idx,
+            )
+            return earlier_idx
+    return None
+
+
+def _is_environment_duplicate(
+    prompt: str,
+    earlier_prompts: dict[int, str],
+    threshold: float = 0.60,
+    max_reuses: int = 3,
+) -> int | None:
+    """Check if this scene reuses a setting that already appears in too many
+    earlier scenes.
+
+    A setting can appear up to *max_reuses* times — legitimate story locations
+    (river, court) recur 2-3 times. Once *max_reuses* earlier scenes share
+    ≥ *threshold* environment overlap with this prompt, the earliest match is
+    returned so a DUPLICATE_PROMPT error can be injected.
+
+    Strips character description sections and character-specific words before
+    comparing, so "counting room + Kai" vs "counting room + old man" is detected.
+    """
+    env_words = _extract_env_words(prompt)
+    if len(env_words) < 5:
+        return None
+    matching_earlier: list[int] = []
+    for earlier_idx, earlier_prompt in sorted(earlier_prompts.items()):
+        earlier_env = _extract_env_words(earlier_prompt)
+        if len(earlier_env) < 5:
+            continue
+        overlap = len(env_words & earlier_env) / min(len(env_words), len(earlier_env))
+        if overlap >= threshold:
+            matching_earlier.append(earlier_idx)
+    if len(matching_earlier) >= max_reuses:
+        first_match = matching_earlier[0]
+        logger.debug(
+            "Environment overuse: {} earlier scenes share this setting "
+            "(first match: scene {:03d})",
+            len(matching_earlier),
+            first_match,
+        )
+        return first_match
+    return None
+
+
+# Unambiguous human role words: if any of these appear in the narration, the scene
+# contains human characters and human_classification=NO_HUMAN_ALLOWED is wrong.
+_STRONG_HUMAN_ROLES: frozenset[str] = frozenset({
+    "king", "queen", "minister", "priest", "elder", "merchant", "soldier",
+    "guard", "judge", "teacher", "master", "servant", "prince", "princess",
+    "emperor", "crowd", "villager", "disciple", "farmer", "doctor", "hunter",
+    "adviser", "advisor", "counselor", "monk", "sage", "warrior", "general",
+    "swimmer", "fisherman", "shepherd", "pilgrim", "devotee", "speaker",
+})
+
+# Multi-word phrases that unambiguously indicate human presence.
+# Single-word "man"/"woman" are too generic (mankind, ottoman, etc.) but
+# these compound phrases are safe.
+_STRONG_HUMAN_PHRASES: tuple[str, ...] = (
+    "old man", "old woman", "young man", "young woman",
+    "a man who", "a woman who", "the man who", "the woman who",
+    "a man of", "a woman of",
+    "his wife", "her husband", "his family", "a family",
+    "his body", "her body", "his heart", "her heart",
+    "his face", "her face", "his eyes", "her eyes",
+)
+
+
+def _sanitize_scene_analysis(
+    scene_analysis: dict,
+    entities: "SceneEntities",
+    narration: str,
+) -> tuple[dict, "SceneEntities"]:
+    """Fix obvious entity extraction errors before validation so the validator
+    enforces correct constraints instead of guaranteed-false ones.
+
+    Corrects three classes of error that cause every retry to fail:
+
+    1. Active narration participants in forbidden_characters — if a character
+       is explicitly named as doing something in the narration (e.g. "Swimmer"
+       in a scene about swimming), they cannot be forbidden.
+
+    2. human_classification=NO_HUMAN_ALLOWED when the narration explicitly names
+       human roles (king, minister, crowd, etc.) — upgraded to HUMAN_REQUIRED
+       so the validator doesn't block prompts that correctly include people.
+
+    3. scene_analysis.human_requirement disagrees with entity extraction —
+       the scene analysis (story-first LLM) says humans are required/permitted
+       but the entity extraction (narrower LLM) says NO_HUMAN_ALLOWED.
+       Trust scene_analysis because it has more narrative context.
+    """
+    narration_lower = narration.lower()
+    sanitized_analysis = dict(scene_analysis)
+
+    # 1. Remove from forbidden_characters any term that appears in allowed_characters
+    #    OR that appears as an active participant in the narration.
+    allowed_lower = {c.lower() for c in (sanitized_analysis.get("allowed_characters") or [])}
+    forbidden_chars = sanitized_analysis.get("forbidden_characters") or []
+    cleaned_forbidden: list[str] = []
+    for char in forbidden_chars:
+        char_lower = char.lower()
+        if char_lower in allowed_lower:
+            logger.debug("scene_analysis sanity: removing '{}' from forbidden (also allowed)", char)
+            continue
+        if len(char_lower) > 3 and re.search(r"\b" + re.escape(char_lower) + r"\b", narration_lower):
+            logger.debug(
+                "scene_analysis sanity: removing '{}' from forbidden (active in narration)", char
+            )
+            continue
+        cleaned_forbidden.append(char)
+    sanitized_analysis["forbidden_characters"] = cleaned_forbidden
+
+    # 2. Upgrade human_classification if narration contains strong human roles
+    #    or unambiguous multi-word human phrases.
+    sanitized_entities = entities
+    if entities.human_classification == HumanClassification.NO_HUMAN_ALLOWED:
+        trigger: str | None = None
+        for role in _STRONG_HUMAN_ROLES:
+            if re.search(r"\b" + re.escape(role) + r"\b", narration_lower):
+                trigger = role
+                break
+        if trigger is None:
+            for phrase in _STRONG_HUMAN_PHRASES:
+                if re.search(r"\b" + re.escape(phrase) + r"\b", narration_lower):
+                    trigger = phrase
+                    break
+        if trigger is not None:
+            logger.warning(
+                "scene_analysis sanity: upgrading human_classification "
+                "NO_HUMAN_ALLOWED → HUMAN_REQUIRED (narration contains '{}')",
+                trigger,
+            )
+            sanitized_entities = dc_replace(
+                entities, human_classification=HumanClassification.HUMAN_REQUIRED
+            )
+
+    # 3. Cross-check scene_analysis.human_requirement against entity extraction.
+    if sanitized_entities.human_classification == HumanClassification.NO_HUMAN_ALLOWED:
+        hr = sanitized_analysis.get("human_requirement", "forbidden")
+        hr_upgrade_map = {
+            "required": HumanClassification.HUMAN_REQUIRED,
+            "permitted_symbolic": HumanClassification.HUMAN_OPTIONAL,
+            "optional": HumanClassification.HUMAN_OPTIONAL,
+        }
+        target = hr_upgrade_map.get(hr)
+        if target is not None:
+            logger.warning(
+                "scene_analysis sanity: upgrading human_classification "
+                "NO_HUMAN_ALLOWED → {} (scene_analysis.human_requirement='{}')",
+                target.value, hr,
+            )
+            sanitized_entities = dc_replace(
+                sanitized_entities, human_classification=target
+            )
+
+    # 4. Upgrade human_requirement="forbidden" when narration has strong human
+    #    indicators — prevents V2 from emitting "NO human characters" for scenes
+    #    where the narration clearly describes people acting.
+    if sanitized_analysis.get("human_requirement") == "forbidden":
+        hr_trigger: str | None = None
+        for role in _STRONG_HUMAN_ROLES:
+            if re.search(r"\b" + re.escape(role) + r"\b", narration_lower):
+                hr_trigger = role
+                break
+        if hr_trigger is None:
+            for phrase in _STRONG_HUMAN_PHRASES:
+                if re.search(r"\b" + re.escape(phrase) + r"\b", narration_lower):
+                    hr_trigger = phrase
+                    break
+        if hr_trigger is not None:
+            logger.warning(
+                "scene_analysis sanity: upgrading human_requirement "
+                "forbidden → required (narration contains '{}')",
+                hr_trigger,
+            )
+            sanitized_analysis["human_requirement"] = "required"
+
+    # 5. Cap hallucinated forbidden_objects lists.
+    #    Normal scenes have 0–10 forbidden objects. A list exceeding the cap
+    #    is LLM hallucination (e.g. 370 items dumping every possible noun)
+    #    and causes cascading false FORBIDDEN_OBJECT failures.
+    _MAX_FORBIDDEN_OBJECTS = 15
+    forbidden_objs = sanitized_analysis.get("forbidden_objects") or []
+    if len(forbidden_objs) > _MAX_FORBIDDEN_OBJECTS:
+        logger.warning(
+            "scene_analysis sanity: clearing {} hallucinated forbidden_objects "
+            "(normal range 0–10, threshold {})",
+            len(forbidden_objs), _MAX_FORBIDDEN_OBJECTS,
+        )
+        sanitized_analysis["forbidden_objects"] = []
+
+    return sanitized_analysis, sanitized_entities
 
 
 def _parse_visual_prompts(text: str) -> list[dict] | None:
@@ -1615,6 +2409,28 @@ def scene_planner_node(state: VideoState) -> dict:
             f"  [green]✓[/green] Visual Bible: \"{visual_bible.dominant_metaphor[:60]}...\""
         )
 
+    # ── Story Bible: locked character/location/world descriptions ─────────
+    story_bible = StoryBible()
+    if settings.VISUAL_BIBLE_ENABLED:
+        console.print("  [cyan]→[/cyan] Generating Story Bible (characters, locations, world)...")
+        all_narrations = _extract_all_narrations(script_md)
+        story_bible = load_or_generate_story_bible(
+            project_id=project_id,
+            workspace_dir=WORKSPACE_DIR,
+            narrations=all_narrations,
+            llm=llm,
+        )
+        # Sync color progression from VisualBible into StoryBible
+        if visual_bible.color_arc:
+            story_bible.style.color_progression = visual_bible.color_arc.copy()
+        if story_bible.characters or story_bible.locations:
+            console.print(
+                f"  [green]✓[/green] Story Bible: "
+                f"{len(story_bible.characters)} characters, "
+                f"{len(story_bible.locations)} locations, "
+                f"{len(story_bible.do_not_change)} locked rules"
+            )
+
     # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
     # The LLM was reliably failing to return 25+ scenes in one JSON response —
     # Groq cuts off mid-stream when output tokens get large. Python splitting is
@@ -1806,7 +2622,15 @@ def scene_planner_node(state: VideoState) -> dict:
     validation_issues = 0
     max_retries = settings.scene_planner_max_retries
     use_json_mode = settings.scene_planner_json_mode
-    retry_schema = RETRY_RESPONSE_SCHEMA if settings.scene_planner_strict_schema else None
+
+    # Collect all allowed_characters across the entire story so a character
+    # that appears in ANY scene's analysis (e.g. "old man" in scene 3) is
+    # recognized as a real story character everywhere — not just in the
+    # scenes where the entity extractor happened to list it.
+    _story_characters: set[str] = set()
+    for _sc in generated_scenes:
+        for _ch in (_sc.get("scene_analysis", {}).get("allowed_characters") or []):
+            _story_characters.add(_ch)
 
     for scene in generated_scenes:
         idx = scene["index"]
@@ -1818,6 +2642,12 @@ def scene_planner_node(state: VideoState) -> dict:
             continue
 
         scene_analysis = scene.get("scene_analysis", {})
+        # Correct entity extraction errors before the validation loop runs —
+        # wrong forbidden_characters or NO_HUMAN_ALLOWED on a scene with people
+        # makes the validator impossible to satisfy on any attempt.
+        scene_analysis, entities = _sanitize_scene_analysis(
+            scene_analysis, entities, scene.get("narration", "")
+        )
         attempt = 0
         last_violation = ""
         final_status = FaithfulnessStatus.FAILED
@@ -1834,7 +2664,34 @@ def scene_planner_node(state: VideoState) -> dict:
                 human_classification=entities.human_classification,
                 scene_category=entities.scene_category,
                 visual_anchor=scene.get("visual_anchor", ""),
+                story_characters=_story_characters,
             )
+
+            # Duplicate-prompt check: if this scene's prompt is ≥65% lexically
+            # similar to any earlier scene's finalized prompt, inject a critical
+            # DUPLICATE_PROMPT error so the retry loop regenerates it fresh.
+            # Only compare against scenes with a LOWER index (earlier in video)
+            # whose prompts are already finalized in vp_map.
+            earlier_vp = {k: v for k, v in vp_map.items() if k < idx}
+            dup_of = _is_prompt_duplicate(current_prompt, earlier_vp)
+            if dup_of is None:
+                dup_of = _is_environment_duplicate(current_prompt, earlier_vp)
+            if dup_of is not None:
+                logger.warning(
+                    "Scene {:03d} | attempt {} | DUPLICATE of scene {:03d} — forcing retry",
+                    idx, attempt, dup_of,
+                )
+                dup_error = ValidationError(
+                    code="DUPLICATE_PROMPT",
+                    message=f"Prompt reuses the environment from scene {dup_of}.",
+                    severity="critical",
+                    violated_item=f"scene {dup_of}",
+                    hint=vp_map.get(dup_of, "")[:200],
+                )
+                deterministic_result = ValidationResult(
+                    passed=False,
+                    errors=deterministic_result.errors + [dup_error],
+                )
 
             # Task 2.4 Fix 1 / Task 2.5 Fix C: zero CRITICAL errors = PASS,
             # always — the single unified evaluation point for every attempt.
@@ -1947,23 +2804,28 @@ def scene_planner_node(state: VideoState) -> dict:
                 entity_constraints_section=entity_constraints_section,
                 scene_analysis_section=scene_analysis_section,
                 human_classification=entities.human_classification,
+                current_prompt=current_prompt,  # always pass the most recent version
             )
             retry_resp = llm.generate(
                 retry_prompt,
-                json_mode=use_json_mode,
-                json_schema=retry_schema,
+                json_mode=False,
+                json_schema=None,
                 temperature=0.35,
             )
-            parsed = parse_retry_response(retry_resp.text, idx)
-            if parsed:
-                current_prompt = parsed["visual_prompt"]
-                last_violation = parsed.get("violation_addressed", "")
+            new_prompt = _strip_fences(retry_resp.text)
+            if len(new_prompt) >= 50:
+                current_prompt = new_prompt
                 vp_map[idx] = current_prompt
-                logger.info("Scene {:03d} | retry passed parsing on attempt {}", idx, attempt)
+                logger.info("Scene {:03d} | retry accepted on attempt {}", idx, attempt)
             else:
                 final_status = FaithfulnessStatus.FAILED
                 attempts = attempt + 1
-                logger.error("Scene {:03d} | retry parse failed on attempt {}", idx, attempt)
+                logger.error(
+                    "Scene {:03d} | retry response too short on attempt {} ({} chars)",
+                    idx,
+                    attempt,
+                    len(new_prompt),
+                )
                 break
 
         _faithfulness_qa[idx] = {
@@ -2014,8 +2876,11 @@ def scene_planner_node(state: VideoState) -> dict:
     # ── Kai enforcement guards ────────────────────────────────────────────
     scenes = _enforce_primary_kai_spec(scenes)
     scenes = _enforce_closing_scene_primary(scenes)
+    scenes = _enforce_kai_distribution(scenes, entity_map)
+    scenes = _enforce_primary_kai_spec(scenes)  # re-run for newly promoted scenes
     scenes = _propagate_environment_anchors(scenes)
-    scenes = _enforce_style_footer(scenes)
+    scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
+    scenes = _enforce_era_consistency(scenes)
 
     # ── V2: Per-scene structured prompt generation ────────────────────────
     if settings.HYBRID_STYLE_ENABLED or settings.VISUAL_BIBLE_ENABLED:
@@ -2034,10 +2899,47 @@ def scene_planner_node(state: VideoState) -> dict:
                 llm=llm,
                 settings=settings,
                 prev_scene=prev,
+                story_bible=story_bible,
             )
             scene["structured_prompt"] = sp.model_dump()
             scene["visual_prompt"] = sp.compiled_prompt  # backward compat
         console.print(f"  [green]✓[/green] V2 structured prompts: {len(gen_scenes)} scenes")
+
+        # Re-validate faithfulness_qa against the FINAL prompts (V2 override
+        # may have resolved errors that were present in the pre-V2 prompts).
+        for scene in gen_scenes:
+            idx = scene["index"]
+            entities = entity_map.get(idx)
+            if not entities or not scene.get("faithfulness_qa"):
+                continue
+            sa = scene.get("scene_analysis", {})
+            sa, ents = _sanitize_scene_analysis(sa, entities, scene.get("narration", ""))
+            post_v2_result = run_validators(
+                scene_analysis=sa,
+                prompt=scene["visual_prompt"],
+                narration=scene.get("narration", ""),
+                human_classification=ents.human_classification,
+                scene_category=ents.scene_category,
+                visual_anchor=scene.get("visual_anchor", ""),
+                story_characters=_story_characters,
+            )
+            if not post_v2_result.critical_errors:
+                scene["faithfulness_qa"] = {
+                    "status": FaithfulnessStatus.PASS.value,
+                    "violation": "",
+                    "attempts": scene["faithfulness_qa"].get("attempts", 0),
+                    "critical_errors": [],
+                    "llm_validated": scene["faithfulness_qa"].get("llm_validated", False),
+                    "llm_reason": scene["faithfulness_qa"].get("llm_reason", ""),
+                }
+
+    # ── V2: Post-V2 Kai re-enforcement ─────────────────────────────────
+    # V2 may have generated aerial prompts for Kai-primary scenes despite
+    # the shot_type constraint; demote those to absent so Step 0 is accurate.
+    scenes = _enforce_primary_kai_spec(scenes)
+
+    # ── V2: Sync visual_metadata from structured prompts ────────────────
+    scenes = _sync_metadata_from_v2(scenes)
 
     # ── V2: Continuity validation (flag-and-log only) ─────────────────────
     continuity_warnings = _validate_visual_continuity(scenes, visual_bible)
@@ -2110,6 +3012,11 @@ def scene_planner_node(state: VideoState) -> dict:
     )
 
     project_repo.update_stage(project_id, "scenes", "completed")
+
+    # ── Write Story Bible files ──────────────────────────────────────────
+    if story_bible.characters or story_bible.locations:
+        bible_dir = write_story_bible(story_bible, project_id, WORKSPACE_DIR, scenes)
+        console.print(f"  [green]✓[/green] Story Bible: [dim]{bible_dir}[/dim]")
 
     # ── Write prompts file for manual image generation ────────────────────
     prompts_path = _write_prompts_file(project_id, scenes, style, settings)
