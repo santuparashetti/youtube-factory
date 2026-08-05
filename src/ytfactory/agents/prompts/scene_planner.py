@@ -127,9 +127,18 @@ RULES:
 - Only include what is LITERALLY in the narration. Do NOT invent characters, actions, or settings.
 - If the narration is about an eagle and chick with no human present, characters = ["Mother Eagle", "Eagle Chick"].
   human_requirement = "forbidden". named_person = "".
-- If the narration says "you feel it within" or "you just watch", that is a VIEWER ADDRESS — 
+- If the narration says "you feel it within" or "you just watch", that is a VIEWER ADDRESS —
   no human character is present. characters = []. human_requirement = "forbidden".
 - A metaphorical human ("one day I too should soar") is NOT a character. Do not list it.
+- ANALOGY / EXAMPLE SCENES: If the narration describes people as examples or analogies
+  ("the person who has a house wants a bigger one", "someone who earns and earns"),
+  these are NOT viewer-address and NOT purely metaphorical. They describe observable
+  human behavior. Use human_requirement = "permitted_symbolic" and allow the described
+  person as a symbolic character. Do NOT classify these as "forbidden".
+- OBJECT RULE: If the narration explicitly mentions a physical object ("gold", "coin",
+  "river", "body"), do NOT add it to forbidden_objects. Only forbid objects that would
+  be anachronistic, invented, or contradictory to the narration. Objects the narration
+  names — even in a philosophical context — are permitted in the visual.
 - Never invent: man, woman, monk, traveller, sage, observer, narrator, silhouette, child
   unless explicitly present in the narration.
 - Never replace animals with humans.
@@ -140,8 +149,9 @@ RULES:
 - human_requirement = "permitted_symbolic": use when the narration is philosophical or addresses a
   universal human quality (wisdom, craft, endurance) — a symbolic human figure (elderly sage,
   artisan hands, a distant figure) is APPROPRIATE though no one is named. Narration containing
-  "ancient teachers", "the wise", "your hands", "your eyes", "your feet", or philosophical
-  second-person address should use this instead of "forbidden".
+  "ancient teachers", "the wise", "your hands", "your eyes", "your feet", philosophical
+  second-person address, or ANALOGY SCENES describing people as examples should use this
+  instead of "forbidden".
 - animal_only classification (reflected via primary_subject) requires the animal to be the
   unambiguous primary subject. "Birds sing in the Sharad season" → the season/mood is the primary
   subject, not the birds — do not treat incidental animal mentions as requiring an animal-only shot.

@@ -19,20 +19,29 @@ the scene's emotional beat, then use the exact variant column indicated. All pos
 work in back-facing, profile, or silhouette view — they differ only in arm position,
 weight distribution, and head angle.
 
+CRITICAL — SUBTLETY RULE: Kai is NOT a participant in the story. He is an ambient
+presence — like someone who wandered into the background of a photograph. His posture
+must be quiet, still, and understated. NO dramatic gestures: no arms raised, no
+hands lifted toward the sky, no arms wide open, no theatrical body language. Kai
+should look like he belongs in the scene but is not drawing attention. If the posture
+variant below includes any raised-arm or open-arm gesture, replace it with the
+nearest still, grounded alternative (hands at sides, hands in pockets, arms loosely
+folded). Kai NEVER gestures.
+
 | Emotion               | Variant A                                              | Variant B                                             | Variant C                                               |
 |-----------------------|--------------------------------------------------------|-------------------------------------------------------|---------------------------------------------------------|
-| curiosity / wonder    | Leaning forward, chin lifted, one arm loosely at side  | Head tilted, weight back, hands relaxed at sides      | One hand lightly raised near chest, body turned in      |
+| curiosity / wonder    | Leaning forward slightly, hands at sides               | Head tilted, weight back, hands relaxed at sides      | Hands in pockets, body turned slightly toward action    |
 | reflection / peace    | Arms loosely clasped behind back, weight even, still   | One hand resting on nearby surface, weight on one leg | Hands at sides, head bowed slightly, standing quietly   |
-| sadness / grief       | Shoulders rounded, head angled a few degrees downward  | Arms loose at sides, weight low, posture of surrender | One arm crossing body, holding opposite elbow           |
-| determination         | Weight on front foot, subtle lean, arms at sides, fists easy | Arms folded across chest, feet planted wide      | One hand gripping opposite forearm, body coiled forward |
-| hope / reverence      | Open posture, arms slightly away, chin raised to light | One arm lifted, palm loosely open, face toward sky    | Weight on back foot, body tall and open, arms relaxed   |
-| urgency / tension     | Arms folded, one hand gripping the opposite forearm    | Arms tight at sides, weight forward, body rigid       | Hands clasped at front, body half-turned away           |
-| awe / revelation      | One step back, body open, arms loosely away from sides | Weight on back foot, hands slightly raised at sides   | Arms wide, head back, body fully open to the scene      |
-| mystery / suspense    | Head turned toward action, body angled away            | Body pressed to a wall or pillar, half-hidden         | Crouched slightly, one hand on a surface, watching      |
+| sadness / grief       | Shoulders rounded, head angled a few degrees downward  | Arms loose at sides, weight low, standing still       | One arm crossing body, holding opposite elbow           |
+| determination         | Weight on front foot, hands at sides, standing still   | Arms loosely folded, feet shoulder-width apart         | Hands in pockets, weight forward, watching quietly      |
+| hope / reverence      | Hands at sides, chin slightly raised, standing still   | Weight on back foot, hands relaxed at sides            | Hands loosely clasped behind back, body still           |
+| urgency / tension     | Arms loosely folded, weight shifted forward             | Hands at sides, weight forward, body still             | Hands clasped at front, body half-turned away           |
+| awe / revelation      | One step back, hands at sides, standing still          | Weight on back foot, hands relaxed at sides            | Hands in pockets, head tilted back slightly             |
+| mystery / suspense    | Head turned toward action, body angled away            | Leaning against a wall or pillar, partially obscured  | Crouched slightly, one hand on a surface, watching      |
 | isolation / emptiness | Hands in pockets, weight on one leg, shoulders low     | Arms loose, standing apart, head angled down          | One arm wrapped around own torso, half-turned away      |
 
 POSTURE RULE: Always include the specific posture description in character_staging
-(e.g. "arms folded across chest, feet planted wide"). Never write "standing watching
+(e.g. "arms loosely folded, feet shoulder-width apart"). Never write "standing watching
 in silence" without the posture detail — that is not a valid posture description.
 
 SPATIAL PLACEMENT (MANDATORY — Kai must always share the same environment as the main action):

@@ -568,7 +568,18 @@ def _generate_visual_bible(script_text: str, llm: LLMProvider, settings: Setting
         return _stub_visual_bible()
 
     prompt_text = _load_prompt_file("VISUAL_BIBLE_PROMPT.md")
-    full_prompt = f"{prompt_text}\n\nSCRIPT:\n{script_text}"
+    audience_profile = getattr(settings, "AUDIENCE_PROFILE", "western_english")
+    audience_note = ""
+    if audience_profile == "western_english":
+        audience_note = (
+            "\n\nAUDIENCE DIRECTIVE: Target viewer is English-speaking (US/UK/AU/CA). "
+            "Anchor environments must feel internationally relevant — European medieval, "
+            "Mediterranean, or universally rustic aesthetic. Do NOT default to Indian "
+            "architecture (sandstone palaces, elephant carvings, temple ghats) even if "
+            "the story originates from Indian philosophy. Rivers, forests, and natural "
+            "environments should be culturally neutral.\n"
+        )
+    full_prompt = f"{prompt_text}{audience_note}\n\nSCRIPT:\n{script_text}"
     try:
         response = llm.generate(full_prompt, temperature=0.4)
         raw = response.text.strip()
@@ -735,8 +746,22 @@ def _build_structured_prompt(
         "5. color_palette_phase\n"
         "6. continuity_ref (brief) — if same environment as a previous scene, describe HOW this scene\n"
         "   differs visually (framing, time-of-day, detail focus, mood) so each scene is unique.\n"
-        "7. If Kai scene: one-line pose rule reminder\n"
-        '8. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+        "7. If Kai SPECTATOR scene: Kai must be tiny in the background (5-10% of frame),\n"
+        "   partially obscured, no dramatic gestures. Describe him last, briefly.\n"
+        "   If Kai PRIMARY scene with OTHER story characters also present: Kai is secondary\n"
+        "   in visual scale — describe story characters first, Kai after, slightly smaller or\n"
+        "   further back. Kai reacts to the scene, he does not dominate it.\n"
+        "   If Kai PRIMARY scene ALONE (no other story characters): Kai is the visual subject.\n"
+        "8. STORY BIBLE CLOTHING RULE (CRITICAL): When a LOCKED CHARACTER description exists,\n"
+        "   you MUST reproduce their EXACT clothing items (tunic, trousers, boots, belt, cloak,\n"
+        "   crown, etc.) in the character_staging. NEVER simplify to 'peasant garb' or 'robes'\n"
+        "   when the bible specifies individual garments. NEVER drop footwear — if the bible\n"
+        "   says 'worn leather boots', the character wears boots, not barefoot.\n"
+        "9. SUPPORTING CHARACTER DISTINCTION: When multiple characters appear, each must be\n"
+        "   visually distinguishable by clothing color, garment type, or accessories.\n"
+        "   A minister/advisor must NOT look like a second king — use subdued colors (grey,\n"
+        "   brown, dark blue), simpler garments, no crown, no royal insignia.\n"
+        '10. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
     ) if settings.HYBRID_STYLE_ENABLED else (
         "COMPILED_PROMPT ASSEMBLY RULES:\n"
         "1. Shot type, camera angle, and focal_length (e.g. 'Wide shot, high angle, 24mm')\n"
@@ -772,10 +797,15 @@ def _build_structured_prompt(
         "You are a cinematographer writing image generation prompts for a philosophical documentary.\n\n"
         + (f"{style_directive}\n\n" if style_directive else "")
         + (f"{pose_rules}\n\n" if pose_rules else "")
-        + (f"{audience_block}\n" if audience_block else "")
         + (f"{era_block}\n" if era_block else "")
         + f"{bible_context}\n\n"
         + (f"{story_bible_block}\n\n" if story_bible_block else "")
+        + (f"{audience_block}\n"
+           "⚠ AUDIENCE OVERRIDE: If ANY locked character clothing or location description\n"
+           "above contradicts the AUDIENCE rule (e.g. dhoti, kurta, Indian palace), the\n"
+           "AUDIENCE rule wins. Translate the character/location to the audience-appropriate\n"
+           "cultural equivalent while preserving the narrative role and visual function.\n\n"
+           if audience_block else "")
         + (f"{prev_context}\n\n" if prev_context else "")
         + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
         + 'OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n'
@@ -847,6 +877,9 @@ def _build_structured_prompt(
             "\nCHARACTER GUIDANCE:\n"
             "- The narration describes human characters. Include them in character_staging.\n"
             "- Derive character appearance and action from the narration — do not invent.\n"
+            "- If a LOCKED CHARACTER description exists in the Story Bible above, use it\n"
+            "  VERBATIM for appearance and clothing. List every garment item individually\n"
+            "  (tunic, trousers, belt, boots) — never abbreviate to 'peasant garb' or 'robes'.\n"
             f"- Forbidden characters: {', '.join(forbidden[:6]) if forbidden else 'none'}\n"
             f"- Required environment: {required_env if required_env else 'as narrated'}\n"
         )
@@ -855,12 +888,24 @@ def _build_structured_prompt(
     if anchor_role == "spectator":
         kai_placement_block = (
             "\nKAI SPATIAL PLACEMENT (CRITICAL — spectator scene):\n"
-            "Kai must be INSIDE the same physical space as the main action.\n"
-            "If the scene is indoors: Kai stands inside the room, near a wall or at the back — "
-            "NOT outside a doorway or window looking in.\n"
-            "If the scene is outdoors: Kai stands in the same outdoor space — "
-            "NOT inside a building looking out.\n"
-            "One environment. Kai is a witness from within, not a viewer from another location.\n"
+            "Kai must be INSIDE the same physical space as the main action, but SUBTLE.\n"
+            "Kai is an ambient background figure — NOT a visible observer or witness.\n"
+            "If the scene is indoors: Kai stands deep in the background, partially obscured "
+            "by a pillar, wall, or shadow — barely noticeable.\n"
+            "If the scene is outdoors: Kai stands at the very far edge of the frame, small "
+            "in scale, blending into the crowd or environment.\n"
+            "Kai must NEVER be in the foreground or midground. He should occupy at most "
+            "5-10% of the frame. He should look like he happened to be there, not like he "
+            "is watching the main event. No dramatic poses, no gestures, no raised arms.\n"
+        )
+    elif anchor_role == "primary" and human_req in ("required", "optional", "permitted_symbolic"):
+        kai_placement_block = (
+            "\nKAI SPATIAL PLACEMENT (PRIMARY with story characters):\n"
+            "Story characters are the VISUAL FOCUS. Describe them first, larger, in the\n"
+            "foreground or midground. Kai is present and reactive but physically BEHIND or\n"
+            "BESIDE the story characters — slightly smaller in frame, never blocking them.\n"
+            "Kai occupies at most 15-20% of the frame when story characters are present.\n"
+            "Describe Kai AFTER the story characters in the character_staging text.\n"
         )
 
     # Extract emotional beat for Kai posture selection
@@ -1176,6 +1221,64 @@ def _extract_scene_entities(narration: str, llm_client: LLMProvider) -> SceneEnt
     except (TypeError, ValueError) as exc:
         logger.warning("Entity extraction malformed: {}; defaulting to abstract", exc)
         return SceneEntities(scene_category="abstract")
+
+
+def _posthoc_correct_scene_analysis(
+    analysis: dict, narration: str, scene_id: int
+) -> dict:
+    """Deterministic corrections applied immediately after LLM scene analysis.
+
+    Fixes two classes of LLM misclassification that cause downstream failures:
+    1. Analogy scenes classified as human_requirement=forbidden when the narration
+       describes people through examples ("the person who has a house").
+    2. Objects explicitly mentioned in the narration added to forbidden_objects.
+    """
+    corrected = dict(analysis)
+    narration_lower = narration.lower()
+
+    # 1. Upgrade human_requirement from forbidden → permitted_symbolic
+    #    when the narration contains analogy/example patterns describing people.
+    if corrected.get("human_requirement") == "forbidden":
+        for phrase in _STRONG_HUMAN_PHRASES:
+            if re.search(r"\b" + re.escape(phrase) + r"\b", narration_lower):
+                logger.warning(
+                    "posthoc scene {}: upgrading human_requirement "
+                    "forbidden → permitted_symbolic (narration contains '{}')",
+                    scene_id, phrase,
+                )
+                corrected["human_requirement"] = "permitted_symbolic"
+                break
+        if corrected["human_requirement"] == "forbidden":
+            for role in _STRONG_HUMAN_ROLES:
+                if re.search(r"\b" + re.escape(role) + r"\b", narration_lower):
+                    logger.warning(
+                        "posthoc scene {}: upgrading human_requirement "
+                        "forbidden → required (narration contains '{}')",
+                        scene_id, role,
+                    )
+                    corrected["human_requirement"] = "required"
+                    break
+
+    # 2. Remove forbidden_objects whose words appear in the narration.
+    forbidden_objs = corrected.get("forbidden_objects") or []
+    if forbidden_objs:
+        cleaned: list[str] = []
+        for obj in forbidden_objs:
+            obj_words = obj.lower().split()
+            mentioned = any(
+                re.search(r"\b" + re.escape(w) + r"\b", narration_lower)
+                for w in obj_words if len(w) > 2
+            )
+            if mentioned:
+                logger.warning(
+                    "posthoc scene {}: removing '{}' from forbidden_objects "
+                    "(mentioned in narration)", scene_id, obj,
+                )
+            else:
+                cleaned.append(obj)
+        corrected["forbidden_objects"] = cleaned
+
+    return corrected
 
 
 def _analyze_scene(narration: str, scene_id: int, llm_client: LLMProvider) -> dict:
@@ -2045,6 +2148,8 @@ _STRONG_HUMAN_PHRASES: tuple[str, ...] = (
     "old man", "old woman", "young man", "young woman",
     "a man who", "a woman who", "the man who", "the woman who",
     "a man of", "a woman of",
+    "the person who", "a person who", "anyone who", "someone who",
+    "whoever has", "whoever wants", "the one who",
     "his wife", "her husband", "his family", "a family",
     "his body", "her body", "his heart", "her heart",
     "his face", "her face", "his eyes", "her eyes",
@@ -2173,6 +2278,31 @@ def _sanitize_scene_analysis(
             len(forbidden_objs), _MAX_FORBIDDEN_OBJECTS,
         )
         sanitized_analysis["forbidden_objects"] = []
+
+    # 6. Remove forbidden_objects that the narration explicitly mentions.
+    #    If the narration says "gold" or "coin", forbidding "gold coins" is wrong.
+    forbidden_objs = sanitized_analysis.get("forbidden_objects") or []
+    if forbidden_objs:
+        cleaned_objs: list[str] = []
+        for obj in forbidden_objs:
+            obj_words = obj.lower().split()
+            narration_mentions = any(
+                re.search(r"\b" + re.escape(w) + r"\b", narration_lower)
+                for w in obj_words if len(w) > 2
+            )
+            if narration_mentions:
+                logger.debug(
+                    "scene_analysis sanity: removing '{}' from forbidden_objects "
+                    "(mentioned in narration)", obj
+                )
+            else:
+                cleaned_objs.append(obj)
+        if len(cleaned_objs) < len(forbidden_objs):
+            logger.warning(
+                "scene_analysis sanity: removed {} forbidden_objects mentioned in narration",
+                len(forbidden_objs) - len(cleaned_objs),
+            )
+        sanitized_analysis["forbidden_objects"] = cleaned_objs
 
     return sanitized_analysis, sanitized_entities
 
@@ -2419,6 +2549,7 @@ def scene_planner_node(state: VideoState) -> dict:
             workspace_dir=WORKSPACE_DIR,
             narrations=all_narrations,
             llm=llm,
+            audience_profile=getattr(settings, "AUDIENCE_PROFILE", "western_english"),
         )
         # Sync color progression from VisualBible into StoryBible
         if visual_bible.color_arc:
@@ -2462,6 +2593,9 @@ def scene_planner_node(state: VideoState) -> dict:
         if scene.get("scene_type", "generated_image") == "generated_image":
             analysis = _analyze_scene(
                 scene.get("narration", ""), scene["index"], _analysis_llm
+            )
+            analysis = _posthoc_correct_scene_analysis(
+                analysis, scene.get("narration", ""), scene["index"]
             )
             scene_analysis_map[scene["index"]] = analysis
             scene["scene_analysis"] = analysis

@@ -77,26 +77,59 @@ class OpenAICompatibleProvider(LLMProvider):
                 # Loose JSON mode — guarantees syntactically valid JSON, not schema.
                 request_params["response_format"] = {"type": "json_object"}
 
-        try:
-            response = self._client.chat.completions.create(**request_params)
-        except Exception as e:
-            # The OpenAI SDK raises before we can inspect the raw HTTP response,
-            # but the exception message usually contains the status code and body.
-            logger.error(
-                "Provider API call failed — model={} error={}: {}",
-                model,
-                type(e).__name__,
-                str(e)[:500],
-            )
-            raise
+        import json as _json
+        import time as _time
 
-        if not response.choices:
-            logger.error(
-                "LLM returned no choices — model={} usage={}",
-                model,
-                response.usage,
-            )
-            raise RuntimeError(f"LLM returned no choices for model={model!r}")
+        _max_retries = 3
+        response = None
+        for _attempt in range(1, _max_retries + 1):
+            try:
+                response = self._client.chat.completions.create(**request_params)
+            except _json.JSONDecodeError as e:
+                logger.warning(
+                    "Provider returned non-JSON response (attempt {}/{}) — model={} error={}",
+                    _attempt, _max_retries, model, str(e)[:200],
+                )
+                if _attempt < _max_retries:
+                    _time.sleep(2 ** _attempt)
+                    continue
+                raise RuntimeError(
+                    f"Provider returned non-JSON response after {_max_retries} retries "
+                    f"(model={model!r}). The API may be temporarily unavailable."
+                ) from e
+            except Exception as e:
+                logger.error(
+                    "Provider API call failed — model={} error={}: {}",
+                    model,
+                    type(e).__name__,
+                    str(e)[:500],
+                )
+                raise
+
+            if not response.choices:
+                logger.error(
+                    "LLM returned no choices — model={} usage={}",
+                    model,
+                    response.usage,
+                )
+                raise RuntimeError(f"LLM returned no choices for model={model!r}")
+
+            choice = response.choices[0]
+            content = choice.message.content
+            finish_reason = choice.finish_reason
+
+            if finish_reason == "error" and not content:
+                logger.warning(
+                    "Provider returned finish_reason=error with empty content "
+                    "(attempt {}/{}) — model={} completion_tokens={}",
+                    _attempt, _max_retries, model,
+                    response.usage.completion_tokens if response.usage else "?",
+                )
+                if _attempt < _max_retries:
+                    _time.sleep(2 ** _attempt)
+                    continue
+
+            break
 
         choice = response.choices[0]
         content = choice.message.content

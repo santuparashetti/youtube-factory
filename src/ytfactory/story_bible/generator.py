@@ -21,6 +21,8 @@ You are a script analyst preparing a **Story Bible** for consistent AI image gen
 Read ALL narrations below.  Extract every recurring character, location, and world detail
 so that image prompts can reference locked descriptions instead of re-inventing them.
 
+{audience_directive}
+
 NARRATIONS (one per scene):
 {narrations}
 
@@ -69,16 +71,51 @@ RULES:
 - Do NOT invent details not supported by the narrations. Infer cultural context from the story.
 """
 
+_WESTERN_ENGLISH_BIBLE_DIRECTIVE = """\
+AUDIENCE & CHARACTER DIRECTIVE (MANDATORY — apply to ALL character and location descriptions):
+Target viewer: English-speaking (US, UK, AU, CA). The story may originate from any
+culture, but the VISUAL PRESENTATION must feel internationally relevant.
+
+CHARACTER RULES:
+- Default all characters to Western/European appearance: light to medium complexion,
+  Western clothing (tunics, cloaks, linen shirts, leather boots, simple trousers).
+- Indian/South Asian ethnic markers are FORBIDDEN as defaults: no dhoti, no kurta,
+  no saree, no bindi, no tilak, no charpai, no Sanskrit scrolls.
+- For kings/rulers: use medieval European royal garb (cloak, crown, embroidered tunic)
+  — not Indian royal attire.
+- For scholars/sages: European academic or monastery aesthetic — robes, leather-bound
+  books, stone study — not pandit's home with Sanskrit texts.
+
+LOCATION RULES:
+- Architecture: European medieval or universally rustic — stone castles, timber halls,
+  thatched cottages, cobblestone streets, European countryside.
+- Do NOT use: Indian palace architecture (sandstone with elephant carvings), Indian
+  village mud huts with thatched roofs, temple ghats, Indian riverbank architecture.
+- Rivers and natural environments are universal — keep them culturally neutral.
+
+The story's PHILOSOPHICAL MESSAGE is universal. Only the visual wrapping changes.
+Keep the narrative structure and emotional arc intact while adapting the visual culture.
+"""
+
 
 def generate_story_bible(
     narrations: list[str],
     llm: LLMProvider,
+    audience_profile: str = "western_english",
 ) -> StoryBible:
     """Single LLM call to extract a StoryBible from all scene narrations."""
     narration_block = "\n".join(
         f"Scene {i + 1}: {n}" for i, n in enumerate(narrations)
     )
-    prompt = _STORY_BIBLE_PROMPT.format(narrations=narration_block)
+    audience_directive = (
+        _WESTERN_ENGLISH_BIBLE_DIRECTIVE
+        if audience_profile == "western_english"
+        else ""
+    )
+    prompt = _STORY_BIBLE_PROMPT.format(
+        narrations=narration_block,
+        audience_directive=audience_directive,
+    )
 
     try:
         response = llm.generate(prompt, temperature=0.3)
@@ -112,6 +149,7 @@ def load_or_generate_story_bible(
     workspace_dir: str,
     narrations: list[str],
     llm: LLMProvider,
+    audience_profile: str = "western_english",
 ) -> StoryBible:
     """Load cached bible from disk, or generate and persist a new one."""
     bible_path = Path(workspace_dir) / project_id / "story-bible" / "bible.json"
@@ -124,7 +162,7 @@ def load_or_generate_story_bible(
         except Exception as e:
             logger.warning("Cached Story Bible invalid: {} — regenerating", e)
 
-    bible = generate_story_bible(narrations, llm)
+    bible = generate_story_bible(narrations, llm, audience_profile=audience_profile)
 
     bible_path.parent.mkdir(parents=True, exist_ok=True)
     bible_path.write_text(

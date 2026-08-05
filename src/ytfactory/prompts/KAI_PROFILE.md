@@ -47,15 +47,26 @@ pen resting unused beside it. Soft grey morning light from one window. Still."
 
 ### SPECTATOR
 A real historical figure, named person, or documented event is the primary subject.
-Kai is present but peripheral — a silent witness at the edge of the frame.
+Kai is present but barely noticeable — an ambient figure deep in the background,
+not a visible witness. He should look like someone who happened to be there, not
+someone watching the event. He is NEVER the focus of attention.
 
 Prompt construction:
-[Scene-specific historical staging] — [Brief Kai descriptor] at the edge, watching,
-still, not drawing attention.
+[Scene-specific historical staging] — [Brief Kai descriptor] small in the far
+background or at the very edge of the frame, partially obscured by environment
+elements (a pillar, a crowd, shadow, depth-of-field blur).
 
 Brief Kai descriptor for spectator mode:
-"a young man — lean, dark hair, simple dark shirt — standing at the periphery,
-watching in silence"
+"barely visible in the background — a young man, lean, dark hair, simple dark
+shirt, standing still among the periphery, partially obscured"
+
+SPECTATOR SCALE RULES:
+- Kai should occupy no more than 5-10% of the frame area in spectator scenes.
+- Place Kai at the furthest edge or deepest background plane of the composition.
+- Kai may be partially hidden behind architecture, crowd members, or environmental
+  elements — this is preferred over full visibility.
+- Kai should NEVER be in the foreground or midground of a spectator scene.
+- If the scene is crowded, Kai blends into the crowd — not standing apart from it.
 
 Do NOT use the full spec in spectator mode — it would compete with the primary subject.
 Brief descriptor only.
