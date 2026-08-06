@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from loguru import logger
-from video_core.cinematic.ffmpeg_filters import _t_factor, build_zoompan_filter
+from video_core.cinematic.ffmpeg_filters import build_zoompan_filter
 from ytfactory.config.settings import Settings
 
 # Legacy animation values (still supported when motion_spec is not provided).
@@ -349,8 +349,48 @@ class FFmpegRenderer:
             )
             concat_in_pads += [f"[_v{i}]", f"[_a{i}]"]
 
+            # ── Reflection beat hold segment ──────────────────────────────────
+            # A post-narration silent hold: same image, no motion, no subtitle,
+            # silence audio. Lets the viewer absorb the emotional content.
+            reflection = scene.get("scene_pacing", {}).get("reflection", {})
+            hold_dur = float(reflection.get("duration", 0.0)) if reflection.get("enabled") else 0.0
+            if hold_dur >= 0.5:
+                h_vid_inp = inp
+                h_aud_inp = inp + 1
+                inp += 2
+                h_tag = f"h{i}"
+
+                cmd += [
+                    "-loop", "1",
+                    "-framerate", str(fps),
+                    "-t", f"{hold_dur:.4f}",
+                    "-i", str(image),
+                ]
+                cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+
+                # Static scale — no zoompan, no subtitle, no motion
+                h_vf = (
+                    f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{H},"
+                    f"trim=duration={hold_dur:.4f},setpts=PTS-STARTPTS,"
+                    f"setsar=1,setdar=16/9,format=yuv420p"
+                )
+                filter_chains.append(f"[{h_vid_inp}:v]{h_vf}[_v{h_tag}]")
+                filter_chains.append(
+                    f"[{h_aud_inp}:a]"
+                    f"atrim=duration={hold_dur:.4f},asetpts=PTS-STARTPTS,"
+                    f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+                    f"[_a{h_tag}]"
+                )
+                concat_in_pads += [f"[_v{h_tag}]", f"[_a{h_tag}]"]
+                logger.debug(
+                    "Scene {:03d} | reflection hold {:.1f}s added", index, hold_dur
+                )
+
         # ── Concat filter ─────────────────────────────────────────────────────
-        n_segments = len(scenes) + (1 if intro_enabled and intro_seconds > 0 else 0)
+        # n_segments is derived from concat_in_pads (always accurate even when
+        # reflection hold segments have been injected into the stream).
+        n_segments = len(concat_in_pads) // 2
         pads_str = "".join(concat_in_pads)
         filter_chains.append(f"{pads_str}concat=n={n_segments}:v=1:a=1[_vout][_aout]")
 

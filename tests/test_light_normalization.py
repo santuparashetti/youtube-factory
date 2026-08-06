@@ -204,7 +204,7 @@ class TestLightNormalizationPipeline:
 
     def _make_pipeline(self, settings, mock_llm):
         with patch(
-            "ytfactory.light_normalization.pipeline.get_llm_provider",
+            "ytfactory.light_normalization.pipeline.get_llm_for_role",
             return_value=mock_llm,
         ):
             return LightNormalizationPipeline(settings)

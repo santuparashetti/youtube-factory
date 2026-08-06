@@ -551,7 +551,6 @@ class TwoPhasePipeline:
                 candidates.append(filename.replace("_", "-"))
             elif "-" in filename:
                 candidates.append(filename.replace("-", "_"))
-            image_path = images_dir / filename
             if not any((images_dir / c).is_file() for c in candidates):
                 missing.append((scene.get("scene_id", 0), filename))
 

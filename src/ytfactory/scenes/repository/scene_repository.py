@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from ytfactory.scenes.models import ScenePlan
-from ytfactory.shared.constants import WORKSPACE_DIR
 
 
 class SceneRepository:

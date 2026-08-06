@@ -77,6 +77,44 @@ class OpenAICompatibleProvider(LLMProvider):
                 # Loose JSON mode — guarantees syntactically valid JSON, not schema.
                 request_params["response_format"] = {"type": "json_object"}
 
+        # openrouter_provider = getattr(self._settings, "openrouter_provider", "")
+        # if openrouter_provider:
+        #     provider_order = [
+        #         p.strip() for p in openrouter_provider.split(",") if p.strip()
+        #     ]
+        #     allow_fallbacks = getattr(
+        #         self._settings, "openrouter_allow_fallbacks", True
+        #     )
+        #     request_params["extra_body"] = {
+        #         "provider": {
+        #             "order": provider_order,
+        #             "allow_fallbacks": allow_fallbacks,
+        #         },
+        #     }
+        openrouter_provider = getattr(self._settings, "openrouter_provider", None)
+        if (
+            openrouter_provider
+            and model.startswith("openai/")
+        ):
+            provider_order = [
+                p.strip()
+                for p in openrouter_provider.split(",")
+                if p.strip()
+            ]
+
+            allow_fallbacks = getattr(
+                self._settings,
+                "openrouter_allow_fallbacks",
+                True,
+            )
+
+            request_params["extra_body"] = {
+                "provider": {
+                    "order": provider_order,
+                    "allow_fallbacks": allow_fallbacks,
+                }
+            }
+
         import json as _json
         import time as _time
 

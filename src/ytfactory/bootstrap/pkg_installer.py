@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
-import sys
 
 from .models import CheckResult, CheckStatus
 

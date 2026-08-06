@@ -7,7 +7,7 @@ from loguru import logger
 
 from video_core.providers.llm.base import LLMProvider
 from ytfactory.composer.judge import JudgeVerdict
-from ytfactory.composer.pipeline import ComposerRehookMissingError, _validate_rehook_present
+from ytfactory.composer.pipeline import _validate_rehook_present
 
 
 def guided_recompose(

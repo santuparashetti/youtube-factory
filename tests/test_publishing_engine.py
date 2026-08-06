@@ -763,7 +763,7 @@ class TestPublishPipeline:
         from ytfactory.publish.pipeline import PublishPipeline
 
         config = PublishConfig(skip_thumbnail=True)
-        with patch("ytfactory.publish.pipeline.get_llm_provider", return_value=llm), \
+        with patch("ytfactory.publish.pipeline.get_llm_for_role", return_value=llm), \
              patch("ytfactory.publish.pipeline.get_image_provider", return_value=_image_mock()), \
              patch("ytfactory.publish.pipeline.ProjectRepository") as mock_repo_cls:
             mock_repo = MagicMock()
@@ -811,7 +811,7 @@ class TestPublishPipeline:
 
         from ytfactory.publish.pipeline import PublishPipeline
 
-        with patch("ytfactory.publish.pipeline.get_llm_provider", return_value=llm), \
+        with patch("ytfactory.publish.pipeline.get_llm_for_role", return_value=llm), \
              patch("ytfactory.publish.pipeline.get_image_provider", return_value=_image_mock()), \
              patch("ytfactory.publish.pipeline.ProjectRepository") as mock_repo_cls:
             mock_repo = MagicMock()

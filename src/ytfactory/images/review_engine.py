@@ -19,6 +19,7 @@ from loguru import logger
 
 from video_core.providers.image.base import ImageProvider
 from video_core.providers.vision import VisionProvider, VisionReviewResult
+from video_core.providers.vision.models import VisionIssue
 from video_core.domain.visual_metadata import VisualMetadata
 from video_core.visual_intelligence.prompt_package import PromptPackage
 

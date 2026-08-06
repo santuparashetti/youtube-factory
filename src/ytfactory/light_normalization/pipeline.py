@@ -29,7 +29,7 @@ from ytfactory.shared.scripture import (
     extract_scripture_spans,
     restore_scripture_spans,
 )
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 from .validator import NormalizationValidator, ValidationResult
@@ -54,7 +54,7 @@ class LightNormalizationPipeline:
     """
 
     def __init__(self, settings: Settings) -> None:
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "script")
         self._validator = NormalizationValidator()
 
     def run(

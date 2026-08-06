@@ -61,7 +61,7 @@ def mock_llm():
 
 @pytest.fixture
 def pipeline(settings, mock_llm):
-    with patch("ytfactory.editorial_qa.pipeline.get_llm_provider", return_value=mock_llm):
+    with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role", return_value=mock_llm):
         return EditorialQAPipeline(settings)
 
 
@@ -270,7 +270,7 @@ class TestEditorialQAPipeline:
     def test_disabled_is_full_noop(self, mock_llm, tmp_path):
         settings = MagicMock()
         settings.editorial_qa_enabled = False
-        with patch("ytfactory.editorial_qa.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = EditorialQAPipeline(settings)
         with patch("ytfactory.editorial_qa.pipeline.WORKSPACE_DIR", str(tmp_path)):
             result = pipeline.run("proj-disabled", script_text="Some script.")
@@ -286,7 +286,7 @@ class TestEditorialQAPipeline:
             with patch("ytfactory.editorial_qa.ledger._DEFAULT_LEDGER_PATH", ledger_path):
                 with patch("ytfactory.editorial_qa.promoter._DEFAULT_STATE_PATH", tmp_path / "editorial_qa" / "promotions.json"):
                     with patch("ytfactory.editorial_qa.promoter._DEFAULT_QA_ROOT", tmp_path / "jobs"):
-                        with patch("ytfactory.editorial_qa.promoter.get_llm_provider", return_value=MagicMock()):
+                        with patch("ytfactory.editorial_qa.promoter.get_llm_for_role", return_value=MagicMock()):
                             report = pipeline.run("proj-001", script_text="Some script.")
 
         assert report["invalid_checks"] == []
@@ -312,7 +312,7 @@ class TestEditorialQAPipeline:
             with patch("ytfactory.editorial_qa.ledger._DEFAULT_LEDGER_PATH", tmp_path / "editorial_qa" / "ledger.jsonl"):
                 with patch("ytfactory.editorial_qa.promoter._DEFAULT_STATE_PATH", tmp_path / "editorial_qa" / "promotions.json"):
                     with patch("ytfactory.editorial_qa.promoter._DEFAULT_QA_ROOT", tmp_path / "jobs"):
-                        with patch("ytfactory.editorial_qa.promoter.get_llm_provider", return_value=MagicMock()):
+                        with patch("ytfactory.editorial_qa.promoter.get_llm_for_role", return_value=MagicMock()):
                             report = pipeline.run("proj-002", script_text="Some script.")
 
         assert report["invalid_checks"] == ["sounds_translated"]
@@ -334,7 +334,7 @@ class TestEditorialQAPipeline:
             with patch("ytfactory.editorial_qa.ledger._DEFAULT_LEDGER_PATH", ledger_path):
                 with patch("ytfactory.editorial_qa.promoter._DEFAULT_STATE_PATH", tmp_path / "editorial_qa" / "promotions.json"):
                     with patch("ytfactory.editorial_qa.promoter._DEFAULT_QA_ROOT", tmp_path / "jobs"):
-                        with patch("ytfactory.editorial_qa.promoter.get_llm_provider", return_value=MagicMock()):
+                        with patch("ytfactory.editorial_qa.promoter.get_llm_for_role", return_value=MagicMock()):
                             report = pipeline.run("proj-negscore", script_text="Some script.")
 
         assert report["editorial_score"] == 10.0  # all clean -> derived score, not -9.2, not None
@@ -425,7 +425,7 @@ class TestPatternPromoter:
         return ledger
 
     def _promoter(self, settings, tmp_path, mock_llm):
-        with patch("ytfactory.editorial_qa.promoter.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.editorial_qa.promoter.get_llm_for_role", return_value=mock_llm):
             return PatternPromoter(
                 settings,
                 state_path=tmp_path / "promotions.json",
@@ -610,7 +610,7 @@ class TestEagleScriptFixture:
             with patch("ytfactory.editorial_qa.ledger._DEFAULT_LEDGER_PATH", tmp_path / "editorial_qa" / "ledger.jsonl"):
                 with patch("ytfactory.editorial_qa.promoter._DEFAULT_STATE_PATH", tmp_path / "editorial_qa" / "promotions.json"):
                     with patch("ytfactory.editorial_qa.promoter._DEFAULT_QA_ROOT", tmp_path / "jobs"):
-                        with patch("ytfactory.editorial_qa.promoter.get_llm_provider", return_value=MagicMock()):
+                        with patch("ytfactory.editorial_qa.promoter.get_llm_for_role", return_value=MagicMock()):
                             report = pipeline.run("proj-eagle", script_text=script_text)
 
         assert report["invalid_checks"] == []

@@ -37,7 +37,7 @@ from ytfactory.review.stages.content import ContentReviewStage
 from ytfactory.review.stages.production import ProductionQualityStage
 from ytfactory.review.stages.timeline import TimelineReviewStage
 from ytfactory.review.validation.config import ValidationRulesConfig
-from ytfactory.review.validation.models import ValidationReport, ValidationResult
+from ytfactory.review.validation.models import ValidationResult
 from ytfactory.review.validation.reporter import ValidationReporter
 from ytfactory.review.validation.runner import ValidationRunner
 from ytfactory.shared.constants import WORKSPACE_DIR

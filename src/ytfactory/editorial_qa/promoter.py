@@ -21,7 +21,7 @@ from ytfactory.agents.prompts.editorial_qa import build_promotion_proposal_promp
 from ytfactory.config.settings import Settings
 from ytfactory.editorial_qa.ledger import QALedger
 from ytfactory.shared.constants import WORKSPACE_DIR
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 
 _DEFAULT_STATE_PATH = Path(WORKSPACE_DIR).parent / "editorial_qa" / "promotions.json"
 _DEFAULT_QA_ROOT = Path(WORKSPACE_DIR)
@@ -66,7 +66,7 @@ def _gather_evidence_examples(
 class PatternPromoter:
     def __init__(self, settings: Settings, state_path: Path | None = None, qa_root: Path | None = None) -> None:
         self._settings = settings
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "validator")
         self._state_path = state_path or _DEFAULT_STATE_PATH
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._qa_root = qa_root or _DEFAULT_QA_ROOT

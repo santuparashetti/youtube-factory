@@ -25,7 +25,7 @@ from ytfactory.agents.prompts.script_writer import (
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
@@ -54,8 +54,6 @@ def script_writer_node(state: VideoState) -> dict:
     4. Duration validation: log PASS/FAIL diagnostic, persist duration_ok in script.json
     5. Save to workspace/jobs/{id}/script/script.md
     """
-    from pathlib import Path
-    from ytfactory.shared.constants import WORKSPACE_DIR
 
     project_id = state["project_id"]
     script_file = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
@@ -68,7 +66,7 @@ def script_writer_node(state: VideoState) -> dict:
         return {"script_md": script_file.read_text(encoding="utf-8")}
 
     settings = Settings()
-    llm = get_llm_provider(settings)
+    llm = get_llm_for_role(settings, "script")
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()
 

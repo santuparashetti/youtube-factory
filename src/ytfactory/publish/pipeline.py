@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ytfactory.config.settings import Settings
 from video_core.providers.image.factory import get_image_provider
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.publish.artifacts import publish_directory
 from ytfactory.publish.config import PublishConfig
 from ytfactory.publish.generators.chapters import ChaptersGenerator
@@ -50,7 +50,7 @@ class PublishPipeline:
         self._config = config or PublishConfig()
         self._settings = settings or Settings()
         self._projects = ProjectRepository()
-        self._llm = get_llm_provider(self._settings)
+        self._llm = get_llm_for_role(self._settings, "title")
         self._image = get_image_provider(self._settings)
 
     def run(self, project_id: str) -> PublishingPackage:
@@ -71,10 +71,6 @@ class PublishPipeline:
         # ── 1. Chapters ────────────────────────────────────────────────────
         print("  [1/7] Generating chapters…")
         chapters = ChaptersGenerator().generate(project_id, project_dir, scenes)
-
-        # Build chapters block for description prompt
-        chapters_lines = [f"{c.timestamp_str} {c.title}" for c in chapters]
-        chapters_block = "\n".join(chapters_lines)
 
         # ── 2. Title ───────────────────────────────────────────────────────
         print("  [2/7] Generating title…")

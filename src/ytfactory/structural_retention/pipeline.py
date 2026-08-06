@@ -33,7 +33,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import get_writer
 from ytfactory.shared.scripture import extract_scripture_spans, restore_scripture_spans
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 
 console = Console()
 
@@ -124,7 +124,7 @@ class StructuralRetentionPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "script")
 
     def run(self, project_id: str, script_text: str | None = None) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"

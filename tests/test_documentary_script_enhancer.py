@@ -128,7 +128,7 @@ def mock_llm():
 
 @pytest.fixture
 def pipeline(settings, mock_llm):
-    with patch("ytfactory.script_enhancer.pipeline.get_llm_provider", return_value=mock_llm):
+    with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role", return_value=mock_llm):
         return DocumentaryScriptEnhancerPipeline(settings)
 
 
@@ -557,7 +557,7 @@ class TestPipelineQualityGate:
             "---END SCORE---"
         )
 
-        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role") as mock_get_llm:
             mock_llm = MagicMock()
             mock_llm.generate.side_effect = [
                 MagicMock(text=SAMPLE_SCRIPT),
@@ -594,7 +594,7 @@ class TestPipelineQualityGate:
             "---END SCORE---"
         )
 
-        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role") as mock_get_llm:
             mock_llm = MagicMock()
             mock_llm.generate.side_effect = [
                 MagicMock(text=SAMPLE_SCRIPT),
@@ -624,7 +624,7 @@ class TestPipelineQualityGate:
             "---END SCORE---"
         )
 
-        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider") as mock_get_llm:
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role") as mock_get_llm:
             mock_llm = MagicMock()
             mock_llm.generate.side_effect = [
                 MagicMock(text=SAMPLE_SCRIPT),
@@ -737,7 +737,7 @@ class TestV2ScriptEnhancer:
             MagicMock(text=PASS3_EXPANDED),
         ]
 
-        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = DocumentaryScriptEnhancerPipeline(settings)
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -769,7 +769,7 @@ class TestV2ScriptEnhancer:
             MagicMock(text=PASS3_EXPANDED),
         ]
 
-        with patch("ytfactory.script_enhancer.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.script_enhancer.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = DocumentaryScriptEnhancerPipeline(settings)
 
         with patch("ytfactory.script_enhancer.pipeline.WORKSPACE_DIR", str(tmp_path)):

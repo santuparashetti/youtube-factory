@@ -322,41 +322,55 @@ class RenderingValidator(BaseValidator):
                         )
                     )
 
-        # REND_007: Final scene must be the dedicated brand card asset
+        # REND_007: Final scene must be the dedicated brand card asset.
+        # Skipped automatically when closing.enabled=false or no asset_path is
+        # configured — the brand card is opt-in, not a pipeline requirement.
         if self._config.is_enabled("REND_007") and scenes:
             last_scene = scenes[-1]
             brand_cfg = get_brand_config()
             expected_asset = brand_cfg.branding.asset_path
-            actual_type = last_scene.get("scene_type", "")
-            actual_asset = last_scene.get("asset_path", "")
-            if actual_type != "brand_card":
+            brand_card_active = brand_cfg.closing.enabled and bool(expected_asset)
+
+            if not brand_card_active:
                 results.append(
-                    self._fail(
+                    self._pass(
                         "REND_007",
-                        "Final scene is not the brand card asset",
-                        f"scene_type={actual_type!r}",
-                        "critical",
-                        scene_index=last_scene.get("index"),
-                    )
-                )
-            elif actual_asset != expected_asset:
-                results.append(
-                    self._fail(
-                        "REND_007",
-                        "Final brand card scene uses wrong asset path",
-                        f"asset_path={actual_asset!r}, expected={expected_asset!r}",
-                        "critical",
+                        "Brand card disabled — final generated scene accepted",
+                        "closing.enabled=false or no asset_path configured",
                         scene_index=last_scene.get("index"),
                     )
                 )
             else:
-                results.append(
-                    self._pass(
-                        "REND_007",
-                        "Final scene is the dedicated brand card asset",
-                        f"scene_type=brand_card, asset_path={actual_asset}",
-                        scene_index=last_scene.get("index"),
+                actual_type = last_scene.get("scene_type", "")
+                actual_asset = last_scene.get("asset_path", "")
+                if actual_type != "brand_card":
+                    results.append(
+                        self._fail(
+                            "REND_007",
+                            "Final scene is not the brand card asset",
+                            f"scene_type={actual_type!r}",
+                            "critical",
+                            scene_index=last_scene.get("index"),
+                        )
                     )
-                )
+                elif actual_asset != expected_asset:
+                    results.append(
+                        self._fail(
+                            "REND_007",
+                            "Final brand card scene uses wrong asset path",
+                            f"asset_path={actual_asset!r}, expected={expected_asset!r}",
+                            "critical",
+                            scene_index=last_scene.get("index"),
+                        )
+                    )
+                else:
+                    results.append(
+                        self._pass(
+                            "REND_007",
+                            "Final scene is the dedicated brand card asset",
+                            f"scene_type=brand_card, asset_path={actual_asset}",
+                            scene_index=last_scene.get("index"),
+                        )
+                    )
 
         return results

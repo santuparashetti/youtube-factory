@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 
-from video_core.cinematic.profiles import ProfileConfig, get_profile_config
+from video_core.cinematic.profiles import ProfileConfig, get_acceptable_motions, get_profile_config
 from video_core.providers.tts.emotion import classify_scene
 
 logger = logging.getLogger(__name__)
@@ -771,6 +771,28 @@ def _apply_visual_metadata_overrides(
     return motion_type, scale_tier
 
 
+# ── Distribution-aware variety ──────────────────────────────────────────────
+
+_DISTRIBUTION_TOLERANCE = 0.10
+
+
+def _distribution_family(motion_type: str) -> str:
+    """Classify motion_type into a distribution target family.
+
+    push  (45%): push_*, macro_detail  — zoom-in motions
+    pull  (20%): pull_*, reveal_*      — zoom-out / reveal motions
+    drift (25%): drift_*, tilt_up      — lateral/vertical pan, dolly, parallax
+    static(10%): static, hold_*        — held or breathing shots
+    """
+    if motion_type.startswith("push") or motion_type == "macro_detail":
+        return "push"
+    if motion_type.startswith(("pull", "reveal")):
+        return "pull"
+    if motion_type.startswith("drift") or motion_type in ("macro_drift", "tilt_up"):
+        return "drift"
+    return "static"
+
+
 # ── Motion Planner ────────────────────────────────────────────────────────────
 
 
@@ -819,6 +841,9 @@ class MotionPlanner:
 
         prev_motion_type = None
         repeat_count = 0
+        targets = cfg.distribution_targets
+        family_counts: dict[str, int] = {}
+        generated_count = 0
 
         for scene in scenes:
             scene_position = (
@@ -840,19 +865,49 @@ class MotionPlanner:
             else:
                 repeat_count = 1
 
-            # brand_card must stay static — never swapped out by the
-            # repeat-run variety override below.
-            if repeat_count >= 3 and scene_type != "brand_card":
+            # Variety trigger: consecutive repeat OR distribution over-representation.
+            should_swap = repeat_count >= 3
+            if (
+                not should_swap
+                and targets
+                and generated_count > 5
+                and scene_type not in ("asset", "brand_card")
+            ):
+                family = _distribution_family(motion_type)
+                actual_pct = family_counts.get(family, 0) / generated_count
+                target_pct = targets.get(family, 0.20)
+                if actual_pct > target_pct + _DISTRIBUTION_TOLERANCE:
+                    should_swap = True
+
+            if should_swap and scene_type != "brand_card":
                 scene_duration = float(scene.get("duration_seconds", 5.0))
                 shot_type = scene.get("shot_type", "")
-                alts = []
-                seen: set[str] = set()
-                for mt, _ in cfg.motion_map.values():
-                    if mt != motion_type and mt not in seen:
-                        alts.append(mt)
-                        seen.add(mt)
-                if alts:
-                    alt = alts[(scene["index"] - 1) % len(alts)]
+
+                if targets and generated_count > 0:
+                    candidates = [
+                        mt for mt in get_acceptable_motions(spec.emotion)
+                        if mt != motion_type
+                    ]
+                    if candidates:
+                        candidates.sort(
+                            key=lambda mt: (
+                                family_counts.get(_distribution_family(mt), 0)
+                                / max(generated_count, 1)
+                            ) - targets.get(_distribution_family(mt), 0.20)
+                        )
+                        alt = candidates[0]
+                    else:
+                        alt = None
+                else:
+                    alts = []
+                    seen: set[str] = set()
+                    for mt, _ in cfg.motion_map.values():
+                        if mt != motion_type and mt not in seen:
+                            alts.append(mt)
+                            seen.add(mt)
+                    alt = alts[(scene["index"] - 1) % len(alts)] if alts else None
+
+                if alt:
                     scale_tier = next(
                         (st for mt, st in cfg.motion_map.values() if mt == alt),
                         next(
@@ -884,6 +939,11 @@ class MotionPlanner:
 
             scene["motion"] = spec.to_dict()
             prev_motion_type = spec.motion_type
+
+            if scene_type not in ("asset", "brand_card"):
+                fam = _distribution_family(spec.motion_type)
+                family_counts[fam] = family_counts.get(fam, 0) + 1
+                generated_count += 1
 
         return scenes
 
@@ -926,7 +986,7 @@ class MotionPlanner:
         # Breathing/tripod are subtle by design — fine for a short held
         # shot, but on a long scene the near-static oscillation reads as
         # "nothing is happening" rather than a deliberate slow hold.
-        if motion_type in ("hold_breathing", "hold_tripod") and scene_duration > 8.0:
+        if motion_type in ("static", "hold_breathing", "hold_tripod", "hold_locked") and scene_duration > 8.0:
             motion_type = "drift_float"
             scale_tier = "small"
 

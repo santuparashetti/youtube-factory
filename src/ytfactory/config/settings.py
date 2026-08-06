@@ -226,6 +226,13 @@ class Settings(SharedSettings):
     # directive instead of drifting to generic "spiritual documentary" imagery.
     visual_anchor_enabled: bool = True
 
+    # Cinematic Pacing System — batch LLM pass that assigns reflection beats
+    # (post-narration hold), music actions, and a global director pass to every
+    # scene. Produces scene_pacing dicts stored in scene-plan.json.
+    # The video renderer consumes reflection.duration to insert silent hold
+    # segments after narration ends; music.action is informational (BGM future use).
+    cinematic_pacing_enabled: bool = True
+
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------

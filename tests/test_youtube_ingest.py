@@ -172,7 +172,7 @@ class TestTranscriptionPipeline:
 class TestTranslationPipeline:
     def test_raises_when_no_transcript(self, tmp_path):
         settings = MagicMock()
-        with patch("ytfactory.youtube_ingest.pipeline.get_llm_provider", return_value=MagicMock()):
+        with patch("ytfactory.youtube_ingest.pipeline.get_llm_for_role", return_value=MagicMock()):
             pipeline = TranslationPipeline(settings)
         with patch("ytfactory.youtube_ingest.pipeline.WORKSPACE_DIR", str(tmp_path)):
             with pytest.raises(FileNotFoundError):
@@ -187,7 +187,7 @@ class TestTranslationPipeline:
         mock_llm.generate.return_value = _make_response("A bird built a nest.")
 
         settings = MagicMock()
-        with patch("ytfactory.youtube_ingest.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.youtube_ingest.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = TranslationPipeline(settings)
 
         with patch("ytfactory.youtube_ingest.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -211,7 +211,7 @@ class TestTranslationPipeline:
 
         mock_llm = MagicMock()
         settings = MagicMock()
-        with patch("ytfactory.youtube_ingest.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.youtube_ingest.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = TranslationPipeline(settings)
 
         with patch("ytfactory.youtube_ingest.pipeline.WORKSPACE_DIR", str(tmp_path)):

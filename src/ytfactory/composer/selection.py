@@ -27,7 +27,6 @@ from ytfactory.composer.judge import JudgeVerdict, judge_scripts
 from ytfactory.composer.pipeline import ComposerPipeline, ComposerRehookMissingError
 from ytfactory.composer.recomposer import guided_recompose
 from ytfactory.shared.constants import WORKSPACE_DIR
-from ytfactory.shared.pipeline_status import PipelineAbort
 
 console = Console()
 

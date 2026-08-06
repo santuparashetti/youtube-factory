@@ -1111,6 +1111,74 @@ def build_scene_analysis_section(analysis_map: dict[int, dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Cinematic Pacing System ───────────────────────────────────────────────────
+# Single batch LLM call over all scenes. Produces per-scene reflection beats
+# (post-narration silent hold) and music metadata (action, mood, intensity).
+# The director pass (pure Python) enforces distribution targets after this call.
+#
+# Music schema stored in scene_pacing["music"]:
+#   action    — what the BGM should do: continue | continue_softly | slight_swell |
+#               emotional_swell | resolve | fade | fade_to_silence | hold
+#   mood      — emotional character: neutral | reflective | building | dramatic |
+#               resolving | fading
+#   intensity — target music presence 0.0–1.0 (BGM mixer future use; 0=silent, 1=full)
+
+_PACING_TEMPLATE = """\
+You are a documentary film editor assigning cinematic pacing to {total} scenes.
+
+SCENES (index | emotional_beat | narration excerpt):
+{scene_list}
+
+REFLECTION BEAT RULES:
+1. Add ONLY after: philosophical insight, emotional realization, turning point, \
+climax, moral conclusion, final contemplation. NOT after every scene.
+2. Limit: at most {max_reflections} reflection-enabled scenes ({pct}% of {total}).
+3. Never enable two consecutive scenes.
+4. Last scene (index {last_idx}): ALWAYS enabled, duration 5.0–8.0.
+5. Duration — minor: 1.5–2.0 | normal: 2.5–3.0 | major: 3.5–5.0 | ending: 5.0–8.0
+
+MUSIC FIELDS (assign all three per scene):
+action:    continue | continue_softly | slight_swell | emotional_swell | resolve | fade
+mood:      neutral | reflective | building | dramatic | resolving | fading
+intensity: 0.0–1.0  (music presence; lower = more ducked)
+
+Action guide: insight→continue_softly/reflective/0.3 | turning_point→slight_swell/building/0.55 \
+| climax→emotional_swell/dramatic/0.85 | after_climax→resolve/resolving/0.5 \
+| ending→continue_softly/reflective/0.3 | default→continue/neutral/0.5
+
+Return ONLY valid JSON. Keys are scene index as strings. Each value is an object:
+{{"1": {{"enabled": false, "duration": 0.0, "action": "continue", "mood": "neutral", "intensity": 0.5}}, \
+"2": {{"enabled": true, "duration": 2.8, "action": "continue_softly", "mood": "reflective", "intensity": 0.3}}, ...}}
+
+Return ALL {total} entries. No markdown, no explanation.\
+"""
+
+_VALID_MOODS: frozenset[str] = frozenset({
+    "neutral", "reflective", "building", "dramatic", "resolving", "fading",
+})
+
+
+def build_pacing_prompt(scenes: list[dict]) -> str:
+    """Build a batch prompt for the Cinematic Pacing pass."""
+    total = len(scenes)
+    max_reflections = max(2, int(total * 0.22))
+    last_idx = scenes[-1]["index"] if scenes else 1
+
+    lines: list[str] = []
+    for s in scenes:
+        beat = (s.get("scene_analysis") or {}).get("emotional_beat", "—")
+        narration_excerpt = s.get("narration", "")[:60].rstrip(" ,.")
+        lines.append(f"  {s['index']} | {beat} | {narration_excerpt}")
+
+    return _PACING_TEMPLATE.format(
+        total=total,
+        max_reflections=max_reflections,
+        pct=22,
+        last_idx=last_idx,
+        scene_list="\n".join(lines),
+    )
+
+
 # ── Legacy constants (kept for backward compatibility) ────────────────────────
 
 PLAN_SCENES = _PLAN_SCENES_TEMPLATE.replace("{style_guide}", _DEFAULT_STYLE_GUIDE)

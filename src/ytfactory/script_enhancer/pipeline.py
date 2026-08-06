@@ -48,7 +48,7 @@ from ytfactory.shared.scripture import (
     restore_scripture_spans,
 )
 from ytfactory.shared.script_utils import strip_script_heading
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import PipelineAbort, get_writer
 
@@ -452,7 +452,6 @@ def _write_script_segments(script_text: str, script_dir: Path) -> None:
 
     brand_cfg = get_brand_config()
     opening_lower = brand_cfg.opening.text().lower().strip()
-    opening_fragments = [frag.strip() for frag in opening_lower.replace("...", "").replace(",", "").split() if frag.strip()]
 
     segments = []
     kept_paragraphs = []
@@ -514,7 +513,7 @@ class DocumentaryScriptEnhancerPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "script")
         self._validator = DocumentaryEnhancerValidator()
 
     def _should_abort(self) -> bool:

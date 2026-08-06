@@ -100,7 +100,6 @@ class BenchmarkReporter:
             _h("| Scene | Expected | Result | Hard Fail | Detected Rules | Score | Latency |")
             _h("|-------|----------|--------|-----------|----------------|-------|---------|")
             for r in results:
-                label = _label(r)
                 expected = "BAD" if r.expected_failures else "GOOD"
                 detected = ", ".join(r.detected_failures) if r.detected_failures else "—"
                 fail_mark = "✓" if r.hard_fail else "—"
@@ -113,8 +112,8 @@ class BenchmarkReporter:
             if m:
                 _h("### Classification metrics")
                 _h("")
-                _h(f"| Metric | Value |")
-                _h(f"|--------|-------|")
+                _h("| Metric | Value |")
+                _h("|--------|-------|")
                 _h(f"| True Positives  | {m.tp} |")
                 _h(f"| False Positives | {m.fp} |")
                 _h(f"| True Negatives  | {m.tn} |")
@@ -126,8 +125,8 @@ class BenchmarkReporter:
                 _h("")
                 _h("### Quality scores (avg across all scenes)")
                 _h("")
-                _h(f"| Dimension | Score |")
-                _h(f"|-----------|-------|")
+                _h("| Dimension | Score |")
+                _h("|-----------|-------|")
                 _h(f"| Narrative  | {m.avg_narrative:.1f} |")
                 _h(f"| Technical  | {m.avg_technical:.1f} |")
                 _h(f"| Cinematic  | {m.avg_cinematic:.1f} |")

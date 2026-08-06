@@ -19,7 +19,7 @@ from ytfactory.agents.prompts.research import (
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from video_core.providers.search.factory import get_search_provider
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
@@ -96,7 +96,7 @@ def research_node(state: VideoState) -> dict:
         }
 
     settings = Settings()
-    llm = get_llm_provider(settings)
+    llm = get_llm_for_role(settings, "research")
     search = get_search_provider(settings)
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()

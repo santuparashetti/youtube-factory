@@ -481,13 +481,6 @@ class StoryFidelityValidator:
         # to depict must never be treated as a forbidden object (see the
         # FORBIDDEN_OBJECT metaphor guard below).
         required_visual_lower = (narration + " " + visual_anchor).lower()
-        allowed_characters = [
-            c.lower() for c in scene_analysis.get("allowed_characters", [])
-        ]
-        scene_characters = [
-            c.lower() for c in scene_analysis.get("scene_characters", [])
-            if c
-        ] or allowed_characters
         no_chars_extracted = not scene_analysis.get("characters")
 
         for token in self._BANNED_INVENTED:

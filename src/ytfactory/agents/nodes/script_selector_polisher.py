@@ -27,7 +27,7 @@ from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from video_core.providers.llm.base import LLMProvider
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 
 # ── System prompt (used verbatim — do not improvise) ──────────────────────────
 SYSTEM_PROMPT = """You are a final polish editor for Atma Theory, a philosophical YouTube channel. Your job is precise and constrained.
@@ -116,21 +116,12 @@ def _load_composer_guidelines() -> str:
 
 
 def _get_polisher_llm(settings: Settings) -> LLMProvider:
-    """LLM provider pointed at `script_polisher_model` via the model-override
-    pattern (same provider/base_url/api_key, different model name)."""
-    model = settings.script_polisher_model
-    provider_type = settings.llm_provider.lower()
-    field = {
-        "anthropic": "anthropic_model",
-        "gemini": "gemini_text_model",
-        "groq": "groq_model",
-        "ollama": "ollama_model",
-        "deepinfra": "deepinfra_model",
-    }.get(provider_type)
-
-    if model and field:
-        return get_llm_provider(settings.model_copy(update={field: model}))
-    return get_llm_provider(settings)
+    """LLM provider pointed at ``script_polisher_model`` via the role-based
+    factory — uses the "script" role as base, with an explicit override to the
+    polisher model."""
+    return get_llm_for_role(
+        settings, "script", model_override=settings.script_polisher_model
+    )
 
 
 def _build_user_prompt(script_a: str, script_b: str, composer_guidelines: str,

@@ -14,7 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from video_core.providers.llm.base import LLMProvider
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.agents.prompts.branding import (
     CLOSING_VARIATIONS,
     SOFT_CTA,
@@ -24,6 +24,7 @@ from ytfactory.agents.prompts.scene_planner import (
     ENTITY_EXTRACTION_PROMPT,
     FAITHFULNESS_VALIDATION_PROMPT,
     build_llm_validation_prompt,
+    build_pacing_prompt,
     build_scene_analysis_prompt,
     build_scene_analysis_section,
     build_visual_prompts_prompt,
@@ -1151,25 +1152,7 @@ def _get_cheap_llm(settings: Settings, purpose: str) -> LLMProvider:
         "llm_validation": settings.faithfulness_validator_model,
     }.get(purpose, "")
 
-    if not model_override:
-        return get_llm_provider(settings)
-
-    provider_type = settings.llm_provider.lower()
-    update: dict = {}
-    if provider_type == "anthropic":
-        update["anthropic_model"] = model_override
-    elif provider_type == "gemini":
-        update["gemini_text_model"] = model_override
-    elif provider_type == "groq":
-        update["groq_model"] = model_override
-    elif provider_type == "ollama":
-        update["ollama_model"] = model_override
-    elif provider_type == "deepinfra":
-        update["deepinfra_model"] = model_override
-
-    if update:
-        return get_llm_provider(settings.model_copy(update=update))
-    return get_llm_provider(settings)
+    return get_llm_for_role(settings, "validator", model_override=model_override)
 
 
 def _parse_json_response(text: str) -> dict | None:
@@ -2411,6 +2394,164 @@ def _generate_vp_sub_batches(
     return merged or None
 
 
+# ── Cinematic Pacing System ────────────────────────────────────────────────────
+
+_VALID_MUSIC_ACTIONS: frozenset[str] = frozenset({
+    "continue", "continue_softly", "slight_swell",
+    "emotional_swell", "resolve", "fade", "fade_to_silence", "hold",
+})
+
+# Imported at call site from the prompts module — defined here for node-level validation.
+_VALID_MOODS: frozenset[str] = frozenset({
+    "neutral", "reflective", "building", "dramatic", "resolving", "fading",
+})
+
+# Default music entry used when the LLM omits or mis-formats a field.
+_DEFAULT_MUSIC: dict = {"action": "continue", "mood": "neutral", "intensity": 0.5}
+
+
+def _parse_music_fields(val: dict) -> dict:
+    """Extract and validate music fields from a parsed pacing dict entry."""
+    action = str(val.get("action", "continue"))
+    if action not in _VALID_MUSIC_ACTIONS:
+        action = "continue"
+    mood = str(val.get("mood", "neutral"))
+    if mood not in _VALID_MOODS:
+        mood = "neutral"
+    try:
+        intensity = float(val.get("intensity", 0.5))
+        intensity = max(0.0, min(1.0, intensity))
+    except (TypeError, ValueError):
+        intensity = 0.5
+    return {"action": action, "mood": mood, "intensity": intensity}
+
+
+def _run_pacing_pass(
+    scenes: list[dict],
+    llm_client: LLMProvider,
+) -> dict[int, dict]:
+    """Single batch LLM call → per-scene pacing dict.
+
+    Returns {scene_index: {"enabled": bool, "duration": float,
+                           "music": {"action": str, "mood": str, "intensity": float}}}.
+    Non-blocking: on any failure returns an empty dict so scenes render unchanged.
+    """
+    if not scenes:
+        return {}
+
+    prompt = build_pacing_prompt(scenes)
+    try:
+        response = llm_client.generate(prompt, temperature=0.0, json_mode=True)
+        raw = _parse_json_response(response.text)
+        if not isinstance(raw, dict):
+            logger.warning("Pacing LLM returned non-dict; skipping pacing pass")
+            return {}
+    except Exception as exc:
+        logger.warning("Pacing LLM call failed: {} — skipping pacing pass", exc)
+        return {}
+
+    result: dict[int, dict] = {}
+    for key, val in raw.items():
+        try:
+            idx = int(key)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(val, dict):
+            continue
+
+        enabled = bool(val.get("enabled", False))
+        try:
+            duration = float(val.get("duration", 0.0))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if not enabled:
+            duration = 0.0
+
+        result[idx] = {
+            "enabled": enabled,
+            "duration": duration,
+            "music": _parse_music_fields(val),
+        }
+
+    return result
+
+
+def _apply_director_pass(
+    scenes: list[dict],
+    pacing_map: dict[int, dict],
+) -> dict[int, dict]:
+    """Pure-Python global review pass — enforces distribution without an LLM call.
+
+    Rules enforced (in order):
+    1. No consecutive reflection beats — remove the shorter of any adjacent pair.
+    2. Final generated (non-asset) scene always gets an ending reflection ≥5.0s.
+    3. If total reflections exceed 25% of scene count, trim lowest-priority ones
+       (those with "continue" action and shortest duration, excluding final).
+    """
+    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    if not gen_scenes:
+        return pacing_map
+
+    pacing = dict(pacing_map)  # copy — don't mutate the input
+
+    def _default_entry() -> dict:
+        return {"enabled": False, "duration": 0.0, "music": dict(_DEFAULT_MUSIC)}
+
+    # Ensure every scene has an entry (default = no reflection)
+    for s in gen_scenes:
+        if s["index"] not in pacing:
+            pacing[s["index"]] = _default_entry()
+
+    # Rule 1: no consecutive reflection beats
+    indices = [s["index"] for s in gen_scenes]
+    for i in range(1, len(indices)):
+        prev_idx = indices[i - 1]
+        curr_idx = indices[i]
+        prev = pacing.get(prev_idx, {})
+        curr = pacing.get(curr_idx, {})
+        if prev.get("enabled") and curr.get("enabled"):
+            # Keep the longer; disable the shorter
+            if curr.get("duration", 0) >= prev.get("duration", 0):
+                pacing[prev_idx]["enabled"] = False
+                pacing[prev_idx]["duration"] = 0.0
+            else:
+                pacing[curr_idx]["enabled"] = False
+                pacing[curr_idx]["duration"] = 0.0
+
+    # Rule 2: final generated scene must have an ending reflection ≥5.0s
+    final_idx = gen_scenes[-1]["index"]
+    final_p = pacing.setdefault(final_idx, _default_entry())
+    if not final_p.get("enabled") or final_p.get("duration", 0.0) < 5.0:
+        final_p["enabled"] = True
+        final_p["duration"] = max(5.0, final_p.get("duration", 0.0))
+        final_p["music"] = {"action": "continue_softly", "mood": "reflective", "intensity": 0.3}
+
+    # Rule 3: trim excess reflections (>25%)
+    max_allowed = max(2, int(len(gen_scenes) * 0.25))
+    enabled_indices = [idx for idx in indices if pacing.get(idx, {}).get("enabled")]
+    if len(enabled_indices) > max_allowed:
+        # Candidates: exclude final; prefer "continue" action and shortest duration
+        removable = sorted(
+            [i for i in enabled_indices if i != final_idx],
+            key=lambda i: (
+                pacing[i].get("music", {}).get("action", "continue") == "continue",
+                -pacing[i].get("duration", 0.0),
+            ),
+            reverse=True,
+        )
+        for idx in removable[: len(enabled_indices) - max_allowed]:
+            pacing[idx]["enabled"] = False
+            pacing[idx]["duration"] = 0.0
+
+    enabled_count = sum(1 for i in indices if pacing.get(i, {}).get("enabled"))
+    logger.info(
+        "Cinematic Pacing: {}/{} scenes with reflection beats (director pass applied)",
+        enabled_count,
+        len(gen_scenes),
+    )
+    return pacing
+
+
 def scene_planner_node(state: VideoState) -> dict:
     """
     Scene Planner Agent:
@@ -2421,7 +2562,7 @@ def scene_planner_node(state: VideoState) -> dict:
     5. Save scene-plan.json + scene-plan.md
     """
     settings = Settings()
-    llm = get_llm_provider(settings)
+    llm = get_llm_for_role(settings, "scene_planner")
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()
 
@@ -2661,6 +2802,37 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(
             f"  [green]✓[/green] Visual anchors: {len(visual_anchors)}/{len(generated_scenes)} scenes"
         )
+
+    # ── Cinematic Pacing System ───────────────────────────────────────────────
+    # Single batch call → per-scene reflection beats + music actions.
+    # Director pass (pure Python) enforces distribution targets.
+    # Non-blocking: if LLM fails, scenes get no pacing metadata and render unchanged.
+    if settings.cinematic_pacing_enabled:
+        console.print("  [cyan]→[/cyan] Cinematic Pacing: assigning reflection beats...")
+        _pacing_llm = _get_cheap_llm(settings, "extraction")
+        pacing_map = _run_pacing_pass(generated_scenes, _pacing_llm)
+        if pacing_map:
+            pacing_map = _apply_director_pass(scenes, pacing_map)
+            for scene in scenes:
+                idx = scene["index"]
+                p = pacing_map.get(idx)
+                if p:
+                    scene["scene_pacing"] = {
+                        "reflection": {
+                            "enabled": p["enabled"],
+                            "duration": p["duration"],
+                        },
+                        "music": p["music"],
+                    }
+            enabled_count = sum(
+                1 for s in scenes if s.get("scene_pacing", {}).get("reflection", {}).get("enabled")
+            )
+            console.print(
+                f"  [green]✓[/green] Pacing: {enabled_count}/{len(generated_scenes)} "
+                f"reflection beats assigned"
+            )
+        else:
+            console.print("  [yellow]⚠[/yellow] Pacing LLM failed — proceeding without reflection beats")
 
     console.print(
         f"  [cyan]→[/cyan] Phase 2: generating visual prompts "

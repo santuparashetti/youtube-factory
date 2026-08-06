@@ -31,7 +31,7 @@ from rich.console import Console
 
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 
 console = Console()
 
@@ -196,7 +196,7 @@ class TranslationPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "script")
 
     def run(self, project_id: str) -> str:
         ingest_dir = _ingest_dir(project_id)

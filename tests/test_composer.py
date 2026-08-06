@@ -68,7 +68,7 @@ def mock_llm():
 @pytest.fixture
 def pipeline(mock_llm):
     settings = MagicMock()
-    with patch("ytfactory.composer.pipeline.get_llm_provider", return_value=mock_llm):
+    with patch("ytfactory.composer.pipeline.get_llm_for_role", return_value=mock_llm):
         return ComposerPipeline(settings)
 
 

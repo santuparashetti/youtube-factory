@@ -18,7 +18,7 @@ from ytfactory.images.prompt_engine import (
 )
 from ytfactory.images.repository import ImageRepository
 from ytfactory.images.review_config import EscalationConfig, ImageReviewConfig
-from ytfactory.images.review_engine import write_image_quality_summary
+from ytfactory.images.review_engine import ImageReviewEngine, write_image_quality_summary
 from ytfactory.images.review_models import SceneReviewArtifact
 from video_core.providers.image.factory import get_image_provider
 from ytfactory.workflow.image_remediation_orchestrator import ImageRemediationOrchestrator

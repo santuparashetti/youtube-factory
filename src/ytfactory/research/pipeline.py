@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
 from ytfactory.config.settings import Settings
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from video_core.providers.search.factory import get_search_provider
 from ytfactory.research.models import ResearchResult
 from ytfactory.research.prompts import PromptBuilder
@@ -20,7 +20,7 @@ class ResearchPipeline:
 
         self.search = get_search_provider(settings)
 
-        self.llm = get_llm_provider(settings)
+        self.llm = get_llm_for_role(settings, "research")
 
         self.prompts = PromptBuilder()
 

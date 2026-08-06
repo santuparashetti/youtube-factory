@@ -191,11 +191,11 @@ class VoicePipeline:
         style: str = "spiritual",
         language: str = "en",
     ) -> None:
-        provider = self._ensure_provider()
         if not self._settings.voice_enabled:
             logger.info("VOICE_ENABLED=false — skipping narration generation")
             return
 
+        self._ensure_provider()
         scene_file = (
             Path("workspace") / "jobs" / project_id / "scenes" / "scene-plan.json"
         )

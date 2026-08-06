@@ -21,9 +21,9 @@ def get_subtitle_editor_provider(settings) -> SubtitleEditorProvider:
 
     if name == "llm":
         from .providers.llm_provider import LLMSubtitleEditor
-        from video_core.providers.llm.factory import get_llm_provider
+        from video_core.providers.llm.factory import get_llm_for_role
 
-        return LLMSubtitleEditor(get_llm_provider(settings))
+        return LLMSubtitleEditor(get_llm_for_role(settings, "subtitle"))
 
     raise ValueError(
         f"Unknown subtitle_editor_provider: {name!r}. Use 'llm' or 'mock'."

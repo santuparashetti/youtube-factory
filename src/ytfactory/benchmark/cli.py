@@ -116,7 +116,7 @@ def vision_review(
 
     # ── Write report ──────────────────────────────────────────────────────
     reporter = BenchmarkReporter()
-    md_path = reporter.write(report, out_path)
+    reporter.write(report, out_path)
 
     # ── Print summary to console ──────────────────────────────────────────
     _console.print("\n[bold]Results[/bold]\n")

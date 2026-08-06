@@ -37,6 +37,13 @@ class SharedSettings(BaseSettings):
     groq_api_key: str = Field(default="")
     anthropic_api_key: str = Field(default="")
     anthropic_base_url: str = Field(default="")
+
+    # OpenRouter provider routing — pin requests to a specific upstream
+    # provider so model routing is deterministic (no silent fallbacks).
+    # Empty string = let OpenRouter decide (default behavior).
+    openrouter_provider: str = ""
+    openrouter_allow_fallbacks: bool = True
+
     kokoro_api_key: str = Field(default="")
 
     # ------------------------------------------------------------------
@@ -58,6 +65,26 @@ class SharedSettings(BaseSettings):
     # (HTTP 429). Does NOT affect image generation, TTS, WhisperX, or rendering.
     # Validated to 1..100 at load time.
     vision_max_concurrency: int = 1
+
+    # ------------------------------------------------------------------
+    # Per-Role LLM Models (provider-agnostic)
+    # ------------------------------------------------------------------
+    # Provider-agnostic default model — used by all pipeline stages unless
+    # overridden by a per-role field below.  Replaces the old pattern of
+    # using ANTHROPIC_MODEL as the implicit default for everything.
+    # Resolution: per-role field > LLM_DEFAULT_MODEL > provider-specific
+    # model (ANTHROPIC_MODEL, GEMINI_TEXT_MODEL, etc.).
+    llm_default_model: str = ""
+
+    # Each pipeline stage can use a different model by setting the
+    # corresponding env var (e.g. SCRIPT_MODEL=openai/gpt-5.6-luna-pro).
+    # Empty string = fall back to LLM_DEFAULT_MODEL, then provider default.
+    # These are resolved by get_llm_for_role() in the factory.
+    script_model: str = ""
+    scene_planner_model: str = ""
+    research_model: str = ""
+    title_model: str = ""
+    subtitle_model: str = ""
 
     # ------------------------------------------------------------------
     # Models

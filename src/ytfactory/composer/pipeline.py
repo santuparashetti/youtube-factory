@@ -36,7 +36,7 @@ from ytfactory.shared.scripture import (
     extract_scripture_spans,
     restore_scripture_spans,
 )
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 
 console = Console()
 
@@ -60,7 +60,7 @@ def _validate_rehook_present(script_text: str) -> bool:
     echoes a key noun/phrase from the first 15% of the script.
     Fails fast rather than false-passing.
     """
-    lines = [l.strip() for l in script_text.splitlines() if l.strip()]
+    lines = [line.strip() for line in script_text.splitlines() if line.strip()]
     if len(lines) < 8:
         return False  # empty or too short — no rehook by definition
     opening_window = " ".join(lines[:max(3, len(lines) // 7)]).lower()
@@ -75,7 +75,7 @@ class ComposerPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "script")
 
     @property
     def provider(self):
@@ -122,8 +122,8 @@ class ComposerPipeline:
 
         # Rehook gate — structural check before scene planning.
         if not _validate_rehook_present(composed):
-            opening_lines = [l for l in composed.splitlines() if l.strip()][:3]
-            closing_lines = [l for l in composed.splitlines() if l.strip()][-3:]
+            opening_lines = [line for line in composed.splitlines() if line.strip()][:3]
+            closing_lines = [line for line in composed.splitlines() if line.strip()][-3:]
             raise ComposerRehookMissingError(
                 "Composer output missing rehook. Aborting before scene planning. "
                 "Re-run to regenerate, or add a rehook manually and resume.\n"

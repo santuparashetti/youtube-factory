@@ -62,6 +62,7 @@ class ProfileConfig:
     motion_map: dict[str, tuple[str, str]]
     reference_duration_seconds: float = 5.0
     max_drift_scale_factor: float = 2.0
+    distribution_targets: dict[str, float] | None = None
 
 
 # ── Emotion → (motion_type, scale_tier) maps ─────────────────────────────────
@@ -98,9 +99,9 @@ _CINEMATIC_MAP: dict[str, tuple[str, str]] = {
     "compassion": ("pull_ending", "medium"),
     "urgency": ("push_hero", "large"),
     "sadness": ("pull_isolation", "medium"),
-    "awe": ("reveal_window", "large"),
+    "awe": ("push_emotional", "large"),
     "determination": ("push_emotional", "medium"),
-    "revelation": ("pull_ending", "medium"),
+    "revelation": ("push_slow", "medium"),
   }
 
 # Balanced: conservative subset of the new motion library layered onto the
@@ -154,9 +155,9 @@ _ACCEPTABLE_MOTIONS: dict[str, list[str]] = {
     "compassion": ["pull_ending", "pull_reflection", "push_slow", "drift"],
     "urgency": ["push_hero", "push_emotional", "push_in", "drift"],
     "sadness": ["pull_isolation", "pull_reflection", "pull_out", "drift"],
-    "awe": ["reveal_window", "pull_wide", "reveal_corner", "pull_out"],
+    "awe": ["push_emotional", "push_hero", "reveal_window", "pull_wide"],
     "determination": ["push_emotional", "push_hero", "push_in", "drift"],
-    "revelation": ["pull_ending", "reveal_light", "drift", "reveal_corner"],
+    "revelation": ["push_slow", "push_reveal", "pull_ending", "drift"],
 }
 
 
@@ -188,19 +189,31 @@ _PROFILE_CONFIGS: dict[str, ProfileConfig] = {
         scale_range_small=(1.0, 1.22),
         scale_range_medium=(1.0, 1.35),
         scale_range_large=(1.0, 1.48),
-        drift_amount=0.06,        # was 0.12 — halved to reduce pan crop headroom
+        drift_amount=0.06,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
-        max_drift_scale_factor=1.2,  # was 1.7 — capped so long scenes don't over-zoom pan
+        max_drift_scale_factor=1.2,
+        distribution_targets={
+            "push": 0.45,
+            "pull": 0.20,
+            "drift": 0.25,
+            "static": 0.10,
+        },
     ),
     RenderProfile.PREMIUM: ProfileConfig(
         scale_range_small=(1.0, 1.22),
         scale_range_medium=(1.0, 1.35),
         scale_range_large=(1.0, 1.48),
-        drift_amount=0.07,        # was 0.14 — halved
+        drift_amount=0.07,
         easing="ease_in_out",
         motion_map=_CINEMATIC_MAP,
-        max_drift_scale_factor=1.2,  # was 1.7
+        max_drift_scale_factor=1.2,
+        distribution_targets={
+            "push": 0.45,
+            "pull": 0.20,
+            "drift": 0.25,
+            "static": 0.10,
+        },
     ),
     # Pan-only: drift motions with minimal constant zoom (headroom only).
     # No push-in or pull-out — the full frame composition is always preserved.

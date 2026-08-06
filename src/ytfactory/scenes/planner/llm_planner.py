@@ -3,7 +3,7 @@ import json
 from loguru import logger
 
 from ytfactory.config.settings import Settings
-from video_core.providers.llm.factory import get_llm_provider
+from video_core.providers.llm.factory import get_llm_for_role
 from ytfactory.scenes.models import ScenePlan
 from ytfactory.scenes.prompts.system_prompt import SYSTEM_PROMPT
 
@@ -12,7 +12,7 @@ class LLMScenePlanner:
     """Generates a scene plan from a narration script using the configured LLM provider."""
 
     def __init__(self, settings: Settings):
-        self._llm = get_llm_provider(settings)
+        self._llm = get_llm_for_role(settings, "scene_planner")
 
     def generate(self, script: str) -> ScenePlan:
         response = self._llm.generate(

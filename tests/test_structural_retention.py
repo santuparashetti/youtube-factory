@@ -83,7 +83,7 @@ def mock_llm():
 
 @pytest.fixture
 def pipeline(settings, mock_llm):
-    with patch("ytfactory.structural_retention.pipeline.get_llm_provider", return_value=mock_llm):
+    with patch("ytfactory.structural_retention.pipeline.get_llm_for_role", return_value=mock_llm):
         return StructuralRetentionPipeline(settings)
 
 
@@ -294,7 +294,7 @@ class TestPipelineDisabled:
     def test_disabled_pass_is_full_noop(self, mock_llm, tmp_path):
         settings = MagicMock()
         settings.structural_pass_enabled = False
-        with patch("ytfactory.structural_retention.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.structural_retention.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = StructuralRetentionPipeline(settings)
 
         with patch("ytfactory.structural_retention.pipeline.WORKSPACE_DIR", str(tmp_path)):
@@ -308,7 +308,7 @@ class TestPipelineDisabled:
         settings = MagicMock()
         settings.structural_pass_enabled = True
         settings.structural_pass_faithfulness_check = False
-        with patch("ytfactory.structural_retention.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.structural_retention.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = StructuralRetentionPipeline(settings)
 
         mock_llm.generate.side_effect = [_make_response(_restructure_response("Narration."))]
@@ -481,7 +481,7 @@ class TestFaithfulnessCheckNonBlocking:
         settings.structural_pass_enabled = True
         settings.structural_pass_faithfulness_check = True
         settings.stop_on_quality_gate_failure = True
-        with patch("ytfactory.structural_retention.pipeline.get_llm_provider", return_value=mock_llm):
+        with patch("ytfactory.structural_retention.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = StructuralRetentionPipeline(settings)
 
         mock_llm.generate.side_effect = [

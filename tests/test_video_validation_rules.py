@@ -1603,8 +1603,16 @@ class TestImg007AndRend007:
         rule = next(r for r in results if r.rule_id == "IMG_007")
         assert rule.status == "SKIP"
 
-    def test_rend_007_passes_when_brand_card_is_final(self, tmp_path, cfg):
+    def test_rend_007_passes_when_brand_card_is_final(self, tmp_path, cfg, monkeypatch):
+        from unittest.mock import MagicMock
         from ytfactory.review.validation.rules.rendering import RenderingValidator
+        import ytfactory.review.validation.rules.rendering as rmod
+
+        # Simulate brand card enabled with matching asset path
+        mock_brand = MagicMock()
+        mock_brand.closing.enabled = True
+        mock_brand.branding.asset_path = "assets/branding/atma-theory-brand.png"
+        monkeypatch.setattr(rmod, "get_brand_config", lambda: mock_brand)
 
         vid_dir = tmp_path / "video"
         vid_dir.mkdir()
@@ -1626,8 +1634,16 @@ class TestImg007AndRend007:
         rule = next(r for r in results if r.rule_id == "REND_007")
         assert rule.status == "PASS"
 
-    def test_rend_007_fails_when_final_is_not_brand_card(self, tmp_path, cfg):
+    def test_rend_007_fails_when_final_is_not_brand_card(self, tmp_path, cfg, monkeypatch):
+        from unittest.mock import MagicMock
         from ytfactory.review.validation.rules.rendering import RenderingValidator
+        import ytfactory.review.validation.rules.rendering as rmod
+
+        # Brand card is enabled but final scene is a regular generated image → must fail
+        mock_brand = MagicMock()
+        mock_brand.closing.enabled = True
+        mock_brand.branding.asset_path = "assets/branding/atma-theory-brand.png"
+        monkeypatch.setattr(rmod, "get_brand_config", lambda: mock_brand)
 
         vid_dir = tmp_path / "video"
         vid_dir.mkdir()
@@ -1645,6 +1661,28 @@ class TestImg007AndRend007:
         results = v.validate(tmp_path, scenes, {})
         rule = next(r for r in results if r.rule_id == "REND_007")
         assert rule.status == "FAIL"
+
+    def test_rend_007_skips_when_brand_card_disabled(self, tmp_path, cfg, monkeypatch):
+        from unittest.mock import MagicMock
+        from ytfactory.review.validation.rules.rendering import RenderingValidator
+        import ytfactory.review.validation.rules.rendering as rmod
+
+        # Brand card disabled → REND_007 accepts any final scene
+        mock_brand = MagicMock()
+        mock_brand.closing.enabled = False
+        mock_brand.branding.asset_path = "assets/branding/atma-theory-brand.png"
+        monkeypatch.setattr(rmod, "get_brand_config", lambda: mock_brand)
+
+        vid_dir = tmp_path / "video"
+        vid_dir.mkdir()
+        (vid_dir / "final.mp4").write_bytes(b"\x00" * 100_000)
+        (vid_dir / "scene-001.mp4").write_bytes(b"\x00" * 15_000)
+
+        scenes = [{"index": 1, "title": "Ending", "scene_type": "generated_image"}]
+        v = RenderingValidator(cfg)
+        results = v.validate(tmp_path, scenes, {})
+        rule = next(r for r in results if r.rule_id == "REND_007")
+        assert rule.status == "PASS"
 
 
 class TestMotionSupersampleAndPrecision:
