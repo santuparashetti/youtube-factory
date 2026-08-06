@@ -28,6 +28,7 @@ class GroqProvider(LLMProvider):
 
     def __init__(self, settings: SharedSettings):
         self._model = settings.groq_model
+        self._llm_temperature = getattr(settings, "llm_temperature", 0.0)
         self._session = requests.Session()
         self._session.headers.update(
             {
@@ -60,10 +61,11 @@ class GroqProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        effective_temp = self._llm_temperature if self._llm_temperature > 0 else temperature
         payload: dict = {
             "model": self._model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": effective_temp,
         }
         if json_mode:
             if json_schema:

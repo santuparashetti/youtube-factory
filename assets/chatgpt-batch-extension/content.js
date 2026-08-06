@@ -7,6 +7,9 @@
   if (window.__cgbatch_loaded) return;
   window.__cgbatch_loaded = true;
 
+  const existingPanel = document.getElementById('cgb-panel');
+  if (existingPanel) existingPanel.remove();
+
   const CONFIG = {
     imageTimeoutMs: 90000,
     gapBetweenMs: 2000,
@@ -17,6 +20,7 @@
   let setupMessage = null;
   let running = false;
   let cancelRequested = false;
+  let failedScenes = [];
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -273,12 +277,12 @@
     }
     running = true;
     cancelRequested = false;
+    failedScenes = [];
     setControls(true);
     const subfolder = document.getElementById('cgb-subfolder').value;
     const mirror = document.getElementById('cgb-mirror').checked;
     let ok = 0,
       fail = 0;
-    const failed = [];
 
     log(`Starting — ${scenes.length} prompts.`, 'head');
 
@@ -317,7 +321,7 @@
         ok++;
       } else {
         log(`   failed after ${maxTries} attempts — skipping`, 'error');
-        failed.push(filename);
+        failedScenes.push({ ...scenes[i] });
         fail++;
       }
       if (i < scenes.length - 1 && !cancelRequested) await sleep(CONFIG.gapBetweenMs);
@@ -325,13 +329,79 @@
 
     setProgress(scenes.length, scenes.length);
     log(`Done. ${ok} downloaded, ${fail} failed.`, 'head');
-    if (failed.length) log('Failed: ' + failed.join(', '), 'error');
+    if (failedScenes.length) log('Failed: ' + failedScenes.map(s => s.filename).join(', '), 'error');
     running = false;
     setControls(false);
+    if (failedScenes.length > 0) {
+      const retryBtn = document.getElementById('cgb-retry');
+      if (retryBtn) retryBtn.disabled = false;
+    }
+  }
+
+  async function retryFailed() {
+    if (!failedScenes.length || running) return;
+    running = true;
+    cancelRequested = false;
+    setControls(true);
+
+    const subfolder = document.getElementById('cgb-subfolder').value;
+    const mirror = document.getElementById('cgb-mirror').checked;
+    let ok = 0,
+      fail = 0;
+    const stillFailed = [];
+    const retryCount = failedScenes.length;
+
+    log(`Retrying ${retryCount} failed images...`, 'head');
+
+    for (let i = 0; i < failedScenes.length; i++) {
+      if (cancelRequested) {
+        log('Cancelled by user.', 'warn');
+        stillFailed.push(...failedScenes.slice(i));
+        break;
+      }
+      const { prompt, filename, relPath } = failedScenes[i];
+      const targetName = mirror && relPath ? relPath : filename;
+      setProgress(i, retryCount);
+      log(`[${i + 1}/${retryCount}] ${targetName}`, 'step');
+
+      let imgUrl = null;
+      const maxTries = 1 + CONFIG.retries;
+      for (let attempt = 1; attempt <= maxTries; attempt++) {
+        if (cancelRequested) break;
+        if (attempt > 1) log(`   retry ${attempt - 1}/${CONFIG.retries}...`, 'dim');
+        imgUrl = await attemptPrompt(prompt);
+        if (imgUrl) break;
+        if (attempt < maxTries) await sleep(2000);
+      }
+
+      if (imgUrl) {
+        const saved = await downloadViaBackground(imgUrl, targetName, subfolder);
+        log(`   ${saved ? 'saved ✓ ' : 'download failed '} ${targetName}`, saved ? 'ok' : 'error');
+        ok++;
+      } else {
+        log(`   failed after ${maxTries} attempts — keeping in retry queue`, 'error');
+        stillFailed.push(failedScenes[i]);
+        fail++;
+      }
+      if (i < failedScenes.length - 1 && !cancelRequested) await sleep(CONFIG.gapBetweenMs);
+    }
+
+    failedScenes = stillFailed;
+    setProgress(retryCount - stillFailed.length, retryCount);
+    log(`Retry done. ${ok} downloaded, ${fail} failed.`, 'head');
+    if (failedScenes.length) log('Still failed: ' + failedScenes.map(s => s.filename).join(', '), 'error');
+    running = false;
+    setControls(false);
+    if (failedScenes.length > 0) {
+      const retryBtn = document.getElementById('cgb-retry');
+      if (retryBtn) retryBtn.disabled = false;
+    }
   }
 
   // ---------- Panel UI ----------
   function buildPanel() {
+    const existing = document.getElementById('cgb-panel');
+    if (existing) existing.remove();
     const panel = document.createElement('div');
     panel.id = 'cgb-panel';
     panel.innerHTML = `
@@ -355,6 +425,7 @@
         <div id="cgb-btns">
           <button id="cgb-preview" class="cgb-btn">Preview</button>
           <button id="cgb-start" class="cgb-btn cgb-primary" disabled>Start</button>
+          <button id="cgb-retry" class="cgb-btn cgb-warning" disabled>Retry Failed</button>
           <button id="cgb-cancel" class="cgb-btn cgb-danger" disabled>Cancel</button>
         </div>
 
@@ -384,6 +455,9 @@
           scenes = parseFile(reader.result, file.name);
           const ext = (file.name.split('.').pop() || '').toLowerCase();
           setupMessage = ext === 'md' ? extractSetupMessage(reader.result) : null;
+          failedScenes = [];
+          const retryBtn = document.getElementById('cgb-retry');
+          if (retryBtn) retryBtn.disabled = true;
           document.getElementById('cgb-fileinfo').textContent =
             `${file.name} — ${scenes.length} prompts${setupMessage ? ' + setup message' : ''}`;
           document.getElementById('cgb-start').disabled = scenes.length === 0;
@@ -421,6 +495,11 @@
       if (!running) runBatch();
     };
 
+    document.getElementById('cgb-retry').onclick = () => {
+      if (running || !failedScenes.length) return;
+      retryFailed();
+    };
+
     document.getElementById('cgb-cancel').onclick = () => {
       cancelRequested = true;
       log('Cancelling after current image...', 'warn');
@@ -432,6 +511,8 @@
     document.getElementById('cgb-cancel').disabled = !isRunning;
     document.getElementById('cgb-preview').disabled = isRunning;
     document.getElementById('cgb-file').disabled = isRunning;
+    const retryBtn = document.getElementById('cgb-retry');
+    if (retryBtn) retryBtn.disabled = isRunning || failedScenes.length === 0;
   }
 
   function setProgress(done, total) {
@@ -471,6 +552,8 @@
         #cgb-log { background:#1e1e22; border-color:#444; }
         .cgb-btn { background:#3a3a40; color:#ececf1; border-color:#555; }
         .cgb-btn:hover { background:#46464d; }
+        .cgb-warning { background:#b8751a; border-color:#b8751a; }
+        .cgb-warning:hover:not(:disabled) { background:#d4921f; }
       }
       #cgb-header {
         display:flex; align-items:center; justify-content:space-between;
@@ -500,8 +583,10 @@
       .cgb-btn:disabled { opacity:.45; cursor:not-allowed; }
       .cgb-primary { background:#10a37f; border-color:#10a37f; color:#fff; }
       .cgb-primary:hover:not(:disabled) { background:#0e916f; }
-      .cgb-danger { background:#fff; border-color:#e0b4b4; color:#c0392b; }
-      .cgb-danger:hover:not(:disabled) { background:#fbeaea; }
+       .cgb-danger { background:#fff; border-color:#e0b4b4; color:#c0392b; }
+       .cgb-danger:hover:not(:disabled) { background:#fbeaea; }
+       .cgb-warning { background:#f5a623; border-color:#f5a623; color:#fff; }
+       .cgb-warning:hover:not(:disabled) { background:#d4921f; }
       #cgb-progwrap { height:6px; background:#e8e8e8; border-radius:4px; overflow:hidden; margin-top:4px; }
       #cgb-progbar { height:100%; width:0%; background:#10a37f; transition:width .3s; }
       #cgb-progtext { margin-top:5px; font-size:11px; }

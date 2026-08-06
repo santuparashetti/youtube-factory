@@ -76,6 +76,12 @@ class SharedSettings(BaseSettings):
     # model (ANTHROPIC_MODEL, GEMINI_TEXT_MODEL, etc.).
     llm_default_model: str = ""
 
+    # Global LLM defaults — applied by all providers unless overridden
+    # per-call.  0 / empty = use the provider's own default.
+    llm_temperature: float = 0.0
+    llm_max_output_tokens: int = 0
+    llm_max_retries: int = 3
+
     # Each pipeline stage can use a different model by setting the
     # corresponding env var (e.g. SCRIPT_MODEL=openai/gpt-5.6-luna-pro).
     # Empty string = fall back to LLM_DEFAULT_MODEL, then provider default.

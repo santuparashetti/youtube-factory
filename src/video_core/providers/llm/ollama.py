@@ -36,6 +36,7 @@ class OllamaProvider(LLMProvider):
     def __init__(self, settings: SharedSettings):
         self._model = settings.ollama_model
         self._base_url = settings.ollama_base_url.rstrip("/")
+        self._llm_temperature = getattr(settings, "llm_temperature", 0.0)
         self._session = requests.Session()
 
     @retry(
@@ -60,10 +61,11 @@ class OllamaProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        effective_temp = self._llm_temperature if self._llm_temperature > 0 else temperature
         payload: dict = {
             "model": self._model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": effective_temp,
             "stream": False,
         }
         if json_mode:

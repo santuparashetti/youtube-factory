@@ -46,17 +46,20 @@ class OpenAICompatibleProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Global defaults from settings (0 = use hardcoded fallback).
+        settings_temp = getattr(self._settings, "llm_temperature", 0.0)
+        settings_max_tokens = getattr(self._settings, "llm_max_output_tokens", 0)
+
+        effective_temp = settings_temp if settings_temp > 0 else temperature
         # Reasoning models (DeepSeek, etc.) consume tokens for thinking/reasoning
-        # before producing visible output. 8192 is too tight — they burn through
-        # it on reasoning alone and return empty content. 65536 gives most models
-        # ~32K+ tokens for actual output after reasoning. Callers generating
-        # open-ended long text (e.g. recomposer) can override with max_tokens.
-        effective_max_tokens = max_tokens or 65536
+        # before producing visible output. 65536 gives most models ~32K+ tokens
+        # for actual output after reasoning.
+        effective_max_tokens = max_tokens or settings_max_tokens or 65536
 
         request_params: dict = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": effective_temp,
             "max_tokens": effective_max_tokens,
         }
 
@@ -118,7 +121,7 @@ class OpenAICompatibleProvider(LLMProvider):
         import json as _json
         import time as _time
 
-        _max_retries = 3
+        _max_retries = getattr(self._settings, "llm_max_retries", 3)
         response = None
         for _attempt in range(1, _max_retries + 1):
             try:

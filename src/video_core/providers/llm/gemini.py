@@ -58,8 +58,10 @@ class GeminiProvider(LLMProvider):
 
         logger.info("Generating response using Gemini json_mode={}", json_mode)
 
+        settings_temp = getattr(self._settings, "llm_temperature", 0.0)
+        effective_temp = settings_temp if settings_temp > 0 else temperature
         config_kwargs: dict = {
-            "temperature": temperature,
+            "temperature": effective_temp,
             "system_instruction": system_prompt,
         }
         if json_mode:

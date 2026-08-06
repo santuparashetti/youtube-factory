@@ -112,10 +112,12 @@ class DeepInfraProvider(LLMProvider):
         def _call() -> LLMResponse:
             start = time.perf_counter()
             try:
+                settings_temp = getattr(self._settings, "llm_temperature", 0.0)
+                effective_temp = settings_temp if settings_temp > 0 else temperature
                 create_kwargs: dict = {
                     "model": model,
                     "messages": messages,
-                    "temperature": temperature,
+                    "temperature": effective_temp,
                 }
                 if response_format:
                     create_kwargs["response_format"] = response_format
