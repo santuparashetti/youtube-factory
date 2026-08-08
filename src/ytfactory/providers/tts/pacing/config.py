@@ -122,3 +122,28 @@ PROFILE_PAUSES: dict[str, ProfilePauses] = {
         concept_pre=PauseRange(500, 1000),
     ),
 }
+
+
+# ── Arc-phase pause scaling (scene_position → multiplier) ─────────────────────
+#
+# Scales thought-block pause durations based on where a scene sits in the video.
+# Hook/opening scenes get minimal pauses (fast pace, retain viewers).
+# Build/climax scenes get reduced pauses (maintain momentum at turning points).
+# Resolution scenes keep full contemplative pauses.
+
+ARC_PAUSE_SCALE: list[tuple[float, float]] = [
+    # (position_threshold, multiplier) — first match wins
+    (0.10, 0.3),   # hook: 0%–10% — minimal pauses, maximum pace
+    (0.20, 0.6),   # opening: 10%–20% — brisk but settling in
+    (0.65, 0.7),   # build: 20%–65% — slightly tighter than default
+    (0.80, 0.5),   # climax: 65%–80% — fast cuts at turning points
+    (1.01, 1.0),   # resolution: 80%–100% — full contemplative pauses
+]
+
+
+def arc_pause_multiplier(scene_position: float) -> float:
+    """Return the pause duration multiplier for a given scene position (0.0–1.0)."""
+    for threshold, multiplier in ARC_PAUSE_SCALE:
+        if scene_position < threshold:
+            return multiplier
+    return 1.0

@@ -8,6 +8,7 @@ from ytfactory.scenes.repository.scene_repository import SceneRepository
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.paths import safe_project_dir
 
+from ytfactory.animate.pipeline import AnimatePipeline
 from ytfactory.captions.pipeline import CaptionPipeline
 from ytfactory.cta.pipeline import CTAPipeline
 from ytfactory.images.pipeline import ImagePipeline
@@ -30,6 +31,7 @@ from ytfactory.structural_retention.pipeline import StructuralRetentionPipeline
 from ytfactory.editorial_qa.pipeline import EditorialQAPipeline
 from ytfactory.composer.pipeline import ComposerPipeline
 from ytfactory.composer.selection import run_composer_with_ab_selection
+from ytfactory.source_refiner.pipeline import SourceRefinerPipeline
 from ytfactory.storage.project_repository import ProjectRepository
 from ytfactory.two_phase.pipeline import TwoPhasePipeline
 from ytfactory.video.pipeline import VideoPipeline
@@ -46,8 +48,10 @@ class BuildPipeline:
         settings = Settings()
         self.settings = settings
 
+        self.animate = AnimatePipeline()
         self.light_normalization = LightNormalizationPipeline(settings)
         self.composer = ComposerPipeline(settings)
+        self.source_refiner = SourceRefinerPipeline(settings)
         # Archived, not deleted — no longer called in the active run()/
         # run_incremental() paths below. Kept importable/constructible for
         # manual use (CLI) until the composer is proven.
@@ -84,6 +88,7 @@ class BuildPipeline:
                 if not skip_script:
                     ProjectRepository().load(project_id)
                     self.light_normalization.run(project_id)
+                    self.source_refiner.run(project_id)
                     run_composer_with_ab_selection(self.composer, project_id)
                     self.editorial_qa.run(project_id)
                 if not skip_scenes:
@@ -91,6 +96,7 @@ class BuildPipeline:
                     self._run_pre_render_gate(project_id)
                 if not skip_images:
                     self.images.run(project_id)
+                    self.animate.run(project_id)
                 self.voice.run(project_id)
                 self.captions.run(project_id)
                 self.video.run(project_id)
@@ -328,6 +334,7 @@ class BuildPipeline:
             if _should_run("images"):
                 self.images.run(project_id)
                 engine.record_stage_outputs("images")
+                self.animate.run(project_id)
 
             # voice
             if _should_run("voice"):

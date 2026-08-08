@@ -129,7 +129,7 @@ class TestBrandingPlacementConfig:
         assert c.closing_position == "before_final_quote"
         assert c.max_opening_seconds == 10
         assert c.asset_path == "assets/branding/atma-theory-brand.png"
-        assert c.asset_animation == "slow_zoom"
+        assert c.asset_animation == "slow_zoom_out"
 
 
 # ── TestBrandConfigDefaults ────────────────────────────────────────────────────

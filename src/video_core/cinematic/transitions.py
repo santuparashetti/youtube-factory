@@ -71,8 +71,18 @@ _PROFILE_DURATIONS: dict[str, int] = {
 }
 
 # Fixed durations for opening / closing regardless of interior profile
-_OPENING_FRAMES: int = 10  # first scene: fade in from black
+_OPENING_FRAMES: int = 6   # first scene: quick fade in (hook pace)
 _CLOSING_FRAMES: int = 15  # last scene: fade out to black
+
+# Arc-phase fade scaling — shorter fades during high-energy phases.
+# (position_threshold, frame_fraction) — fraction of the profile's base frames.
+_ARC_FADE_SCALE: list[tuple[float, float]] = [
+    (0.10, 0.3),   # hook: near-instant cuts
+    (0.20, 0.6),   # opening: brisk
+    (0.65, 1.0),   # build: standard
+    (0.80, 0.5),   # climax: fast cuts at turning points
+    (1.01, 1.0),   # resolution: full cinematic fades
+]
 
 
 # ── Emotion pair → transition type ───────────────────────────────────────────
@@ -119,6 +129,8 @@ _HARD_CUT_EMOTIONS: frozenset[str] = frozenset(
         "curiosity",
         "urgency",
         "determination",
+        "awe",
+        "revelation",
     }
 )
 
@@ -257,8 +269,16 @@ class TransitionPlanner:
             to_scene = scenes[i + 1]
             fe, te = emotions[i], emotions[i + 1]
 
+            # Scale fade duration by arc phase of the incoming scene
+            pos = positions[i + 1]
+            scaled_frames = duration_frames
+            for threshold, frac in _ARC_FADE_SCALE:
+                if pos < threshold:
+                    scaled_frames = max(0, int(duration_frames * frac))
+                    break
+
             ttype, frames, color = _select_transition(
-                fe, te, to_scene, profile, duration_frames
+                fe, te, to_scene, profile, scaled_frames
             )
 
             shared = dict(

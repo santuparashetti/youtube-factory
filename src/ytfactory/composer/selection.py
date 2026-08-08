@@ -33,6 +33,8 @@ console = Console()
 DIVIDER = "━" * 40
 WORDS_PER_MINUTE = 140  # display estimate only
 
+_MAX_RECOMPOSE_ATTEMPTS = 3
+
 
 def run_composer_with_ab_selection(
     composer: ComposerPipeline,
@@ -96,32 +98,69 @@ def run_composer_with_ab_selection(
     winner_text = script_a if verdict.winner == "A" else script_b
 
     if verdict.hybrid_recommended:
-        recomposed = guided_recompose(script_a, script_b, verdict, provider, settings)
-        if recomposed is not None:
-            # Quality gate: verify recomposed doesn't regress from the original winner.
-            # Compare winner_text (safe baseline) vs recomposed (candidate).
-            # winner=="A" means baseline beat recomposed → regression → fall back.
-            # winner=="B" or None (judge failed) → recomposed is as good or better → accept.
-            quality_check = judge_scripts(winner_text, recomposed, provider, settings)
-            if quality_check is not None and quality_check.winner == "A":
+        best_score: float = -1.0
+
+        for attempt in range(1, _MAX_RECOMPOSE_ATTEMPTS + 1):
+            console.print(
+                f"  [dim]Guided recompose — attempt {attempt}/{_MAX_RECOMPOSE_ATTEMPTS}[/dim]"
+            )
+            recomposed = guided_recompose(script_a, script_b, verdict, provider, settings)
+            if recomposed is None:
                 logger.warning(
-                    "Recomposed script failed quality gate "
-                    "(baseline {:.1f} > recomposed {:.1f}) — falling back to judge winner.",
-                    quality_check.script_a_score,
-                    quality_check.script_b_score,
+                    "Recomposer attempt {}/{} failed or skipped.",
+                    attempt, _MAX_RECOMPOSE_ATTEMPTS,
                 )
-                console.print(
-                    "\n[yellow]⚠ Recomposed script lost quality check — "
-                    "reverting to judge winner.[/yellow]\n"
+                continue
+
+            # Quality gate: verify recomposed doesn't regress from the original winner.
+            # winner=="A" means baseline beat recomposed → retry.
+            # winner!="A" (B or tied) → recomposed is as good or better → accept.
+            quality_check = judge_scripts(winner_text, recomposed, provider, settings)
+
+            if quality_check is None:
+                # Judge failed to score → accept conservatively
+                logger.info(
+                    "Quality check returned None on attempt {} — accepting recomposed.",
+                    attempt,
                 )
-            else:
                 _write_final(recomposed, script_file)
                 _write_judge_report(verdict, project_id, outcome="recomposed")
-                # Exit path 4: Recomposed — both were source material
                 _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")
                 return recomposed
-        else:
-            logger.warning("Recomposer failed or skipped — falling back to judge winner.")
+
+            candidate_score = quality_check.script_b_score
+            if candidate_score > best_score:
+                best_score = candidate_score
+
+            if quality_check.winner != "A":
+                logger.info(
+                    "Recomposed passed quality gate on attempt {}/{} "
+                    "(baseline {:.1f} recomposed {:.1f}).",
+                    attempt, _MAX_RECOMPOSE_ATTEMPTS,
+                    quality_check.script_a_score, candidate_score,
+                )
+                _write_final(recomposed, script_file)
+                _write_judge_report(verdict, project_id, outcome="recomposed")
+                _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")
+                return recomposed
+
+            logger.warning(
+                "Recompose attempt {}/{}: baseline {:.1f} > recomposed {:.1f} — retrying.",
+                attempt, _MAX_RECOMPOSE_ATTEMPTS,
+                quality_check.script_a_score, candidate_score,
+            )
+            console.print(
+                f"\n[yellow]⚠ Attempt {attempt}/{_MAX_RECOMPOSE_ATTEMPTS}: "
+                f"recomposed ({candidate_score:.1f}) lost to baseline "
+                f"({quality_check.script_a_score:.1f})"
+                + (" — retrying..." if attempt < _MAX_RECOMPOSE_ATTEMPTS else " — all attempts exhausted.")
+                + "[/yellow]\n"
+            )
+
+        logger.warning(
+            "Recompose: all {} attempts failed quality gate — falling back to judge winner.",
+            _MAX_RECOMPOSE_ATTEMPTS,
+        )
 
     _write_final(winner_text, script_file)
     _write_judge_report(verdict, project_id, outcome=f"winner_{verdict.winner}")

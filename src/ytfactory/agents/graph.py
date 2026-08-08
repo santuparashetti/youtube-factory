@@ -3,8 +3,8 @@ LangGraph agentic pipeline graph definition.
 
 Entry routing (see _route_entry):
   YouTube URL source  → acquire_audio → transcribe → translate
-                          → [human_review_base_script] → composer
-  Script / project    → composer (script_md loaded from state or workspace)
+                          → [human_review_base_script] → source_refiner → composer
+  Script / project    → source_refiner → composer (script_md loaded from state or workspace)
 
 composer flow:
   composer
@@ -34,6 +34,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from ytfactory.agents.nodes.composer import composer_node
+from ytfactory.agents.nodes.source_refiner import source_refiner_node
 from ytfactory.agents.nodes.cta import cta_node
 
 # editorial_qa retired — replaced by script_selector_polisher. The node and its
@@ -70,10 +71,10 @@ def _dispatch_scenes(state: VideoState) -> list[Send]:
 
 
 def _route_entry(state: VideoState) -> str:
-    """Route by input source: YouTube URL → ingestion chain; otherwise → composer."""
+    """Route by input source: YouTube URL → ingestion chain; otherwise → source_refiner."""
     if state.get("source_url"):
         return "acquire_audio"
-    return "composer"
+    return "source_refiner"
 
 
 def _route_after_composer(state: VideoState) -> str:
@@ -136,6 +137,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("transcribe", transcribe_node)
     workflow.add_node("translate", translate_node)
     workflow.add_node("human_review_base_script", human_review_base_script_node)
+    workflow.add_node("source_refiner", source_refiner_node)
     workflow.add_node("composer", composer_node)
     workflow.add_node("script_selector_polisher", script_selector_polisher_node)
     workflow.add_node("human_review_final_script", human_review_final_script_node)
@@ -158,13 +160,14 @@ def build_graph() -> StateGraph:
         _route_entry,
         {
             "acquire_audio": "acquire_audio",
-            "composer": "composer",
+            "source_refiner": "source_refiner",
         },
     )
     workflow.add_edge("acquire_audio", "transcribe")
     workflow.add_edge("transcribe", "translate")
     workflow.add_edge("translate", "human_review_base_script")
-    workflow.add_edge("human_review_base_script", "composer")
+    workflow.add_edge("human_review_base_script", "source_refiner")
+    workflow.add_edge("source_refiner", "composer")
     # composer → (human A/B pick already done) human_review_final_script
     #          → (default) script_selector_polisher → human_review_final_script
     workflow.add_conditional_edges(

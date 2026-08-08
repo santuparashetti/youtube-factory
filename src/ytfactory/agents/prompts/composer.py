@@ -14,6 +14,17 @@ model this stage replaces.
 import functools
 from pathlib import Path
 
+_SURGICAL_TRIM_PROMPT_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "prompts"
+    / "SURGICAL_TRIM_PROMPT.md"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_surgical_trim_prompt() -> str:
+    return _SURGICAL_TRIM_PROMPT_PATH.read_text(encoding="utf-8").strip()
+
 _COMPOSER_FRAMEWORK_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "script_enhancer"
@@ -84,4 +95,20 @@ def build_recompose_directive(current_minutes: float, target_range: tuple[int, i
         instruction = "choosing fewer stories and cutting harder for the strongest material only"
     return _RECOMPOSE_DIRECTIVE_TEMPLATE.format(
         direction=direction, current_minutes=current_minutes, instruction=instruction
+    )
+
+
+def build_trim_system_prompt(
+    current_words: int,
+    target_min: int = 910,
+    target_max: int = 1170,
+) -> str:
+    min_to_cut = max(0, current_words - target_max)
+    max_to_cut = max(0, current_words - target_min)
+    return _load_surgical_trim_prompt().format(
+        current_words=current_words,
+        target_min=target_min,
+        target_max=target_max,
+        min_to_cut=min_to_cut,
+        max_to_cut=max_to_cut,
     )

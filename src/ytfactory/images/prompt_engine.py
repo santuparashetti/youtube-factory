@@ -184,6 +184,12 @@ class ImagePromptEngineV4:
                 else:
                     if prompt and _ANATOMY_REINFORCEMENT not in prompt:
                         s["visual_prompt"] = prompt + _ANATOMY_REINFORCEMENT
+
+                # Enforce 16:9 as a hard rule — placed first so no generator can ignore it
+                final = s.get("visual_prompt", "")
+                _RATIO_PREFIX = "STRICT RULE: output must be 16:9 aspect ratio (1280×720 px). Do NOT generate square, portrait, or any other ratio. "
+                if final and not final.startswith("STRICT RULE"):
+                    s["visual_prompt"] = _RATIO_PREFIX + final
             enriched.append(s)
         return enriched
 

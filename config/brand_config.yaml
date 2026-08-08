@@ -33,7 +33,7 @@ branding:
   closing_position: before_final_quote
   max_opening_seconds: 10
   asset_path: "assets/branding/atma-theory-brand.png"
-  asset_animation: "slow_zoom"
+  asset_animation: "slow_zoom_out"
   # Channel-level branding — overrides CTA template defaults (per template precedence rule)
   accent_color: "#2EC5E8"
   font: "Arial"

@@ -55,7 +55,7 @@ class BrandingPlacementConfig:
     closing_position: str = "before_final_quote"
     max_opening_seconds: int = 10
     asset_path: str = "assets/branding/atma-theory-brand.png"
-    asset_animation: str = "slow_zoom"
+    asset_animation: str = "slow_zoom_out"
     # Channel-level brand identity — override CTA template defaults
     accent_color: str = "#2EC5E8"
     font: str = "Arial"

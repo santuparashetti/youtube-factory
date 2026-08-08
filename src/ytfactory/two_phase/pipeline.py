@@ -220,6 +220,9 @@ class TwoPhasePipeline:
         pipeline = BuildPipeline()
 
         with _activate_writer(writer):
+            # animate scenes with motion engine (LLM vision → effects → MP4)
+            pipeline.animate.run(project_id)
+
             # video render (includes BGM mixing)
             pipeline.video.run(project_id, overlay=overlay)
 

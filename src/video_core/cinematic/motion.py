@@ -646,9 +646,10 @@ def _asset_motion(scene: dict, cfg: ProfileConfig) -> MotionSpec:
     a plain held cut, not a Ken Burns shot.
     """
     if scene.get("scene_type") == "brand_card":
+        _, hi = cfg.scale_range_medium
         return MotionSpec(
-            motion_type="static",
-            start_scale=1.0,
+            motion_type="pull_out",
+            start_scale=hi,
             end_scale=1.0,
             anchor_x=0.5,
             anchor_y=0.5,
@@ -944,6 +945,21 @@ class MotionPlanner:
                 fam = _distribution_family(spec.motion_type)
                 family_counts[fam] = family_counts.get(fam, 0) + 1
                 generated_count += 1
+
+        # Final scene always gets a slow pull-out (zoom-out) for a clean exit.
+        if scenes:
+            _, hi = cfg.scale_range_medium
+            scenes[-1]["motion"] = MotionSpec(
+                motion_type="pull_out",
+                start_scale=hi,
+                end_scale=1.0,
+                anchor_x=0.5,
+                anchor_y=0.5,
+                drift_x=0.0,
+                drift_y=0.0,
+                easing=cfg.easing,
+                emotion=scenes[-1].get("motion", {}).get("emotion", "asset"),
+            ).to_dict()
 
         return scenes
 

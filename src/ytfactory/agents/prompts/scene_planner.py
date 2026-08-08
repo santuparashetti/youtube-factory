@@ -254,6 +254,14 @@ RULES
 - Target 18–25 scenes total.
 
 ──────────────────────────────────────────────────────────────
+HOOK (first 30 seconds — critical for retention)
+──────────────────────────────────────────────────────────────
+- The first 2–3 scenes MUST be SHORT: 6–12 words each (3–6 seconds).
+- Open with the most provocative, surprising, or emotionally charged line.
+- Each hook scene = one punchy idea. Do NOT group multiple sentences into scene 1.
+- Avoid slow scene-setting in the opening — drop the viewer into the most compelling moment.
+
+──────────────────────────────────────────────────────────────
 OUTPUT — ONLY valid JSON, no markdown fences, nothing else
 ──────────────────────────────────────────────────────────────
 {{"topic":"{topic}","scenes":[{{"index":1,"title":"3-5 word title","narration":"exact spoken words","duration_seconds":12}}]}}
@@ -553,6 +561,7 @@ STORYBOARD — complete this before writing any prompt
 1. Read all {num_scenes} narrations below.
 2. Define the emotional arc: opening mood → mid-point peak → closing resolution.
 3. Assign each scene a role: Hook | Establishing | Rising | Revelation | Reflection | Symbolic | Resolution
+   HOOK scenes (first 2–3): the most visually striking, emotionally gripping frames. These must arrest scrolling — think thumbnail-worthy intensity, dramatic angles, vivid contrast. NOT gentle establishing shots.
 4. Choose ONE hero frame — the most visually powerful image in this batch, strong enough for a YouTube thumbnail. Give it 20 extra words of environmental and atmospheric detail.
 5. Verify shot diversity — check that the shot types assigned to each scene in [brackets] vary meaningfully.
 6. List the metaphors you will use — commit to them, each used only once in this batch.
@@ -1136,15 +1145,16 @@ climax, moral conclusion, final contemplation. NOT after every scene.
 3. Never enable two consecutive scenes.
 4. Last scene (index {last_idx}): ALWAYS enabled, duration 5.0–8.0.
 5. Duration — minor: 1.5–2.0 | normal: 2.5–3.0 | major: 3.5–5.0 | ending: 5.0–8.0
+6. NEVER add reflection beats to the first 3 scenes (the hook). The opening must be fast-paced.
 
 MUSIC FIELDS (assign all three per scene):
 action:    continue | continue_softly | slight_swell | emotional_swell | resolve | fade
 mood:      neutral | reflective | building | dramatic | resolving | fading
 intensity: 0.0–1.0  (music presence; lower = more ducked)
 
-Action guide: insight→continue_softly/reflective/0.3 | turning_point→slight_swell/building/0.55 \
-| climax→emotional_swell/dramatic/0.85 | after_climax→resolve/resolving/0.5 \
-| ending→continue_softly/reflective/0.3 | default→continue/neutral/0.5
+Action guide: hook(first 3 scenes)→slight_swell/building/0.6 | insight→continue_softly/reflective/0.3 \
+| turning_point→slight_swell/building/0.55 | climax→emotional_swell/dramatic/0.85 \
+| after_climax→resolve/resolving/0.5 | ending→continue_softly/reflective/0.3 | default→continue/neutral/0.5
 
 Return ONLY valid JSON. Keys are scene index as strings. Each value is an object:
 {{"1": {{"enabled": false, "duration": 0.0, "action": "continue", "mood": "neutral", "intensity": 0.5}}, \

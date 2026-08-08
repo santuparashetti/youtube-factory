@@ -25,6 +25,7 @@ from rich.panel import Panel
 from ytfactory.agents.prompts.composer import (
     build_composer_system_prompt,
     build_composer_user_prompt,
+    build_trim_system_prompt,
 )
 from ytfactory.agents.prompts.script_writer import NARRATION_WPM
 from ytfactory.config.settings import Settings
@@ -138,7 +139,31 @@ class ComposerPipeline:
             f"  [dim]Composed:[/dim] {words} words (~{minutes:.1f} min) — "
             f"target {TARGET_MIN_MINUTES}-{TARGET_MAX_MINUTES} min"
         )
-        if not in_range:
+        if not in_range and minutes > TARGET_MAX_MINUTES:
+            logger.warning(
+                "Composer: {:.1f} min outside {}-{} min target ({} words) — attempting trim pass",
+                minutes, TARGET_MIN_MINUTES, TARGET_MAX_MINUTES, words,
+            )
+            console.print("  [yellow]⚠ Too long — running surgical trim pass...[/yellow]")
+            trimmed = self._trim_to_range(composed)
+            if trimmed is not None:
+                composed = trimmed
+                words = len(composed.split())
+                minutes = words / NARRATION_WPM
+                in_range = TARGET_MIN_MINUTES <= minutes <= TARGET_MAX_MINUTES
+                console.print(
+                    f"  [dim]After trim:[/dim] {words} words (~{minutes:.1f} min)"
+                )
+                if not in_range:
+                    logger.warning(
+                        "Trim pass: still outside range at {:.1f} min ({} words)",
+                        minutes, words,
+                    )
+                    console.print("  [yellow]⚠ Trim pass did not reach target (keeping trimmed version)[/yellow]")
+            else:
+                logger.warning("Trim pass failed — keeping original composed output")
+                console.print("  [yellow]⚠ Trim pass failed — keeping original[/yellow]")
+        elif not in_range:
             logger.warning(
                 "Composer: {:.1f} min outside {}-{} min target ({} words)",
                 minutes, TARGET_MIN_MINUTES, TARGET_MAX_MINUTES, words,
@@ -184,3 +209,45 @@ class ComposerPipeline:
             temperature=0.6 if temperature is None else temperature,
         )
         return response.text.strip()
+
+    def _trim_to_range(self, script: str) -> str | None:
+        """Surgical trim pass: remove filler/restatements to reach word target.
+
+        Takes the placeholder-restored script (scripture already back in place).
+        Returns the trimmed text on success, None if the LLM call fails or the
+        output is clearly corrupt (empty, lost rehook).
+        """
+        target_min_words = int(TARGET_MIN_MINUTES * NARRATION_WPM)
+        target_max_words = int(TARGET_MAX_MINUTES * NARRATION_WPM)
+        current_words = len(script.split())
+        system_prompt = build_trim_system_prompt(
+            current_words, target_min_words, target_max_words
+        )
+        try:
+            response = self._llm.generate(
+                script,
+                system_prompt=system_prompt,
+                temperature=0.3,
+            )
+            trimmed = response.text.strip()
+        except Exception as exc:
+            logger.warning("Trim pass LLM call failed: {}", exc)
+            return None
+
+        if not trimmed:
+            logger.warning("Trim pass returned empty output")
+            return None
+
+        trimmed_words = len(trimmed.split())
+        if trimmed_words >= current_words:
+            logger.warning(
+                "Trim pass added words ({} → {}) — discarding",
+                current_words, trimmed_words,
+            )
+            return None
+
+        if not _validate_rehook_present(trimmed):
+            logger.warning("Trim pass output failed rehook validation — discarding")
+            return None
+
+        return trimmed

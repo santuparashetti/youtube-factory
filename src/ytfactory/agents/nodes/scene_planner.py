@@ -598,7 +598,9 @@ def _generate_visual_bible(script_text: str, llm: LLMProvider, settings: Setting
 def _get_arc_phase(scene_index: int, total_scenes: int) -> str:
     """Map scene position to emotional arc phase."""
     ratio = scene_index / max(total_scenes - 1, 1)
-    if ratio < 0.20:
+    if ratio < 0.10:
+        return "hook"
+    elif ratio < 0.20:
         return "opening"
     elif ratio < 0.65:
         return "build"
@@ -610,6 +612,7 @@ def _get_arc_phase(scene_index: int, total_scenes: int) -> str:
 
 def _arc_to_shot_key(arc_phase: str) -> str:
     mapping = {
+        "hook": "opening_scenes",
         "opening": "opening_scenes",
         "build": "build_scenes",
         "climax": "climax_scene",
@@ -619,6 +622,10 @@ def _arc_to_shot_key(arc_phase: str) -> str:
 
 
 _CAMERA_ANGLE_BY_PHASE = {
+    "hook": (
+        "low_angle or dramatic close-up — maximum visual impact from the first frame; "
+        "grab the viewer's attention with a striking composition that rewards the click"
+    ),
     "opening": (
         "eye_level or high_angle — frame characters small against large environments, "
         "emphasise isolation and the scale of the constructed world around them"
@@ -1636,6 +1643,13 @@ def _split_script_to_scenes(
             bucket_words = 0
 
     _flush()
+
+    # Post-process: cap hook scenes (first 10%) to shorter durations
+    hook_limit = max(2, int(len(scenes) * 0.10))
+    for s in scenes[:hook_limit]:
+        if s["duration_seconds"] > 6:
+            s["duration_seconds"] = 6
+
     return scenes
 
 

@@ -4,6 +4,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from ytfactory.animate.cli import animate_scenes
 from ytfactory.benchmark.cli import benchmark_app
 from ytfactory.build.cli import build
 from ytfactory.captions.cli import generate_captions, transcript
@@ -22,6 +23,8 @@ from ytfactory.scene.cli import scene_app
 from ytfactory.scenes.cli import plan_scenes
 from ytfactory.structural_retention.cli import structural_retention
 from ytfactory.composer.cli import compose
+from ytfactory.source_refiner.cli import refine_source
+from ytfactory.trim.cli import trim_script
 from ytfactory.video.cli import compare_video, render
 from ytfactory.voice.cli import generate_voice
 
@@ -294,12 +297,15 @@ def version() -> None:
 app.command(name="create")(create)
 app.command(name="research")(research)
 app.command(name="import-script")(import_script)
+app.command(name="refine-source")(refine_source)
 app.command(name="normalize")(normalize)
 app.command(name="compose")(compose)
+app.command(name="trim-script")(trim_script)
 app.command(name="structural-retention")(structural_retention)
 app.command(name="editorial-qa")(editorial_qa)
 app.command(name="plan-scenes")(plan_scenes)
 app.command(name="generate-images")(generate_images)
+app.command(name="animate-scenes")(animate_scenes)
 app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="transcript")(transcript)

@@ -32,6 +32,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from .config import arc_pause_multiplier
 from .thought_analyzer import ThoughtAnalyzer
 
 
@@ -187,6 +188,18 @@ class PauseInjector:
                 language=language,
                 scene_position=scene_position,
                 keywords=keywords,
+            )
+
+        # Scale pause durations based on scene position in the video arc.
+        scale = arc_pause_multiplier(scene_position)
+        if scale != 1.0:
+            for block in blocks:
+                if block.pause_ms > 0:
+                    block.pause_ms = max(50, int(block.pause_ms * scale))
+            logger.debug(
+                "PauseInjector: arc scale {:.2f} applied (scene_position={:.2f})",
+                scale,
+                scene_position,
             )
 
         # Single thought block: synthesise directly without silence machinery.

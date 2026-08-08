@@ -1,0 +1,102 @@
+import numpy as np
+import cv2
+from dataclasses import dataclass
+from math import sin
+from .base import BaseEffect
+
+
+@dataclass
+class _Particle:
+    x_start: float
+    y_start: float
+    vx: float
+    vy: float
+    size: int
+    wobble_freq: float
+
+
+class DustParticles(BaseEffect):
+    def __init__(
+        self,
+        count: int = 80,
+        region_top: float = 0.1,
+        region_bottom: float = 0.7,
+        color: tuple = (220, 220, 200),
+        max_size: int = 3,
+        alpha: float = 0.35,
+        drift_speed: float = 0.3,
+        seed: int = 42,
+        exclude_mask: np.ndarray = None,   # bool mask — no particles drawn here
+    ):
+        self.count = count
+        self.region_top = region_top
+        self.region_bottom = region_bottom
+        self.color = color
+        self.max_size = max_size
+        self.alpha = alpha
+        self.drift_speed = drift_speed
+        self.exclude_mask = exclude_mask
+
+        rng = np.random.default_rng(seed)
+        self.particles = [
+            _Particle(
+                x_start=float(rng.uniform(0, 1920)),
+                y_start=float(rng.uniform(region_top, region_bottom) * 1080),
+                vx=float(rng.uniform(-0.5, 0.5)),
+                vy=float(rng.uniform(0.1, drift_speed + 0.1)),
+                size=int(rng.integers(1, max_size + 1)),
+                wobble_freq=float(rng.uniform(0.3, 1.5)),
+            )
+            for _ in range(count)
+        ]
+
+    def apply(self, frame: np.ndarray, t: float) -> np.ndarray:
+        h, w = frame.shape[:2]
+        overlay = frame.copy()
+
+        for p in self.particles:
+            x = int(p.x_start + p.vx * t * 50 + sin(t * p.wobble_freq) * 5) % w
+            y = int(p.y_start - p.vy * t * 30) % h
+            cv2.circle(overlay, (x, y), p.size, self.color, -1)
+
+        # erase any particle pixels that landed on excluded regions (figures)
+        if self.exclude_mask is not None:
+            em = self.exclude_mask
+            if em.shape[:2] == (h, w):
+                overlay[em] = frame[em]
+
+        return cv2.addWeighted(frame, 1.0, overlay, self.alpha, 0)
+
+
+class MistDrift(BaseEffect):
+    def __init__(
+        self,
+        region_bottom: float = 0.6,
+        opacity: float = 0.15,
+        drift_speed: float = 0.05,
+        color: tuple = (240, 240, 235),
+    ):
+        self.region_bottom = region_bottom
+        self.opacity = opacity
+        self.drift_speed = drift_speed
+        self.color = color
+
+    def apply(self, frame: np.ndarray, t: float) -> np.ndarray:
+        h, w = frame.shape[:2]
+        mist_top = int(h * (1 - self.region_bottom))
+
+        mist_layer = np.zeros_like(frame, dtype=np.float32)
+
+        # vectorized: compute density gradient for all rows at once
+        rows = np.arange(mist_top, h)
+        density = (rows - mist_top) / max(h - mist_top, 1)  # (N,)
+
+        color_arr = np.array(self.color, dtype=np.float32)  # (3,)
+
+        # density * color for each row → (N, 3)
+        row_colors = (density[:, None] * color_arr).astype(np.float32)
+
+        # broadcast to full width: (N, W, 3)
+        mist_layer[mist_top:h] = row_colors[:, None, :]
+
+        return cv2.addWeighted(frame.astype(np.float32), 1.0, mist_layer, self.opacity, 0).clip(0, 255).astype(np.uint8)

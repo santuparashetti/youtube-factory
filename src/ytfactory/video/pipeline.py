@@ -608,6 +608,7 @@ class VideoPipeline:
             needs_render = not output.exists() or source_mtime > output_mtime
 
             if needs_render:
+                animated_clip = project_dir / "animated" / f"scene-{index:03d}.mp4"
                 try:
                     self.renderer.render(
                         image=image,
@@ -620,6 +621,7 @@ class VideoPipeline:
                         transition_out=t_out,
                         effect_spec=effect_spec,
                         scene_type=scene.get("scene_type"),
+                        animated_video=animated_clip if animated_clip.is_file() else None,
                     )
                 except Exception as exc:
                     scene_errors.append(f"Scene {index} render failed: {exc}")

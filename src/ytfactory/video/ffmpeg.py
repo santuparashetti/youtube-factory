@@ -286,58 +286,67 @@ class FFmpegRenderer:
             aud_inp = inp + 1
             inp += 2
 
-            # Image input: looped still, limited to narration duration
-            cmd += [
-                "-loop",
-                "1",
-                "-framerate",
-                str(fps),
-                "-t",
-                f"{dur:.4f}",
-                "-i",
-                str(image),
-            ]
-            # Audio input
+            # Prefer pre-animated clip when available (motion_engine output).
+            animated = project_dir / "animated" / f"scene-{index:03d}.mp4"
+            use_animated = (
+                animated.is_file()
+                and scene.get("scene_type") not in ("asset", "brand_card")
+            )
+
+            if use_animated:
+                # Video-only pre-animated clip — no -loop, no zoompan needed
+                cmd += ["-i", str(animated)]
+            else:
+                # Looped still image — existing path
+                cmd += [
+                    "-loop", "1",
+                    "-framerate", str(fps),
+                    "-t", f"{dur:.4f}",
+                    "-i", str(image),
+                ]
+            # Audio always comes from the narration MP3 (animated clip has no audio)
             cmd += ["-i", str(audio)]
 
-            # Video filter chain — reuse existing private helpers
-            motion_spec = scene.get("motion")
-            effect_spec = scene.get("effects")
-            t_in = scene.get("transition_in")
-            t_out = scene.get("transition_out")
-
-            if motion_spec is not None:
-                spatial = self._vf_spatial(W, H, fps, motion_spec, dur)
+            if use_animated:
+                # Motion already baked in — just scale, trim, subtitle, normalize
+                vf_parts = [
+                    f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
+                    f"trim=duration={dur:.4f},setpts=PTS-STARTPTS",
+                ]
+                if subtitle is not None:
+                    sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
+                    vf_parts.append(f"subtitles='{sub_escaped}'")
+                vf_parts += ["setsar=1", "setdar=16/9", "format=yuv420p"]
             else:
-                spatial = self._vf_spatial_legacy(
-                    W, H, fps, scene.get("animation"), dur
-                )
+                # Static PNG path: full spatial / effects / fade chain
+                motion_spec = scene.get("motion")
+                effect_spec = scene.get("effects")
+                t_in = scene.get("transition_in")
+                t_out = scene.get("transition_out")
 
-            vf_parts: list[str] = [spatial]
-            vf_parts += self._effects_filters(effect_spec)
-            vf_parts += self._fade_filters(t_in, t_out, fps, dur)
+                if motion_spec is not None:
+                    spatial = self._vf_spatial(W, H, fps, motion_spec, dur)
+                else:
+                    spatial = self._vf_spatial_legacy(
+                        W, H, fps, scene.get("animation"), dur
+                    )
 
-            # Cap to exact scene duration before subtitle rendering.
-            # zoompan with d=1 produces exactly total_frames output frames,
-            # matching the input duration, so the trim is a safety net for
-            # any clock skew between the looped image and the audio track.
-            vf_parts.append(f"trim=duration={dur:.4f},setpts=PTS-STARTPTS")
+                vf_parts = [spatial]
+                vf_parts += self._effects_filters(effect_spec)
+                vf_parts += self._fade_filters(t_in, t_out, fps, dur)
 
-            if subtitle is not None:
-                # Escape backslash and single-quote so the path survives the
-                # filter_complex parser on Linux (colons are safe in Linux paths).
-                sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
-                vf_parts.append(f"subtitles='{sub_escaped}'")
+                # Cap to exact scene duration — trim is a safety net for any
+                # clock skew between the looped image and the audio track.
+                vf_parts.append(f"trim=duration={dur:.4f},setpts=PTS-STARTPTS")
 
-            # Normalize SAR/DAR so every segment entering concat has identical
-            # stream parameters, preventing "Input link ... do not match the
-            # corresponding output link" errors.
-            vf_parts.append("setsar=1")
-            vf_parts.append("setdar=16/9")
-            vf_parts.append("format=yuv420p")
+                if subtitle is not None:
+                    sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
+                    vf_parts.append(f"subtitles='{sub_escaped}'")
 
-            if self.settings.video_debug_showinfo:
-                vf_parts.append("showinfo")
+                vf_parts += ["setsar=1", "setdar=16/9", "format=yuv420p"]
+
+                if self.settings.video_debug_showinfo:
+                    vf_parts.append("showinfo")
 
             vf_chain = ",".join(vf_parts)
             filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
@@ -452,6 +461,70 @@ class FFmpegRenderer:
             )
             raise
 
+    def _render_animated(
+        self,
+        animated: Path,
+        audio: Path,
+        subtitle: Path | None,
+        output: Path,
+        duration_hint: float,
+    ) -> None:
+        """Mux a pre-animated MP4 (video-only) with narration audio and subtitle burn-in.
+
+        Used when motion_engine has pre-rendered a scene — skips zoompan entirely
+        since motion is already baked into the animated clip.
+        """
+        W = self.settings.video_width
+        H = self.settings.video_height
+        fps = self.settings.video_fps
+
+        vf_parts = [
+            f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
+            f"trim=duration={duration_hint:.4f},setpts=PTS-STARTPTS",
+        ]
+        if subtitle is not None and self.settings.subtitle_burn_enabled:
+            sub_esc = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
+            vf_parts.append(f"subtitles='{sub_esc}'")
+        vf_parts += ["setsar=1", "format=yuv420p"]
+
+        fc = (
+            f"[0:v]{','.join(vf_parts)}[vout];"
+            f"[1:a]atrim=duration={duration_hint:.4f},asetpts=PTS-STARTPTS,"
+            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]"
+        )
+
+        enc: list[str] = [
+            "-c:v", "libx264",
+            "-preset", self.settings.video_preset,
+            "-crf", str(self.settings.video_crf),
+            "-pix_fmt", "yuv420p",
+            "-profile:v", "high",
+            "-g", str(self.settings.video_keyframe_interval),
+            "-movflags", "+faststart+negative_cts_offsets",
+        ]
+        if self.settings.video_tune:
+            enc += ["-tune", self.settings.video_tune]
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(animated),
+                "-i", str(audio),
+                "-filter_complex", fc,
+                "-map", "[vout]",
+                "-map", "[aout]",
+                "-r", str(fps),
+                "-s", f"{W}x{H}",
+                *enc,
+                "-c:a", "aac",
+                "-b:a", self.settings.video_audio_bitrate,
+                "-ar", "48000",
+                str(output),
+            ],
+            check=True,
+        )
+
     def render(
         self,
         image: Path,
@@ -465,6 +538,7 @@ class FFmpegRenderer:
         transition_out: dict | None = None,
         effect_spec: dict | None = None,
         scene_type: str | None = None,
+        animated_video: Path | None = None,
     ) -> None:
         """
         Render image + audio + subtitles → MP4.
@@ -502,6 +576,18 @@ class FFmpegRenderer:
                            .ass/.srt file on disk is unaffected; it's simply
                            not fed into the filter chain.
         """
+        # Fast path: pre-animated clip exists — mux with audio + subtitle directly.
+        if animated_video is not None and animated_video.is_file():
+            sub: Path | None = None
+            if scene_type != "brand_card":
+                ass_path = subtitle.with_suffix(".ass") if subtitle else None
+                if ass_path and ass_path.is_file():
+                    sub = ass_path
+                elif subtitle and subtitle.is_file():
+                    sub = subtitle
+            self._render_animated(animated_video, audio, sub, output, duration_hint)
+            return
+
         output.parent.mkdir(parents=True, exist_ok=True)
 
         width = self.settings.video_width
