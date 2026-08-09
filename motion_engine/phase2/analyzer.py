@@ -125,10 +125,19 @@ Only mark non-null when the element is unambiguously visible and covers >5% of t
 
 AVAILABLE EFFECTS (use only names from this list):
 
-  OBJECT_EFFECTS  — only if that object is clearly visible AND its region is non-null:
-    lamp_flicker   → ONLY if lamp region non-null (kerosene or oil lamp)
-    candle_flicker → ONLY if candle region non-null (candle flame)
-    torch_flicker  → ONLY if torch region non-null (open flame: torch, diya, bonfire)
+  OBJECT_EFFECTS  — only if that object is clearly visible AND its region is non-null.
+  The engine enforces this strictly: if you add an effect but its region is null,
+  the engine drops the effect entirely. There is no fallback.
+
+    lamp_flicker   → ONLY if lamp region non-null. If you choose this effect, you MUST
+                     annotate regions.lamp with the lamp body + flame bounding box. Even
+                     a lamp partially behind a figure should be annotated — the engine
+                     applies the flicker to the lamp region without figure exclusion.
+    candle_flicker → ONLY if candle region non-null. If you choose this effect, you MUST
+                     annotate regions.candle. Do not choose candle_flicker and leave
+                     regions.candle null — the effect will be dropped.
+    torch_flicker  → ONLY if torch region non-null. If you choose this effect, you MUST
+                     annotate regions.torch. Includes diyas, oil lamps, bonfires.
     water_ripple   → ONLY if water region non-null (still water surface)
     waterfall_flow → ONLY if waterfall region non-null (flowing water or waterfall)
     tree_sway      → ONLY if leaves region non-null (leaf clusters clearly visible)
@@ -385,16 +394,22 @@ class SceneAnalyzer:
 
             elif soft_region_key is not None:
                 region_box = regions.get(soft_region_key)
-                if region_box:
-                    # Region detected — use the precise box
-                    spec.params["_region_box"] = list(region_box)
-                else:
-                    # Region null but LLM chose the effect — it saw the light source.
-                    # Fall through without a region: effect uses its own default mask.
+                if not region_box:
+                    # Strict: LLM chose this effect but didn't annotate the region.
+                    # The prompt requires a non-null region when choosing flame effects.
+                    # Drop rather than falling back to a default mask that will likely
+                    # be wrong (lamps are rarely at center-frame).
                     logger.debug(
-                        "%s: region '%s' null — using default mask (LLM confirmed flame present)",
+                        "%s dropped: region '%s' not annotated — "
+                        "LLM must provide region coordinates when choosing this effect",
                         spec.name, soft_region_key,
                     )
+                    if not added_dust:
+                        effects.append(EffectSpec("dust_particles", "substituted for missing region effect"))
+                        added_dust = True
+                    continue
+                # Region detected — use the precise box
+                spec.params["_region_box"] = list(region_box)
 
             effects.append(spec)
 

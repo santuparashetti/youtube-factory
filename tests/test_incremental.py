@@ -348,7 +348,7 @@ class TestDeps:
         assert FORCE_FLAG_TO_STAGE["images"] == "images"
         assert FORCE_FLAG_TO_STAGE["narration"] == "voice"
         assert FORCE_FLAG_TO_STAGE["subtitles"] == "captions"
-        assert FORCE_FLAG_TO_STAGE["bgm"] == "video"
+        assert FORCE_FLAG_TO_STAGE["bgm"] == "stitch"  # BGM is applied during stitch
 
 
 # ── IncrementalBuildEngine ────────────────────────────────────────────────────

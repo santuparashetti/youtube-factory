@@ -25,7 +25,7 @@ from ytfactory.structural_retention.cli import structural_retention
 from ytfactory.composer.cli import compose
 from ytfactory.source_refiner.cli import refine_source
 from ytfactory.trim.cli import trim_script
-from ytfactory.video.cli import compare_video, render
+from ytfactory.video.cli import compare_video, render, stitch
 from ytfactory.voice.cli import generate_voice
 from ytfactory.shorts.cli import generate_shorts, generate_shorts_video, shorts_extract, shorts_plan
 
@@ -311,6 +311,7 @@ app.command(name="generate-voice")(generate_voice)
 app.command(name="generate-captions")(generate_captions)
 app.command(name="transcript")(transcript)
 app.command(name="render")(render)
+app.command(name="stitch")(stitch)
 app.command(name="compare-video")(compare_video)
 app.command(name="overlay-cta")(overlay_cta)
 app.command(name="review")(review)

@@ -288,10 +288,22 @@ class TestAssetIntegrityStage:
         result = stage.run(proj, scenes, scene_reviews, {})
         assert not result.passed
 
-    def test_fails_when_final_video_missing(self, tmp_path):
+    def test_skips_final_video_check_in_pre_stitch_mode(self, tmp_path):
+        # Scene clips present but final.mp4 absent → pre-stitch mode → pass
         scenes = [_make_scene(1)]
         proj = _build_project(tmp_path, scenes, with_assets=True)
         (proj / "video" / "final.mp4").unlink()
+        scene_reviews = [SceneReview(index=1)]
+        stage = AssetIntegrityStage(_cfg())
+        result = stage.run(proj, scenes, scene_reviews, {})
+        assert result.passed  # pre-stitch: final.mp4 not yet assembled
+
+    def test_fails_when_final_video_missing_and_no_scene_clips(self, tmp_path):
+        # No scene clips either → true concatenation failure → fail
+        scenes = [_make_scene(1)]
+        proj = _build_project(tmp_path, scenes, with_assets=True)
+        (proj / "video" / "final.mp4").unlink()
+        (proj / "video" / "scene-001.mp4").unlink()
         scene_reviews = [SceneReview(index=1)]
         stage = AssetIntegrityStage(_cfg())
         result = stage.run(proj, scenes, scene_reviews, {})

@@ -223,25 +223,22 @@ class TwoPhasePipeline:
             # animate scenes with motion engine (LLM vision → effects → MP4)
             pipeline.animate.run(project_id)
 
-            # video render (includes BGM mixing)
-            pipeline.video.run(project_id, overlay=overlay)
+            # render individual scene clips only — no final stitch yet
+            pipeline.video.run(project_id, stitch=False)
 
-            # CTA overlay
-            pipeline.cta.run(project_id)
+            # pre-stitch review: validate scene clips before assembling final.mp4
+            # AssetIntegrityStage auto-detects pre-stitch mode and skips final.mp4 check.
+            from ytfactory.review.pipeline import ReviewPipeline
 
-            # post-processing: split final.mp4 into parts (opt-in via VIDEO_SPLIT_ENABLED)
-            pipeline._maybe_split_video(project_id)
+            review_report = ReviewPipeline().run(project_id)
 
-            # quality review
-            review_report = pipeline.review.run(project_id)
-
-            # auto-remediation if needed
+            # auto-remediate scene clips if needed
             if review_report.verdict == "FAIL":
                 from ytfactory.review.remediation.config import RemediationConfig
                 from ytfactory.review.remediation.engine import AutoRemediationEngine
 
                 config = RemediationConfig(
-                    quality_threshold=70.0,
+                    quality_threshold=85.0,  # matches upload gate (pipeline_qa ≥ 85 required)
                     max_retries=3,
                     dry_run=False,
                 )
@@ -254,6 +251,15 @@ class TwoPhasePipeline:
                         f"{remediation_report.total_cycles} remediation cycle(s) "
                         f"(reason: {remediation_report.stopped_reason})."
                     )
+
+            # all scene clips passed — stitch into final.mp4 (overlays + BGM)
+            pipeline.stitch.run(project_id)
+
+            # CTA overlay
+            pipeline.cta.run(project_id)
+
+            # post-processing: split final.mp4 into parts (opt-in via VIDEO_SPLIT_ENABLED)
+            pipeline._maybe_split_video(project_id)
 
             # publish (skip thumbnail — user reviews manually-placed images directly)
             from ytfactory.publish.config import PublishConfig

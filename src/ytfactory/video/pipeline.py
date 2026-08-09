@@ -496,6 +496,7 @@ class VideoPipeline:
         self,
         project_id: str,
         overlay: bool = True,
+        stitch: bool = True,
     ) -> None:
 
         project_dir = Path("workspace") / "jobs" / project_id
@@ -643,9 +644,16 @@ class VideoPipeline:
 
         if _w:
             _w.stage_complete()
+        else:
+            print(f"\n✓ All {len(scene_clips)} scene(s) rendered.\n")
+
+        if not stitch:
+            return
+
+        if _w:
             _w.stage_start("video_merge")
         else:
-            print("\n✓ All scenes rendered. Composing final video...\n")
+            print("Composing final video...\n")
 
         final_video = output_dir / "final.mp4"
 

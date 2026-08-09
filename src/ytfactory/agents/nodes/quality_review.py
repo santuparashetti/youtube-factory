@@ -33,10 +33,14 @@ def _print_pipeline_qa_telemetry(score: RetentionScoreResult) -> None:
 
 def quality_review_node(state: VideoState) -> dict:
     """
-    Run the Video Quality Review Engine immediately after video concatenation.
+    Run the Video Quality Review Engine on scene clips (pre-stitch gate).
 
-    Reads all pipeline artefacts from disk (images, audio, subtitles, video
-    clips, final.mp4, scene-plan.json, script.md) and writes reports to
+    Runs BEFORE video_concatenator so failing scenes are repaired before the
+    expensive final stitch.  REND_003 / REND_004 are disabled because final.mp4
+    doesn't exist yet — BGM validator already auto-skips when final.mp4 is absent.
+
+    Reads all pipeline artefacts from disk (images, audio, subtitles, scene
+    clips, scene-plan.json, script.md) and writes reports to
     workspace/jobs/<project_id>/review/.
 
     Passes the pre-render retention score (from pre_render_gate_node state)
@@ -48,6 +52,8 @@ def quality_review_node(state: VideoState) -> dict:
     """
     project_id = state["project_id"]
 
+    # AssetIntegrityStage auto-detects pre-stitch mode (scene clips present,
+    # final.mp4 absent) and skips the final.mp4 check automatically.
     pipeline = ReviewPipeline()
     pre_render_score = state.get("pipeline_qa_score")
     report = pipeline.run(project_id, pre_render_score=pre_render_score)

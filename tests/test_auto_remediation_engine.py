@@ -397,9 +397,10 @@ class TestDecisionEngine:
         assert len(plan.actions) == 1
 
     def test_plan_filters_by_confidence(self) -> None:
+        # Non-critical items with confidence below min_confidence are filtered out.
         efl_report = MagicMock()
         item = MagicMock()
-        item.priority = "critical"
+        item.priority = "high"
         item.confidence = 40  # below default min_confidence=60
         item.engine_owner = "TTS Engine"
         item.category = "audio"
@@ -407,12 +408,32 @@ class TestDecisionEngine:
         item.feedback_id = "EFL-001"
         item.root_cause = "test"
         item.recommended_fix = "fix"
-        item.severity = "critical"
+        item.severity = "high"
         efl_report.feedback_items = [item]
 
         engine = DecisionEngine(RemediationConfig(min_confidence=60))
         plan = engine.plan("proj", None, None, None, efl_report)
         assert plan.actions == []
+
+    def test_plan_critical_items_bypass_confidence_filter(self) -> None:
+        # Critical items are remediated regardless of confidence score.
+        efl_report = MagicMock()
+        item = MagicMock()
+        item.priority = "critical"
+        item.confidence = 0  # would be filtered for non-critical
+        item.engine_owner = "Video Renderer"
+        item.category = "video"
+        item.rule_id = "MOT_005"
+        item.feedback_id = "EFL-001"
+        item.root_cause = "static shot"
+        item.recommended_fix = "regenerate"
+        item.severity = "critical"
+        efl_report.feedback_items = [item]
+
+        engine = DecisionEngine(RemediationConfig(min_confidence=60))
+        plan = engine.plan("proj", None, None, None, efl_report)
+        assert len(plan.actions) == 1
+        assert plan.actions[0].rule_id == "MOT_005"
 
     def test_plan_assigns_sequential_ids(self) -> None:
         efl_report = MagicMock()

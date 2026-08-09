@@ -167,10 +167,6 @@ class MotionValidator(BaseValidator):
                             timestamp_seconds=start,
                         )
                     )
-                raise PipelineAbort(
-                    stage="quality_review",
-                    reason=f"MOT_005: {len(static_violations)} static shot(s) detected in rendered video",
-                )
             else:
                 results.append(self._pass("MOT_005", "No static shots detected in rendered video", ""))
 

@@ -83,7 +83,9 @@ class DecisionEngine:
             for item in efl_report.feedback_items:
                 if item.priority not in self._config.remediate_severities:
                     continue
-                if item.confidence < self._config.min_confidence:
+                # Critical failures bypass the confidence check — a confirmed
+                # critical failure must be remediated regardless of confidence score.
+                if item.priority != "critical" and item.confidence < self._config.min_confidence:
                     continue
 
                 # Skip if already retried too many times
@@ -132,7 +134,7 @@ class DecisionEngine:
             for issue in rca_report.issues:
                 if issue.severity not in self._config.remediate_severities:
                     continue
-                if issue.confidence < self._config.min_confidence:
+                if issue.severity != "critical" and issue.confidence < self._config.min_confidence:
                     continue
                 if issue.rule_id in covered_rules:
                     continue

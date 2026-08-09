@@ -97,9 +97,17 @@ class AssetIntegrityStage(BaseReviewStage):
             elif not sr.has_video_clip:
                 sr.issues.append("Missing video clip")
 
-        # Final video
+        # Final video — skip when scene clips exist but final.mp4 hasn't been
+        # assembled yet (pre-stitch review: scenes pass review before stitch runs).
         final_video = project_dir / "video" / "final.mp4"
-        if self._check(
+        pre_stitch = (
+            not final_video.exists()
+            and scene_reviews
+            and (project_dir / "video" / f"scene-{scene_reviews[0].index:03d}.mp4").exists()
+        )
+        if pre_stitch:
+            self._ok()  # scene clips present; final.mp4 assembled after review passes
+        elif self._check(
             final_video.exists(),
             "final.mp4 is missing — concatenation did not complete",
         ):

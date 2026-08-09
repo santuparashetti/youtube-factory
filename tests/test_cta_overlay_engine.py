@@ -1111,10 +1111,11 @@ class TestIncrementalDeps:
         review_idx = PIPELINE_STAGES.index("review")
         assert video_idx < cta_idx < review_idx
 
-    def test_cta_depends_on_video(self):
+    def test_cta_depends_on_stitch(self):
         from ytfactory.incremental.deps import STAGE_DEPENDENCIES
 
-        assert "video" in STAGE_DEPENDENCIES["cta"]
+        # CTA now runs after stitch (which assembles final.mp4 from scene clips)
+        assert "stitch" in STAGE_DEPENDENCIES["cta"]
 
     def test_review_depends_on_cta(self):
         from ytfactory.incremental.deps import STAGE_DEPENDENCIES

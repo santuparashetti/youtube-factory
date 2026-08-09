@@ -311,6 +311,22 @@ def _extract_reports(review_report: object) -> tuple:
     if efl_report is None and hasattr(review_report, "efl_report"):
         efl_report = _efl_proxy(review_report.efl_report)  # type: ignore[union-attr,assignment]
 
+    # Guard: pipeline_qa_score is the upload gate score (drives the FAIL verdict).
+    # QualityScoringEngine can report a high score even when pipeline_qa fails
+    # (they measure different things). Use the lower of the two so the remediation
+    # engine doesn't skip remediation when the pipeline gate is the failure reason.
+    if hasattr(review_report, "pipeline_qa_score") and score_report is not None:
+        try:
+            pqa = review_report.pipeline_qa_score  # type: ignore[union-attr]
+            pqa_total = (
+                pqa.get("total", 100.0) if isinstance(pqa, dict)
+                else getattr(pqa, "total", 100.0)
+            )
+            if pqa_total < getattr(score_report, "overall_score", 100.0):
+                score_report = _score_proxy({"overall_score": pqa_total})
+        except Exception:
+            pass
+
     return val_report, rca_report, score_report, efl_report
 
 
@@ -418,7 +434,11 @@ def _efl_proxy(d: object | None) -> object | None:
 
 
 def _revalidate(project_id: str) -> object:
-    """Re-run the full VQRE and return a fresh ReviewReport."""
+    """Re-run the full VQRE and return a fresh ReviewReport.
+
+    AssetIntegrityStage auto-detects pre-stitch mode (scene clips present,
+    final.mp4 absent) so no special config is needed here.
+    """
     from ytfactory.review.engine import VideoQualityReviewEngine
 
     return VideoQualityReviewEngine().review(project_id)

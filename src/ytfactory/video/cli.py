@@ -16,6 +16,16 @@ def render(
     console.print("[green]✓ Video rendered[/green]")
 
 
+def stitch(
+    project_id: str,
+):
+    """Compose final.mp4 from already-rendered scene clips (overlays + BGM)."""
+    from .stitch_pipeline import StitchPipeline
+
+    StitchPipeline().run(project_id)
+    console.print("[green]✓ Final video stitched[/green]")
+
+
 def compare_video(
     original: str,
     optimised: str,

@@ -11,7 +11,7 @@ class WarmBloom(BaseEffect):
     scenes. Use as the single lighting effect for calm, premium documentary style.
     """
 
-    def __init__(self, intensity: float = 0.18, pulse_speed: float = 0.20):
+    def __init__(self, intensity: float = 0.08, pulse_speed: float = 0.20):
         self.intensity = intensity   # 0.03 (barely visible) to 0.12 (noticeable)
         self.pulse_speed = pulse_speed
 
@@ -61,7 +61,7 @@ class SunRays(BaseEffect):
         num_rays: int = 12,
         ray_spread: float = 0.55,   # angular spread in radians around base angle
         color: tuple = (80, 160, 230),  # BGR — warm golden
-        base_alpha: float = 0.18,
+        base_alpha: float = 0.08,
         pulse_speed: float = 0.3,   # how fast rays breathe
         ray_length_scale: float = 1.8,  # multiplier of frame diagonal
         blur_radius: int = 61,      # softness of rays — must be odd

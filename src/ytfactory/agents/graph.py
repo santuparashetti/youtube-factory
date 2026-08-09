@@ -15,12 +15,15 @@ composer flow:
    already picked — and goes straight to human_review_final_script)
     → [human_review_scenes]
       → generate_scene_assets (parallel fan-out, one per scene)
-        → video_renderer → video_concatenator → cta
-          → quality_review
-              PASS → publish
+        → video_renderer → quality_review (pre-stitch, scene clips only)
+              PASS → video_concatenator → cta → publish
               FAIL → remediation
-                PASS → publish
+                PASS → video_concatenator → cta → publish
                 FAIL → END
+
+Review runs BEFORE video_concatenator so failing scenes are repaired before
+the expensive final stitch.  REND_003/REND_004 are disabled in the pre-stitch
+review (final.mp4 doesn't exist yet); BGM validator auto-skips.
 
 Research and script-writer stages have been removed — a script is always
 provided (pre-written or imported from YouTube).  The nodes are still on
@@ -114,18 +117,18 @@ def _route_after_assets(state: VideoState) -> str:
 
 
 def _route_after_review(state: VideoState) -> str:
-    """Gate publish on review verdict: PASS continues, FAIL goes to remediation."""
+    """Pre-stitch gate: PASS → stitch, FAIL → remediation."""
     verdict = (state.get("review_result") or {}).get("verdict", "FAIL")
     if verdict == "PASS":
-        return "publish"
+        return "video_concatenator"
     return "remediation"
 
 
 def _route_after_remediation(state: VideoState) -> str:
-    """Gate publish on remediation outcome: PASS continues, FAIL stops pipeline."""
+    """Post-remediation gate: PASS → stitch, FAIL → stops pipeline."""
     verdict = (state.get("remediation_result") or {}).get("final_verdict", "FAIL")
     if verdict == "PASS":
-        return "publish"
+        return "video_concatenator"
     return END
 
 
@@ -192,19 +195,21 @@ def build_graph() -> StateGraph:
         _route_after_assets,
         {"video_renderer": "video_renderer", END: END},
     )
-    workflow.add_edge("video_renderer", "video_concatenator")
-    workflow.add_edge("video_concatenator", "cta")
-    workflow.add_edge("cta", "quality_review")
+    # Pre-stitch review: validate scene clips before assembling final.mp4
+    workflow.add_edge("video_renderer", "quality_review")
     workflow.add_conditional_edges(
         "quality_review",
         _route_after_review,
-        {"publish": "publish", "remediation": "remediation"},
+        {"video_concatenator": "video_concatenator", "remediation": "remediation"},
     )
     workflow.add_conditional_edges(
         "remediation",
         _route_after_remediation,
-        {"publish": "publish", END: END},
+        {"video_concatenator": "video_concatenator", END: END},
     )
+    # Stitch + post-processing: only runs once scene clips pass review
+    workflow.add_edge("video_concatenator", "cta")
+    workflow.add_edge("cta", "publish")
     workflow.add_edge("publish", END)
 
     return workflow

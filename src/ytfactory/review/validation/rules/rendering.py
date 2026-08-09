@@ -192,9 +192,21 @@ class RenderingValidator(BaseValidator):
 
         final_path = project_dir / "video" / "final.mp4"
 
+        # Pre-stitch mode: scene clips exist but final.mp4 hasn't been assembled yet.
+        # This is the normal state when review runs before the stitch step.
+        pre_stitch = (
+            not final_path.exists()
+            and scenes
+            and (project_dir / "video" / f"scene-{scenes[0].get('index', 1):03d}.mp4").exists()
+        )
+
         # REND_003: Final video exists
         if self._config.is_enabled("REND_003"):
-            if not final_path.exists():
+            if pre_stitch:
+                results.append(
+                    self._skip("REND_003", "pre-stitch mode — scene clips present, final.mp4 assembled after review")
+                )
+            elif not final_path.exists():
                 results.append(
                     self._fail(
                         "REND_003",

@@ -928,9 +928,19 @@ class TestRenderingValidator:
         rule = next(r for r in results if r.rule_id == "REND_003")
         assert rule.status == "PASS"
 
-    def test_missing_final_video_critical(self, tmp_path, cfg):
+    def test_pre_stitch_mode_skips_final_video_check(self, tmp_path, cfg):
+        # Scene clips present but final.mp4 absent → pre-stitch mode → SKIP
         (tmp_path / "video").mkdir()
         (tmp_path / "video" / "scene-001.mp4").write_bytes(b"\x00" * 15_000)
+        bad_scenes = [{"index": 1, "narration": "x", "duration_seconds": 5.0}]
+        v = RenderingValidator(cfg)
+        results = v.validate(tmp_path, bad_scenes, {})
+        rule = next(r for r in results if r.rule_id == "REND_003")
+        assert rule.status == "SKIP"
+
+    def test_missing_final_video_critical_when_no_clips(self, tmp_path, cfg):
+        # No scene clips and no final.mp4 → true concatenation failure → FAIL
+        (tmp_path / "video").mkdir()
         bad_scenes = [{"index": 1, "narration": "x", "duration_seconds": 5.0}]
         v = RenderingValidator(cfg)
         results = v.validate(tmp_path, bad_scenes, {})

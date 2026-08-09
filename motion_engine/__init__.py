@@ -51,9 +51,11 @@ EFFECT_REGISTRY = {
 CAMERA_EFFECTS = {"slow_push_in", "slow_pull_out"}
 
 # Effects with a spatial mask — figures are auto-subtracted from the mask.
+# Flame/lamp effects are intentionally excluded: a lamp or candle behind a
+# figure should still flicker. Figure exclusion would zero out the lamp region
+# in interior scenes and kill the effect entirely.
 _MASK_EFFECTS = {
     "water_ripple", "waterfall_flow",
-    "lamp_flicker", "candle_flicker", "torch_flicker",
     "tree_sway", "grass_movement", "grass_sway", "cloud_movement",
 }
 
@@ -64,8 +66,8 @@ _EXCLUDE_MASK_EFFECTS = {
 }
 
 # Minimum unblocked area fraction for displacement effects.
-# Lighting effects (lamp/candle/torch) are excluded — they brighten a region,
-# so even a small lamp area is worth processing.
+# Flame/lamp effects are explicitly set to 0.0 — they apply to the exact lamp
+# region regardless of how small it is, and figure exclusion does not apply.
 _MIN_AREA_THRESHOLDS = {
     "water_ripple":   0.08,
     "waterfall_flow": 0.05,
@@ -73,6 +75,9 @@ _MIN_AREA_THRESHOLDS = {
     "grass_movement": 0.05,
     "grass_sway":     0.05,
     "cloud_movement": 0.05,
+    "lamp_flicker":   0.0,
+    "candle_flicker": 0.0,
+    "torch_flicker":  0.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -194,7 +199,10 @@ def _default_mask(effect_name: str, W: int, H: int) -> np.ndarray:
     if effect_name == "water_ripple":
         m[int(H * 0.65):, :] = True
     elif effect_name in ("lamp_flicker", "candle_flicker", "torch_flicker"):
-        m[int(H * 0.35):int(H * 0.65), int(W * 0.35):int(W * 0.65)] = True
+        # Lamps appear anywhere in the frame — cover the right-side lower area
+        # as a wider fallback. Strict mode (strict_region_effects) means this
+        # is only reached for manually-constructed SceneConfigs, not the analyzer.
+        m[int(H * 0.25):int(H * 0.80), int(W * 0.40):int(W * 1.0)] = True
     return m
 
 

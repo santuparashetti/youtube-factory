@@ -16,6 +16,7 @@ PIPELINE_STAGES: list[str] = [
     "voice",
     "captions",
     "video",
+    "stitch",
     "cta",
     "review",
     "publish",
@@ -32,7 +33,8 @@ STAGE_DEPENDENCIES: dict[str, list[str]] = {
     "voice": ["scenes"],
     "captions": ["voice"],
     "video": ["images", "voice", "captions"],
-    "cta": ["video"],
+    "stitch": ["video"],   # final.mp4 assembled after scene clips pass review
+    "cta": ["stitch"],
     "review": ["cta"],
     "publish": ["review"],
 }
@@ -50,7 +52,8 @@ STAGE_OUTPUT_PATTERNS: dict[str, list[str]] = {
         "audio/scene-*.alignment.json",
     ],
     "captions": ["subtitles/scene-*.srt", "subtitles/scene-*.ass"],
-    "video": ["video/scene-*.mp4", "video/final.mp4"],
+    "video": ["video/scene-*.mp4"],        # scene clips only; final.mp4 is stitch's output
+    "stitch": ["video/final.mp4"],
     "cta": ["cta/cta-timing.json"],
     "review": ["review/review-report.md"],
     "publish": ["publish/youtube-metadata.json"],
@@ -66,8 +69,9 @@ FORCE_FLAG_TO_STAGE: dict[str, str] = {
     "captions": "captions",
     "motion": "video",
     "video": "video",
+    "stitch": "stitch",
     "alignment": "voice",  # force re-alignment → re-run voice stage (incl. alignment)
-    "bgm": "video",
+    "bgm": "stitch",       # BGM is applied during stitch
     "cta": "cta",
     "review": "review",
     "publish": "publish",
