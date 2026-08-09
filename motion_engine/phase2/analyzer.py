@@ -14,11 +14,28 @@ Usage:
 import json
 import base64
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple, Optional
 
+from openai import OpenAI
+
 logger = logging.getLogger(__name__)
+
+
+def is_qwen3_model(model: str) -> bool:
+    return model.lower().startswith("qwen/qwen3")
+
+
+def _region_mask(region_box: list, W: int, H: int) -> "np.ndarray":
+    """Convert a fractional [x0,y0,x1,y1] region box into a boolean numpy mask."""
+    import numpy as np
+    x0, y0, x1, y1 = region_box
+    m = np.zeros((H, W), dtype=bool)
+    m[int(H * y0):int(H * y1), int(W * x0):int(W * x1)] = True
+    return m
+
 
 # Flat set used for validation (every name the LLM may return)
 AVAILABLE_EFFECTS = [
@@ -48,12 +65,13 @@ Return a JSON object with exactly this structure:
     [x0, y0, x1, y1]
   ],
   "regions": {
-    "sky": [x0, y0, x1, y1] or null,
+    "leaves": [x0, y0, x1, y1] or null,
+    "grass": [x0, y0, x1, y1] or null,
     "water": [x0, y0, x1, y1] or null,
-    "vegetation": [x0, y0, x1, y1] or null,
-    "fire_or_lamp": [x0, y0, x1, y1] or null,
     "waterfall": [x0, y0, x1, y1] or null,
-    "grass": [x0, y0, x1, y1] or null
+    "lamp": [x0, y0, x1, y1] or null,
+    "candle": [x0, y0, x1, y1] or null,
+    "torch": [x0, y0, x1, y1] or null
   },
   "effects": [
     {
@@ -64,16 +82,57 @@ Return a JSON object with exactly this structure:
   ]
 }
 
+FIGURE DETECTION — CRITICAL:
+  Scan the entire image for ANY human presence: people, faces, bodies, silhouettes,
+  partial figures (just a hand, a shoulder, a seated person). Include every human
+  bounding box in figure_boxes with 3–5% padding. An empty figure_boxes list means
+  the scene has ZERO human presence — if in doubt, add the box.
+
+REGION DETECTION — precision is critical for every region.
+Mark only the EXACT pixels of each element — tight fit, no padding into surrounding context.
+Only mark non-null when the element is unambiguously visible and covers >5% of the frame.
+
+  leaves:    Tight box around visible LEAF CLUSTERS only — the outer foliage at branch
+             tips where wind would move them. EXCLUDE trunk, branches, bark, walls,
+             ground, and all animals. Canopy is typically in the top 0–35% of the image.
+             Set null if no clearly visible leaf clusters exist.
+
+  grass:     Tight box covering ONLY grass blades or reeds. EXCLUDE dirt, rocks, paths,
+             and any objects sitting on the grass (feet, wheels, pots).
+             Set null if no clearly visible grass exists.
+
+  water:     Tight box around the visible WATER SURFACE only — still pond, lake, or
+             river. EXCLUDE reflections that extend above the waterline, banks, rocks,
+             and any figures. Set null if water is absent or less than 8% of frame.
+
+  waterfall: Tight box around the falling WATER COLUMN only. EXCLUDE the pool below,
+             surrounding rocks, mist, and vegetation.
+             Set null if no clearly visible waterfall exists.
+
+  lamp:      Tight box around the lamp body and its visible flame/glow. Even a very
+             small lamp (1–2% of frame) should be marked — flame size does not matter.
+             EXCLUDE the wall behind it, the table beneath.
+             Set null ONLY if there is definitely no kerosene, oil lamp, or diya.
+
+  candle:    Tight box around the candle body and flame only. Mark even small candles.
+             EXCLUDE wax drips, holder, and surrounding glow on walls.
+             Set null ONLY if there is definitely no candle flame visible.
+
+  torch:     Tight box around the torch head and active flame only. Includes diyas,
+             oil lamps with open flames, bonfires, and any open-flame light source.
+             Mark even if very small (1–2% of frame). EXCLUDE handle, smoke, surrounding light.
+             Set null ONLY if there is definitely no open flame visible.
+
 AVAILABLE EFFECTS (use only names from this list):
 
-  OBJECT_EFFECTS  — only if that object is clearly visible in the scene:
-    lamp_flicker   → kerosene or oil lamp
-    candle_flicker → candle flame
-    torch_flicker  → open flame: torch, diya, bonfire
-    water_ripple   → still water surface (pond, lake, river)
-    waterfall_flow → flowing water or waterfall
-    tree_sway      → trees or large plants
-    grass_sway     → grass, reeds, low ground cover
+  OBJECT_EFFECTS  — only if that object is clearly visible AND its region is non-null:
+    lamp_flicker   → ONLY if lamp region non-null (kerosene or oil lamp)
+    candle_flicker → ONLY if candle region non-null (candle flame)
+    torch_flicker  → ONLY if torch region non-null (open flame: torch, diya, bonfire)
+    water_ripple   → ONLY if water region non-null (still water surface)
+    waterfall_flow → ONLY if waterfall region non-null (flowing water or waterfall)
+    tree_sway      → ONLY if leaves region non-null (leaf clusters clearly visible)
+    grass_sway     → ONLY if grass region non-null (grass clearly present)
 
   LIGHTING_EFFECTS — one maximum:
     sun_rays       → visible light shafts, golden hour, temple interior light
@@ -98,15 +157,17 @@ GLOBAL RULES (the engine enforces these, but respect them in your selection):
   - Prefer subtle motion — real cinematography is restrained, not everything moves at once
   - Never add an effect unless the trigger object is clearly visible
   - Never force water_ripple if water is mostly blocked by figures (< 8% of frame)
+  - Never add tree_sway or grass_sway if figures dominate the frame — use dust_particles instead
 
 SCENE RECIPES:
   Interior night / lamp scene  → lamp_flicker + warm_bloom + slow_push_in
   Interior day / temple        → sun_rays + light_haze + slow_push_in
   Exterior golden hour         → sun_rays + warm_bloom + dust_particles + slow_push_in
-  Exterior forest / nature     → tree_sway + mist_drift + slow_push_in
+  Exterior forest / nature     → tree_sway + mist_drift + slow_push_in  (only if leaves region non-null)
   Exterior rainy / stormy      → fog_drift + slow_push_in (no dust in rain)
   Lake / river scene           → water_ripple + mist_drift + slow_push_in
   Ending / closing shot        → warm_bloom + slow_pull_out
+  Scene with human figure(s)   → warm_bloom + dust_particles + slow_push_in (no displacement on figures)
 
 figure_boxes: ALL human figures as [x0,y0,x1,y1] fractions (0.0–1.0). Add 3–5% padding.
 regions: same fractional format. null if not present.
@@ -143,8 +204,18 @@ class EffectPlan:
             # H.264 needs even dimensions
             resolution = (w if w % 2 == 0 else w - 1, h if h % 2 == 0 else h - 1)
 
+        W, H = resolution
         effect_names = [e.name for e in self.effects]
-        effect_params = {e.name: e.params for e in self.effects if e.params}
+        effect_params: dict = {}
+        for e in self.effects:
+            if not e.params:
+                continue
+            p = dict(e.params)
+            region_box = p.pop("_region_box", None)
+            if region_box is not None:
+                p["mask"] = _region_mask(region_box, W, H)
+            if p:
+                effect_params[e.name] = p
 
         return SceneConfig(
             image_path=self.image_path,
@@ -164,20 +235,37 @@ class SceneAnalyzer:
     Falls back gracefully to dust_particles + slow_push_in if LLM is unavailable.
     """
 
-    def __init__(self, llm_provider=None):
-        self._llm = llm_provider  # injected; loaded lazily if None
+    def __init__(self, llm_provider=None, model: str = "openai/gpt-5.6-luna-pro"):
+        self._llm = llm_provider
+        self._model = model
 
     def _get_llm(self):
         if self._llm is not None:
             return self._llm
         try:
-            import anthropic
-            return anthropic.Anthropic()
+            return OpenAI(
+                base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://openrouter.ai/api/v1"),
+                api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            )
         except Exception as e:
             logger.warning(f"Could not init LLM client: {e}")
             return None
 
+    # Analysis only needs enough resolution to identify regions — not full HD.
+    ANALYZE_MAX_WIDTH = 640
+    ANALYZE_MAX_HEIGHT = 360
+
     def _encode_image(self, image_path: str) -> str:
+        import cv2
+        img = cv2.imread(image_path)
+        if img is not None:
+            h, w = img.shape[:2]
+            if w > self.ANALYZE_MAX_WIDTH or h > self.ANALYZE_MAX_HEIGHT:
+                scale = min(self.ANALYZE_MAX_WIDTH / w, self.ANALYZE_MAX_HEIGHT / h)
+                img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if ok:
+                return base64.standard_b64encode(buf.tobytes()).decode("utf-8")
         with open(image_path, "rb") as f:
             return base64.standard_b64encode(f.read()).decode("utf-8")
 
@@ -191,49 +279,131 @@ class SceneAnalyzer:
 
         try:
             b64 = self._encode_image(image_path)
-            response = client.messages.create(
-                model="claude-opus-5",
+
+            if is_qwen3_model(self._model):
+                provider = {
+                    "order": ["alibaba"],
+                    "quantizations": ["fp8"],
+                    "allow_fallbacks": False,
+                }
+            else:
+                provider = {
+                    "order": ["OpenAI"],
+                    "allow_fallbacks": False,
+                }
+
+            response = client.chat.completions.create(
+                model=self._model,
                 max_tokens=1024,
+                extra_body={"provider": provider},
                 messages=[{
                     "role": "user",
                     "content": [
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": b64,
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64}",
                             },
                         },
                         {"type": "text", "text": ANALYSIS_PROMPT},
                     ],
                 }],
             )
-            raw = response.content[0].text.strip()
+            raw = response.choices[0].message.content.strip()
             return self._parse(raw, image_path)
 
         except Exception as e:
             logger.warning(f"LLM analysis failed for {image_path}: {e}. Using fallback.")
             return self._fallback_plan(image_path)
 
+    # Effects where the region MUST be detected — no region means the effect
+    # would apply to the wrong area (e.g. water ripple on a figure).
+    _HARD_REGION_GUARDS: dict = {
+        "tree_sway":      "leaves",
+        "grass_sway":     "grass",
+        "grass_movement": "grass",
+        "water_ripple":   "water",
+        "waterfall_flow": "waterfall",
+    }
+
+    # Effects that work with their built-in default mask when the region is null.
+    # The LLM selecting the effect means it saw the light source — let it through.
+    _SOFT_REGION_GUARDS: dict = {
+        "lamp_flicker":   "lamp",
+        "candle_flicker": "candle",
+        "torch_flicker":  "torch",
+    }
+
     def _parse(self, raw: str, image_path: str) -> EffectPlan:
         data = json.loads(raw)
 
-        figure_boxes = [tuple(b) for b in data.get("figure_boxes", [])]
-        effects = [
+        raw_figure_boxes = data.get("figure_boxes", []) or []
+        figure_boxes = []
+        for b in raw_figure_boxes:
+            # Unwrap extra nesting: [[x0,y0,x1,y1]] → [x0,y0,x1,y1]
+            while isinstance(b, (list, tuple)) and len(b) == 1 and isinstance(b[0], (list, tuple)):
+                b = b[0]
+            if isinstance(b, (list, tuple)) and len(b) == 4:
+                figure_boxes.append(tuple(float(v) for v in b))
+            else:
+                logger.debug("Skipping malformed figure_box: %s", b)
+        regions: dict = data.get("regions", {}) or {}
+
+        raw_effects = [
             EffectSpec(
                 name=e["name"],
                 reason=e.get("reason", ""),
-                params=e.get("params", {}),
+                params={},
             )
             for e in data.get("effects", [])
             if e["name"] in AVAILABLE_EFFECTS
         ]
 
-        # Ensure at least dust_particles and a camera effect exist
+        effects: list[EffectSpec] = []
+        added_dust = False
+        for spec in raw_effects:
+            hard_region_key = self._HARD_REGION_GUARDS.get(spec.name)
+            soft_region_key = self._SOFT_REGION_GUARDS.get(spec.name)
+
+            if hard_region_key is not None:
+                region_box = regions.get(hard_region_key)
+                if not region_box:
+                    # Hard guard: region absent → drop effect, substitute dust_particles
+                    logger.debug(
+                        "%s dropped: region '%s' not detected in scene",
+                        spec.name, hard_region_key,
+                    )
+                    if not added_dust:
+                        effects.append(EffectSpec("dust_particles", "substituted for missing region effect"))
+                        added_dust = True
+                    continue
+                spec.params["_region_box"] = list(region_box)
+                if spec.name == "tree_sway":
+                    spec.params["intensity"] = 5.0
+                    spec.params["speed"] = 0.35
+                    spec.params["wavelength"] = 160.0
+
+            elif soft_region_key is not None:
+                region_box = regions.get(soft_region_key)
+                if region_box:
+                    # Region detected — use the precise box
+                    spec.params["_region_box"] = list(region_box)
+                else:
+                    # Region null but LLM chose the effect — it saw the light source.
+                    # Fall through without a region: effect uses its own default mask.
+                    logger.debug(
+                        "%s: region '%s' null — using default mask (LLM confirmed flame present)",
+                        spec.name, soft_region_key,
+                    )
+
+            effects.append(spec)
+
+        # Ensure at least a camera effect exists
         effect_names = [e.name for e in effects]
         if not any(n in effect_names for n in ("slow_push_in", "slow_pull_out")):
             effects.append(EffectSpec("slow_push_in", "default camera motion"))
+
+        # Ensure at least one non-camera content effect
         if not effects or all(e.name in ("slow_push_in", "slow_pull_out") for e in effects):
             effects.insert(0, EffectSpec("dust_particles", "fallback atmospheric"))
 
@@ -242,7 +412,7 @@ class SceneAnalyzer:
             time_of_day=data.get("time_of_day", "day"),
             mood=data.get("mood", ""),
             figure_boxes=figure_boxes,
-            regions=data.get("regions", {}),
+            regions=regions,
             effects=effects,
             image_path=image_path,
         )

@@ -27,6 +27,7 @@ from ytfactory.source_refiner.cli import refine_source
 from ytfactory.trim.cli import trim_script
 from ytfactory.video.cli import compare_video, render
 from ytfactory.voice.cli import generate_voice
+from ytfactory.shorts.cli import generate_shorts, generate_shorts_video, shorts_extract, shorts_plan
 
 _console = Console()
 
@@ -316,6 +317,10 @@ app.command(name="review")(review)
 app.command(name="remediate")(remediate)
 app.command(name="publish")(publish)
 app.command(name="build")(build)
+app.command(name="generate-shorts")(generate_shorts)
+app.command(name="generate-shorts-video")(generate_shorts_video)
+app.command(name="shorts-extract")(shorts_extract)
+app.command(name="shorts-plan")(shorts_plan)
 app.add_typer(scene_app, name="scene")
 app.add_typer(benchmark_app, name="benchmark")
 app.add_typer(qa_app, name="qa-promotions")
@@ -662,7 +667,7 @@ def run(
         help="Skip image generation. Review IMAGE_PROMPTS.md, generate images manually, then re-run.",
     ),
     target_minutes: int = typer.Option(
-        8,
+        7,
         "--target-minutes",
         "-t",
         help="Target narration duration in minutes (1-10). Drives script enhancer word count.",

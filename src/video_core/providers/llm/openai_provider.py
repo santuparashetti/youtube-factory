@@ -159,11 +159,12 @@ class OpenAICompatibleProvider(LLMProvider):
             content = choice.message.content
             finish_reason = choice.finish_reason
 
-            if finish_reason == "error" and not content:
+            if not content:
                 logger.warning(
-                    "Provider returned finish_reason=error with empty content "
-                    "(attempt {}/{}) — model={} completion_tokens={}",
+                    "Provider returned empty content "
+                    "(attempt {}/{}) — model={} finish_reason={} completion_tokens={}",
                     _attempt, _max_retries, model,
+                    finish_reason,
                     response.usage.completion_tokens if response.usage else "?",
                 )
                 if _attempt < _max_retries:

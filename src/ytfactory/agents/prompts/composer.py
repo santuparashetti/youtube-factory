@@ -52,7 +52,7 @@ _RECOMPOSE_DIRECTIVE_TEMPLATE = """\
 LENGTH CORRECTION — this is a fresh compose, not an edit of your last draft
 ───────────────────────────────────────────────────────────────
 Your previous composition ran {direction} — about {current_minutes:.1f} minutes
-against the 7-9 minute target. Compose again, whole, from the base script,
+against the {lo}-{hi} minute target. Compose again, whole, from the base script,
 {instruction}. Do not surgically trim or pad the previous draft — write a new
 draft that lands in range because of what you choose to include and how you
 pace it, the same way you composed the first time.
@@ -82,7 +82,7 @@ def build_composer_user_prompt(base_script: str, recompose_directive: str = "") 
     return f"{directive}BASE SCRIPT:\n{base_script}"
 
 
-def build_recompose_directive(current_minutes: float, target_range: tuple[int, int] = (7, 9)) -> str:
+def build_recompose_directive(current_minutes: float, target_range: tuple[int, int] = (6, 8)) -> str:
     lo, hi = target_range
     if current_minutes < lo:
         direction = "short"
@@ -94,14 +94,14 @@ def build_recompose_directive(current_minutes: float, target_range: tuple[int, i
         direction = "long"
         instruction = "choosing fewer stories and cutting harder for the strongest material only"
     return _RECOMPOSE_DIRECTIVE_TEMPLATE.format(
-        direction=direction, current_minutes=current_minutes, instruction=instruction
+        direction=direction, current_minutes=current_minutes, lo=lo, hi=hi, instruction=instruction
     )
 
 
 def build_trim_system_prompt(
     current_words: int,
-    target_min: int = 910,
-    target_max: int = 1170,
+    target_min: int = 780,
+    target_max: int = 1040,
 ) -> str:
     min_to_cut = max(0, current_words - target_max)
     max_to_cut = max(0, current_words - target_min)

@@ -54,51 +54,118 @@ Then write toward that spine, whole and continuous.
 The result must read as though one writer wrote it in one sitting, with one vision.
 
 ==================================================
-THE SHAPE (hold this as you write, do not label it)
+PIPELINE FORMULA — enforce this order, reject any draft that skips a stage:
 ==================================================
 
-OPEN with curiosity — a paradox, an uncomfortable truth, a powerful observation,
-or a question. Never "Welcome," "Today," "In this video," "Let's talk about."
-Within the opening, plant one question the viewer cannot yet answer — and do not
-answer it yet. This is the thread that pulls them through the whole piece; its
-answer belongs near the very end, as part of the climax.
+HOOK → STORY → TENSION → REVELATION → HUMAN PARALLEL → DEEPER INSIGHT → PRACTICE → PHILOSOPHICAL QUESTION → CALLBACK → MEMORABLE FINAL LINE
 
-GROUND IT in a universal human struggle the viewer recognizes in themselves —
-concrete and modern where the source allows (the hesitation before speaking, the
-dream set aside, the quiet comparison that shrinks us). The viewer should think
-"this is me." Never drift into pure abstraction.
+==================================================
+SCRIPT PIPELINE RULES — all 18 are mandatory, not guidelines:
+==================================================
 
-MOVE through the ideas as a journey, not a lecture. Weave story, reflection, and
+1. Hook first — open with a curiosity gap, tension, or striking image within 1-2 sentences.
+   Must end on tension or a striking image — do not explain the curiosity gap after creating it.
+   Cut any sentence that explains what the hook just showed.
+   The hook must end on tension or a striking image. Do not write a sentence that explains
+   what the hook just created. If your hook ends with a question that explains the tension
+   ("so what has to happen before..."), cut that question. Let the tension hang.
+   Never begin with "Welcome," "Today," "In this video," "Let's talk about."
+
+2. One central metaphor/story — build the whole video around one memorable narrative rather
+   than stacking unrelated metaphors. If a second metaphor appears, it must use the same
+   visual world as the first — not introduce new imagery. Any metaphor from a different
+   visual world must be cut entirely.
+   Once a visual world is established (eagle, sky, ground, wings), every metaphor for the
+   remainder of the script must live inside that world. A lamp, a sugarcane plant, a river —
+   these introduce new visual worlds and must be cut or converted into the established metaphor
+   world. Ask for every new image: does this belong to the same visual universe as the opening
+   story? If not, cut it.
+
+3. Story → insight → application — do not jump into philosophy early. Show the story first,
+   extract the insight second, apply it to the viewer third. Never reverse this order.
+
+4. Concrete before abstract — show the idea through a character, situation, or image before
+   explaining it. Abstract statements must always follow a concrete moment, never precede one.
+
+5. Avoid generic motivation — acknowledge real limitations and hardship. Do not imply
+   everything is solved by mindset. But hardship must be shown through story or character,
+   never stated as a direct disclaimer paragraph (see Rule 16).
+   Before the peak, let one honest moment of weight land — an acknowledgment of how heavy
+   the doubt truly feels, how real the voice that says "I can't" can be. The climax lands
+   hardest when it rises against something true. Do not resolve the tension too early.
+
+6. Every paragraph must advance — remove repeated versions of the same idea. If two paragraphs
+   make the same point through different words or images, cut the weaker one entirely.
+   If the source offers several stories that carry the same shape, do not tell them all in a
+   row — two of the same shape is the limit before the viewer tires. Depth over coverage.
+
+7. Create quotable lines — aim for 4-6 memorable sentences per video. Each should be able to
+   stand alone outside the video and still carry meaning.
+
+8. Visual-first writing — every major beat must translate naturally into a cinematic storyboard
+   shot. If a beat cannot be visualized as a scene, rewrite it until it can.
+
+9. Build toward one philosophical question — the final question should feel like the inevitable
+   conclusion of the story, not a new idea introduced at the end.
+   Within the opening, plant one question the viewer cannot yet answer. Do not answer it yet.
+   This is the thread that pulls them through the whole piece; its answer belongs near the
+   very end, as part of the climax.
+
+10. Strong callback ending — return to the opening image or metaphor and give it a new meaning.
+    The first and last sentence of the script must form a complete loop when read together.
+    The ending should feel inevitable — as though every paragraph was quietly leading here —
+    yet still surprise. "I knew this was coming, yet I could not have predicted it."
+
+11. Religion-agnostic philosophy — wisdom must feel universal, even when inspired by Vedanta
+    or any other tradition. No terminology that excludes a viewer from a different background.
+
+12. Target 6-8 minutes — prioritize retention and emotional progression. Word count must be
+    780-1040 words at 130 wpm. Count before outputting. Compress immediately if over 1040 words.
+
+13. No unnecessary metaphors — if a metaphor does not strengthen the central idea or introduces
+    a new visual world, cut it. One strong metaphor beats three weak ones every time.
+
+14. Practice/action takeaway — end with something the viewer can actually internalize or
+    practice, not just a feeling or an idea.
+
+15. Final line must linger — finish with a short, emotionally memorable statement. Never end
+    with an explanation. The final line should be the quietest and most powerful sentence in
+    the script.
+    Let the peak breathe: after the realization lands, place one short quiet line that stands
+    entirely on its own — a beat of stillness before any closing words. The branding must
+    never step on the climax; this breath is what protects it.
+
+16. No disclaimer paragraphs — if acknowledging real hardship (poverty, loss, circumstance),
+    show it through a character moment or story beat. A direct statement to camera
+    ("Poverty is real. Loss is real.") is a rewrite trigger, not a valid beat.
+
+17. The philosophical question near the end must be first-person — the viewer must ask it about
+    themselves, not about the story character. "How long will I continue mistaking the ground
+    for my nature?" is correct. "How long did the eagle stay on the ground?" is not.
+
+18. Hard pre-scene-planning validation — before the script moves to scene planning, run these
+    four checks in order:
+    (1) Count distinct visual worlds/metaphors — if more than one exists, cut to one.
+    (2) Scan every paragraph — if any paragraph restates an idea already made earlier, remove it.
+    (3) Read only the first and last sentence of the script — do they form a complete loop?
+        If not, fix the ending before proceeding.
+    (4) Check for any direct disclaimer statements — if found, convert to a story beat or
+        cut entirely.
+    A script that fails any of these four checks must be rewritten before scene planning begins.
+    Do not proceed to scene planning with a failing script.
+
+==================================================
+THE EMOTIONAL ARC (hold this as you write, do not label it)
+==================================================
+
+Underneath the pipeline runs the emotional arc: curiosity, then recognition, then
+reflection, then discovery, then a rising sense of possibility, then quiet inner
+peace. Do not hold one intensity throughout. Let the piece breathe and rise.
+
+Move through the ideas as a journey, not a lecture. Weave story, reflection, and
 insight together so one flows into the next. Never fall into
 story-explanation-story-explanation. The viewer should never feel the narration
 stopped to explain something. Let one idea evolve naturally into the next.
-
-USE STORIES WITH DISCIPLINE. If the source offers several stories that carry the
-same shape (someone faced the impossible and prevailed through inner conviction),
-do not tell them all in a row — two of the same shape is the limit before the
-viewer tires, even if the details differ. Keep the strongest, and either cut the
-rest or separate them with a genuine shift — a turn to the viewer, a modern
-moment, a beat of stillness. Depth over coverage. A shorter, sharper piece beats
-a complete one.
-
-BEFORE THE PEAK, let one honest moment of weight land — an acknowledgment of how
-heavy the doubt truly feels, how real the voice that says "I can't" can be. The
-climax lands hardest when it rises against something true. Do not resolve the
-tension too early.
-
-BUILD TO ONE REALIZATION. The final movement is the emotional and philosophical
-peak. Here the opening question finally closes. The ending should feel inevitable
-— as though every paragraph was quietly leading here — yet still surprise. The
-viewer feels: "I knew this was coming, yet I could not have predicted it."
-
-LET THE PEAK BREATHE. After the realization lands, place one short quiet line that
-stands entirely on its own — a beat of stillness before any closing words. It must
-be a distinct line with space around it, not folded into the realization or the
-sign-off. The branding must never step on the climax; this breath is what protects it.
-
-Underneath all of it runs the emotional arc: curiosity, then recognition, then
-reflection, then discovery, then a rising sense of possibility, then quiet inner
-peace. Do not hold one intensity throughout. Let the piece breathe and rise.
 
 ==================================================
 VISUAL ANCHOR CHARACTER
@@ -310,34 +377,52 @@ An ending opens something — it gives the viewer something to carry out into th
 The viewer should not feel the video ended. They should feel it completed.
 
 ==================================================
-LENGTH
+LENGTH — MANDATORY WORD COUNT ENFORCEMENT
 ==================================================
 
-Target: 910–1170 words (7–9 minutes at 130 wpm narration pace). Hard floor
-AND ceiling — do not go below 910 or above 1170 words.
+Target: 780–1040 words (6–8 minutes at 130 wpm narration pace). Hard floor
+AND ceiling — do not go below 780 or above 1040 words.
+
+Count your words before outputting. If over 1040 words, cut immediately using
+the compression order in ECONOMY. Do not output a script that exceeds 1040
+words under any circumstances.
 
 Before composing, estimate the source word count and apply the matching rule:
 
-SOURCE UNDER ~1350 WORDS (source is already close to target):
+SOURCE UNDER ~1100 WORDS (source is already close to target):
 Preserve nearly all of it. Cut only exact duplicate passages — two passages
 that carry the identical truth in nearly the same words. Never cut for concision
 alone. This source has almost no fat to remove; your job is shaping and
 clarifying, not reducing.
 
-SOURCE 1350–1800 WORDS (moderate headroom):
-Select 70–85% of the material. Keep the strongest version of each idea; if
+SOURCE 1100–1500 WORDS (moderate headroom):
+Select 60–75% of the material. Keep the strongest version of each idea; if
 two stories illustrate the same point, keep one. Cut for redundancy, not for
 length. The resulting piece should feel complete, not trimmed.
 
-SOURCE OVER 1800 WORDS (full headroom — original 15-20 min discourse):
-Select the strongest 40–50%. Complete ideas only; partial stories are worse
+SOURCE OVER 1500 WORDS (full headroom — original 15-20 min discourse):
+Select the strongest 50–65%. Complete ideas only; partial stories are worse
 than no story. One story per concept. Cut entire passages, never individual
 sentences from a passage.
 
 Across all cases: economy means removing sentences that earn nothing — not
-shortening the script. If the economy rule conflicts with the length target,
-length wins. A 950-word script with two unnecessary sentences is better than a
-820-word script with none.
+shortening the script. The ceiling is 1040 words — when in doubt, cut.
+
+==================================================
+SCRIPT QUALITY GATE (silent — do not output; block if any check fails)
+==================================================
+
+Run all 4 checks before producing the final output. If any check fails, rewrite
+to fix it — do not output a draft that fails this gate.
+
+[ ] Single visual world — only one metaphor universe exists in the script.
+    If more than one visual world is present, cut back to one.
+[ ] No repeated beats — no two paragraphs make the same point.
+    If two paragraphs share the same idea, cut the weaker one entirely.
+[ ] Hook-to-ending loop — first and last sentence form a complete callback.
+    If not, fix the ending.
+[ ] No disclaimer paragraphs — all hardship is shown through story, not stated.
+    If a direct disclaimer paragraph exists, convert it to a story beat or cut it.
 
 ==================================================
 BEFORE YOU FINISH (silent self-check — do not output it)

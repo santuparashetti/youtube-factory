@@ -7,6 +7,8 @@
   if (window.__cgbatch_loaded) return;
   window.__cgbatch_loaded = true;
 
+  console.log('[CGBatch] content script loaded on', location.href);
+
   const existingPanel = document.getElementById('cgb-panel');
   if (existingPanel) existingPanel.remove();
 
@@ -21,6 +23,7 @@
   let running = false;
   let cancelRequested = false;
   let failedScenes = [];
+  let pendingRetry = false;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -212,10 +215,90 @@
 
   function downloadViaBackground(url, filename, subfolder) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage(
-        { type: 'DOWNLOAD_IMAGE', url, filename, subfolder },
-        (resp) => resolve(resp && resp.ok)
-      );
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'DOWNLOAD_IMAGE', url, filename, subfolder },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              console.error('[CGBatch] sendMessage error:', chrome.runtime.lastError.message);
+              resolve(false);
+            } else {
+              resolve(resp && resp.ok);
+            }
+          }
+        );
+      } catch (e) {
+        console.error('[CGBatch] sendMessage threw:', e);
+        resolve(false);
+      }
+    });
+  }
+
+  async function checkExistingDownloads() {
+    const subfolder = document.getElementById('cgb-subfolder').value.trim().replace(/^\/+|\/+$/g, '');
+    const mirror = document.getElementById('cgb-mirror').checked;
+    const filenames = scenes.map((s) => (mirror && s.relPath ? s.relPath : s.filename));
+
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'CHECK_DOWNLOADS', subfolder, filenames },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              console.error('[CGBatch] CHECK_DOWNLOADS error:', chrome.runtime.lastError.message);
+              resolve();
+            } else if (resp && resp.existing) {
+              const existingSet = new Set(resp.existing);
+              scenes.forEach((s, i) => {
+                s.done = existingSet.has(filenames[i]);
+              });
+              resolve();
+            } else {
+              resolve();
+            }
+          }
+        );
+      } catch (e) {
+        console.error('[CGBatch] CHECK_DOWNLOADS threw:', e);
+        resolve();
+      }
+    });
+  }
+
+  async function refreshFailedScenes() {
+    if (!failedScenes.length) return;
+    const subfolder = document.getElementById('cgb-subfolder').value.trim().replace(/^\/+|\/+$/g, '');
+    const mirror = document.getElementById('cgb-mirror').checked;
+    const filenames = failedScenes.map((s) => (mirror && s.relPath ? s.relPath : s.filename));
+
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'CHECK_DOWNLOADS', subfolder, filenames },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              console.error('[CGBatch] CHECK_DOWNLOADS error:', chrome.runtime.lastError.message);
+              resolve();
+            } else if (resp && resp.existing) {
+              const existingSet = new Set(resp.existing);
+              const before = failedScenes.length;
+              failedScenes = failedScenes.filter((s) => {
+                const fn = mirror && s.relPath ? s.relPath : s.filename;
+                return !existingSet.has(fn);
+              });
+              if (failedScenes.length < before) {
+                log(`Cleaned ${before - failedScenes.length} already-saved items from retry queue.`, 'dim');
+              }
+              resolve();
+            } else {
+              resolve();
+            }
+          }
+        );
+      } catch (e) {
+        console.error('[CGBatch] CHECK_DOWNLOADS threw:', e);
+        resolve();
+      }
     });
   }
 
@@ -299,10 +382,15 @@
         log('Cancelled by user.', 'warn');
         break;
       }
-      const { prompt, filename, relPath } = scenes[i];
-      // What we actually hand to the download: mirrored structure or flat name.
+      const { prompt, filename, relPath, done } = scenes[i];
       const targetName = mirror && relPath ? relPath : filename;
       setProgress(i, scenes.length);
+
+      if (done) {
+        log(`[${i + 1}/${scenes.length}] ${targetName} — already downloaded, skipping`, 'dim');
+        continue;
+      }
+
       log(`[${i + 1}/${scenes.length}] ${targetName}`, 'step');
 
       let imgUrl = null;
@@ -332,6 +420,11 @@
     if (failedScenes.length) log('Failed: ' + failedScenes.map(s => s.filename).join(', '), 'error');
     running = false;
     setControls(false);
+
+    if (pendingRetry && failedScenes.length) {
+      pendingRetry = false;
+      await retryFailed();
+    }
     if (failedScenes.length > 0) {
       const retryBtn = document.getElementById('cgb-retry');
       if (retryBtn) retryBtn.disabled = false;
@@ -339,10 +432,34 @@
   }
 
   async function retryFailed() {
-    if (!failedScenes.length || running) return;
+    if (running) {
+      cancelRequested = true;
+      pendingRetry = true;
+      log('Cancelling current batch to restart retry...', 'warn');
+      return;
+    }
+
     running = true;
     cancelRequested = false;
+    pendingRetry = false;
     setControls(true);
+
+    await refreshFailedScenes();
+
+    if (!failedScenes.length) {
+      const pending = scenes.filter((s) => !s.done);
+      if (pending.length) {
+        log(`No failed images — processing ${pending.length} pending scene(s) instead.`, 'step');
+        await processScenes(pending);
+        running = false;
+        setControls(false);
+        return;
+      }
+      log('Nothing to retry — all scenes are already downloaded.', 'ok');
+      running = false;
+      setControls(false);
+      return;
+    }
 
     const subfolder = document.getElementById('cgb-subfolder').value;
     const mirror = document.getElementById('cgb-mirror').checked;
@@ -392,10 +509,56 @@
     if (failedScenes.length) log('Still failed: ' + failedScenes.map(s => s.filename).join(', '), 'error');
     running = false;
     setControls(false);
+
+    if (pendingRetry && failedScenes.length) {
+      pendingRetry = false;
+      await retryFailed();
+    }
     if (failedScenes.length > 0) {
       const retryBtn = document.getElementById('cgb-retry');
       if (retryBtn) retryBtn.disabled = false;
     }
+  }
+
+  async function processScenes(scenesToProcess) {
+    const subfolder = document.getElementById('cgb-subfolder').value;
+    const mirror = document.getElementById('cgb-mirror').checked;
+    let ok = 0,
+      fail = 0;
+
+    for (let i = 0; i < scenesToProcess.length; i++) {
+      if (cancelRequested) {
+        log('Cancelled by user.', 'warn');
+        break;
+      }
+      const { prompt, filename, relPath } = scenesToProcess[i];
+      const targetName = mirror && relPath ? relPath : filename;
+      setProgress(i, scenesToProcess.length);
+      log(`[${i + 1}/${scenesToProcess.length}] ${targetName}`, 'step');
+
+      let imgUrl = null;
+      const maxTries = 1 + CONFIG.retries;
+      for (let attempt = 1; attempt <= maxTries; attempt++) {
+        if (cancelRequested) break;
+        if (attempt > 1) log(`   retry ${attempt - 1}/${CONFIG.retries}...`, 'dim');
+        imgUrl = await attemptPrompt(prompt);
+        if (imgUrl) break;
+        if (attempt < maxTries) await sleep(2000);
+      }
+
+      if (imgUrl) {
+        const saved = await downloadViaBackground(imgUrl, targetName, subfolder);
+        log(`   ${saved ? 'saved ✓ ' : 'download failed '} ${targetName}`, saved ? 'ok' : 'error');
+        ok++;
+      } else {
+        log(`   failed after ${maxTries} attempts — skipping`, 'error');
+        fail++;
+      }
+      if (i < scenesToProcess.length - 1 && !cancelRequested) await sleep(CONFIG.gapBetweenMs);
+    }
+
+    setProgress(scenesToProcess.length, scenesToProcess.length);
+    log(`Done. ${ok} downloaded, ${fail} failed.`, 'head');
   }
 
   // ---------- Panel UI ----------
@@ -450,18 +613,24 @@
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           scenes = parseFile(reader.result, file.name);
           const ext = (file.name.split('.').pop() || '').toLowerCase();
           setupMessage = ext === 'md' ? extractSetupMessage(reader.result) : null;
           failedScenes = [];
+          pendingRetry = false;
           const retryBtn = document.getElementById('cgb-retry');
-          if (retryBtn) retryBtn.disabled = true;
+          if (retryBtn) retryBtn.disabled = false;
+
+          await checkExistingDownloads();
+          const doneCount = scenes.filter((s) => s.done).length;
+          const pendingCount = scenes.length - doneCount;
           document.getElementById('cgb-fileinfo').textContent =
-            `${file.name} — ${scenes.length} prompts${setupMessage ? ' + setup message' : ''}`;
-          document.getElementById('cgb-start').disabled = scenes.length === 0;
+            `${file.name} — ${scenes.length} prompts (${doneCount} already downloaded, ${pendingCount} pending)${setupMessage ? ' + setup message' : ''}`;
+          document.getElementById('cgb-start').disabled = pendingCount === 0;
           log(`Loaded ${scenes.length} prompts from ${file.name}`, 'ok');
+          if (doneCount) log(`${doneCount} already downloaded — will be skipped.`, 'dim');
           if (setupMessage) log('Setup message detected — will be sent first.', 'ok');
         } catch (err) {
           log('Parse error: ' + err.message, 'error');
@@ -486,7 +655,8 @@
       scenes.forEach((s, i) => {
         const rel = mirror && s.relPath ? s.relPath : s.filename;
         const full = 'Downloads/' + (sub ? sub + '/' : '') + rel;
-        log(`${i + 1}. ${full}`, 'ok');
+        const tag = s.done ? ' ✓ already saved' : '';
+        log(`${i + 1}. ${full}${tag}`, s.done ? 'dim' : 'ok');
         log(`     ${s.prompt.slice(0, 76)}${s.prompt.length > 76 ? '...' : ''}`, 'dim');
       });
     };
@@ -496,7 +666,6 @@
     };
 
     document.getElementById('cgb-retry').onclick = () => {
-      if (running || !failedScenes.length) return;
       retryFailed();
     };
 
@@ -512,7 +681,7 @@
     document.getElementById('cgb-preview').disabled = isRunning;
     document.getElementById('cgb-file').disabled = isRunning;
     const retryBtn = document.getElementById('cgb-retry');
-    if (retryBtn) retryBtn.disabled = isRunning || failedScenes.length === 0;
+    if (retryBtn) retryBtn.disabled = isRunning;
   }
 
   function setProgress(done, total) {
@@ -613,4 +782,19 @@
   }
   if (document.body) init();
   else window.addEventListener('DOMContentLoaded', init);
+
+  // ChatGPT is a SPA — guard against body/panel being removed during
+  // client-side navigation or hydration.
+  const observer = new MutationObserver(() => {
+    if (!document.getElementById('cgb-panel') && document.body) {
+      init();
+    }
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    window.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
 })();

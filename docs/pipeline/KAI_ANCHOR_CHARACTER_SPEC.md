@@ -16,7 +16,7 @@
 
 The pipeline currently generates each scene's visual prompt in isolation. Each image
 stands alone. There is no visual thread connecting scene 1 to scene 8 to scene 15 —
-the viewer's eye has nothing to follow across the full 7–9 minutes.
+the viewer's eye has nothing to follow across the full 6–8 minutes.
 
 "Kai" is a pipeline-internal anchor character — a neutral Western everyman who appears
 in every scene where a human presence adds value. He is the viewer's proxy: someone

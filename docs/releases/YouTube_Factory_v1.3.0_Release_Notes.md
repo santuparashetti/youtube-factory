@@ -23,7 +23,7 @@ than further prompt engineering.
 -   Documentary storytelling integrated into composition
 -   Editorial QA integrated
 -   Production-ready documentary script generation
--   Target duration: 7--9 minutes
+-   Target duration: 6--8 minutes
 -   Faithful adaptation with modern English narration
 
 ## Architecture

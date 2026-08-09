@@ -109,7 +109,7 @@ LENGTH
 
 The transcript is approximately 15–20 minutes.
 
-Create a final narration suitable for a 7–9 minute YouTube documentary.
+Create a final narration suitable for a 6–8 minute YouTube documentary (780–1040 words at 130 wpm).
 
 This requires extracting approximately the best 40–50% of the discourse.
 
@@ -176,126 +176,114 @@ Assume the viewer has never heard of Vedanta or Sri Siddeshwar Swamiji.
 The ideas should feel universally relevant.
 
 ==================================================
-SCRIPT STRUCTURE
+PIPELINE FORMULA — enforce this order, reject any draft that skips a stage:
 ==================================================
 
-HOOK
+HOOK → STORY → TENSION → REVELATION → HUMAN PARALLEL → DEEPER INSIGHT → PRACTICE → PHILOSOPHICAL QUESTION → CALLBACK → MEMORABLE FINAL LINE
 
-Open immediately with curiosity.
+==================================================
+SCRIPT PIPELINE RULES — all 18 are mandatory, not guidelines:
+==================================================
 
-Never begin with:
+1. Hook first — open with a curiosity gap, tension, or striking image within 1-2 sentences.
+   Must end on tension or a striking image — do not explain the curiosity gap after creating it.
+   Cut any sentence that explains what the hook just showed.
+   The hook must end on tension or a striking image. Do not write a sentence that explains
+   what the hook just created. If your hook ends with a question that explains the tension
+   ("so what has to happen before..."), cut that question. Let the tension hang.
+   Never begin with "Welcome," "In today's video," "Let's talk about," or "Today."
 
-"Welcome..."
+2. One central metaphor/story — build the whole video around one memorable narrative rather
+   than stacking unrelated metaphors. If a second metaphor appears, it must use the same
+   visual world as the first — not introduce new imagery. Any metaphor from a different
+   visual world must be cut entirely.
+   Once a visual world is established (eagle, sky, ground, wings), every metaphor for the
+   remainder of the script must live inside that world. A lamp, a sugarcane plant, a river —
+   these introduce new visual worlds and must be cut or converted into the established metaphor
+   world. Ask for every new image: does this belong to the same visual universe as the opening
+   story? If not, cut it.
 
-"In today's video..."
+3. Story → insight → application — do not jump into philosophy early. Show the story first,
+   extract the insight second, apply it to the viewer third. Never reverse this order.
 
-"Let's talk about..."
+4. Concrete before abstract — show the idea through a character, situation, or image before
+   explaining it. Abstract statements must always follow a concrete moment, never precede one.
+   Ground the struggle in concrete, modern moments the viewer will recognize — the hesitation
+   before speaking up, the dream quietly set aside, the silent comparison that leaves them
+   feeling small. Never let this section drift into pure abstraction.
 
-"Today..."
+5. Avoid generic motivation — acknowledge real limitations and hardship. Do not imply
+   everything is solved by mindset. But hardship must be shown through story or character,
+   never stated as a direct disclaimer paragraph (see Rule 16).
+   Before the peak, allow one honest moment of weight — a quiet acknowledgment of how heavy
+   the struggle truly feels, how real the voice that says "I can't" can be. The climax lands
+   hardest when it rises against something true. Never resolve the tension too soon.
 
-Instead begin with:
+6. Every paragraph must advance — remove repeated versions of the same idea. If two paragraphs
+   make the same point through different words or images, cut the weaker one entirely.
 
-a paradox
+7. Create quotable lines — aim for 4-6 memorable sentences per video. Each should be able to
+   stand alone outside the video and still carry meaning.
 
-an uncomfortable truth
+8. Visual-first writing — every major beat must translate naturally into a cinematic storyboard
+   shot. If a beat cannot be visualized as a scene, rewrite it until it can.
 
-a powerful observation
+9. Build toward one philosophical question — the final question should feel like the inevitable
+   conclusion of the story, not a new idea introduced at the end.
+   Inside the hook, plant one question the viewer cannot yet answer. Do not answer it here.
+   Let it stay open, quietly pulling them forward. Its answer belongs near the very end,
+   as part of the climax.
 
-or a profound question.
+10. Strong callback ending — return to the opening image or metaphor and give it a new meaning.
+    The first and last sentence of the script must form a complete loop when read together.
+    The ending should feel inevitable — as though every paragraph was quietly leading here —
+    yet still surprise. "I knew this was coming... yet I could not have predicted it."
 
-The first 20–30 seconds must make the viewer feel compelled to continue.
+11. Religion-agnostic philosophy — wisdom must feel universal, even when inspired by Vedanta
+    or any other tradition. No terminology that excludes a viewer from a different background.
 
-Inside the hook, plant one question the viewer cannot yet answer. Do not answer it here. Let it stay open, quietly pulling them forward through the entire narration.
+12. Target 6-8 minutes — prioritize retention and emotional progression. Word count must be
+    780-1040 words at 130 wpm. Count before outputting. Compress immediately if over 1040 words.
 
---------------------------------------------------
+13. No unnecessary metaphors — if a metaphor does not strengthen the central idea or introduces
+    a new visual world, cut it. One strong metaphor beats three weak ones every time.
 
-THE HUMAN PROBLEM
+14. Practice/action takeaway — end with something the viewer can actually internalize or
+    practice, not just a feeling or an idea.
 
-Introduce a universal struggle.
+15. Final line must linger — finish with a short, emotionally memorable statement. Never end
+    with an explanation. The final line should be the quietest and most powerful sentence in
+    the script.
 
-The viewer should immediately think:
+16. No disclaimer paragraphs — if acknowledging real hardship (poverty, loss, circumstance),
+    show it through a character moment or story beat. A direct statement to camera
+    ("Poverty is real. Loss is real.") is a rewrite trigger, not a valid beat.
 
-"This is describing me."
+17. The philosophical question near the end must be first-person — the viewer must ask it about
+    themselves, not about the story character. "How long will I continue mistaking the ground
+    for my nature?" is correct. "How long did the eagle stay on the ground?" is not.
 
-Ground the struggle in concrete, modern moments the viewer will recognize in their own life — the hesitation before speaking up, the dream quietly set aside because it felt too big, the silent comparison that leaves them feeling small. Use only recognitions the discourse genuinely supports. Never let this section drift into pure abstraction, and never lose the modern, personal texture that makes a stranger feel seen.
+18. Hard pre-scene-planning validation — before the script moves to scene planning, run these
+    four checks in order:
+    (1) Count distinct visual worlds/metaphors — if more than one exists, cut to one.
+    (2) Scan every paragraph — if any paragraph restates an idea already made earlier, remove it.
+    (3) Read only the first and last sentence of the script — do they form a complete loop?
+        If not, fix the ending before proceeding.
+    (4) Check for any direct disclaimer statements — if found, convert to a story beat or
+        cut entirely.
+    A script that fails any of these four checks must be rewritten before scene planning begins.
+    Do not proceed to scene planning with a failing script.
 
---------------------------------------------------
+==================================================
+SCRIPT QUALITY GATE (silent — block if any check fails before outputting)
+==================================================
 
-THE JOURNEY
+[ ] Single visual world — only one metaphor universe exists in the script.
+[ ] No repeated beats — no two paragraphs make the same point.
+[ ] Hook-to-ending loop — first and last sentence form a complete callback.
+[ ] No disclaimer paragraphs — all hardship is shown through story, not stated.
 
-Gradually explore the problem.
-
-Do not reveal the central insight too early.
-
-Build curiosity.
-
-Allow ideas to unfold naturally.
-
---------------------------------------------------
-
-THE REVELATION
-
-Reveal the deepest philosophical insight.
-
-Explain why it changes the way we understand ourselves.
-
---------------------------------------------------
-
-MODERN LIFE
-
-Connect the wisdom naturally to modern life.
-
-Possible themes include:
-
-fear
-
-identity
-
-relationships
-
-career
-
-success
-
-money
-
-comparison
-
-social media
-
-purpose
-
-loneliness
-
-anxiety
-
-attachment
-
-ego
-
-time
-
-death
-
-Do not force these themes.
-
-Only use those genuinely supported by the discourse.
-
---------------------------------------------------
-
-THE CLIMAX
-
-Before the peak, allow one honest moment of weight — a quiet acknowledgment of how heavy the struggle truly feels, how real the voice that says "I can't" can be. The climax lands hardest when it rises against something true. Never resolve the tension too soon.
-
-Build toward one unforgettable realization.
-
-The final two minutes should feel like the emotional and philosophical peak of the journey.
-
-The ending should feel inevitable.
-
-The final realization should feel as though every previous paragraph was quietly leading toward it.
-
-The viewer should feel: "I knew this was coming... yet I could not have predicted it."
+If any check fails: rewrite to fix it. Do not output a draft that fails this gate.
 
 ==================================================
 EMOTIONAL ARC

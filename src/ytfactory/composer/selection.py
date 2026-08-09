@@ -34,6 +34,26 @@ DIVIDER = "━" * 40
 WORDS_PER_MINUTE = 140  # display estimate only
 
 _MAX_RECOMPOSE_ATTEMPTS = 3
+_RECOMPOSE_TRIM_THRESHOLD = 1040  # words; trim recomposed output if it exceeds this
+
+
+def _apply_recompose_trim(text: str, composer: "ComposerPipeline") -> str:
+    """Run the trim pass on recomposed output if it exceeds the word threshold."""
+    words = len(text.split())
+    if words <= _RECOMPOSE_TRIM_THRESHOLD:
+        return text
+    console.print(
+        f"  [yellow]⚠ Recomposed at {words} words (>{_RECOMPOSE_TRIM_THRESHOLD}) — applying trim pass...[/yellow]"
+    )
+    trimmed = composer._trim_to_range(text)
+    if trimmed is not None:
+        trimmed_words = len(trimmed.split())
+        console.print(f"  [dim]After trim: {trimmed_words} words[/dim]")
+        return trimmed
+    logger.warning(
+        "Recompose trim pass failed — keeping recomposed version at {} words", words
+    )
+    return text
 
 
 def run_composer_with_ab_selection(
@@ -123,6 +143,7 @@ def run_composer_with_ab_selection(
                     "Quality check returned None on attempt {} — accepting recomposed.",
                     attempt,
                 )
+                recomposed = _apply_recompose_trim(recomposed, composer)
                 _write_final(recomposed, script_file)
                 _write_judge_report(verdict, project_id, outcome="recomposed")
                 _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")
@@ -139,6 +160,7 @@ def run_composer_with_ab_selection(
                     attempt, _MAX_RECOMPOSE_ATTEMPTS,
                     quality_check.script_a_score, candidate_score,
                 )
+                recomposed = _apply_recompose_trim(recomposed, composer)
                 _write_final(recomposed, script_file)
                 _write_judge_report(verdict, project_id, outcome="recomposed")
                 _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")

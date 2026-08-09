@@ -180,7 +180,10 @@ def _enforce_global_rules(effect_names: list) -> list:
 def _build_figures_mask(figure_boxes, W: int, H: int) -> np.ndarray:
     """Build a boolean exclusion mask from fractional bounding boxes."""
     mask = np.zeros((H, W), dtype=bool)
-    for (x0, y0, x1, y1) in figure_boxes:
+    for box in figure_boxes:
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            continue
+        x0, y0, x1, y1 = box
         mask[int(H * y0):int(H * y1), int(W * x0):int(W * x1)] = True
     return mask
 
@@ -193,6 +196,8 @@ def _default_mask(effect_name: str, W: int, H: int) -> np.ndarray:
     elif effect_name in ("lamp_flicker", "candle_flicker", "torch_flicker"):
         m[int(H * 0.35):int(H * 0.65), int(W * 0.35):int(W * 0.65)] = True
     return m
+
+
 
 
 def build_compositor(scene: SceneConfig) -> Compositor:
@@ -211,6 +216,15 @@ def build_compositor(scene: SceneConfig) -> Compositor:
 
     # Global rules first — cap per-category counts before any mask work
     allowed_effects = _enforce_global_rules(scene.effects)
+
+    # dust_particles is a universal atmospheric base layer — always present.
+    # Inserted before camera effects so ordering stays correct.
+    if "dust_particles" not in allowed_effects:
+        cam_idx = next(
+            (i for i, e in enumerate(allowed_effects) if e in CAMERA_EFFECTS),
+            len(allowed_effects),
+        )
+        allowed_effects.insert(cam_idx, "dust_particles")
 
     # Build figures exclusion mask once (None if no boxes defined)
     figures_mask = _build_figures_mask(scene.figure_boxes, W, H) if scene.figure_boxes else None

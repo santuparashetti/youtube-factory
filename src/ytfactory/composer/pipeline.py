@@ -41,8 +41,8 @@ from video_core.providers.llm.factory import get_llm_for_role
 
 console = Console()
 
-TARGET_MIN_MINUTES = 7
-TARGET_MAX_MINUTES = 9
+TARGET_MIN_MINUTES = 6
+TARGET_MAX_MINUTES = 7.5
 
 
 class ComposerRehookMissingError(RuntimeError):

@@ -20,6 +20,7 @@ falls back to the static PNG automatically.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import track
 
+from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.paths import safe_project_dir
 
@@ -99,7 +101,14 @@ class AnimatePipeline:
 
         scenes = json.loads(scene_plan_path.read_text(encoding="utf-8"))["scenes"]
 
-        analyzer = SceneAnalyzer()
+        settings = Settings()
+        from openai import OpenAI
+        llm_client = OpenAI(
+            base_url=settings.anthropic_base_url or "https://openrouter.ai/api/v1",
+            api_key=settings.anthropic_api_key,
+        )
+        analyzer_model = settings.animate_analyzer_model or settings.anthropic_model
+        analyzer = SceneAnalyzer(llm_provider=llm_client, model=analyzer_model)
         renderer = MotionRenderer()
 
         results: list[dict] = []

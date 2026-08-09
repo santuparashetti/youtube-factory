@@ -50,8 +50,8 @@ class TreeSway(BaseEffect):
     def __init__(
         self,
         mask: np.ndarray = None,    # vegetation region; default upper-right 40%
-        intensity: float = 4.0,     # max pixel displacement
-        speed: float = 0.6,
+        intensity: float = 14.0,    # max pixel displacement
+        speed: float = 0.8,
         wavelength: float = 120.0,
     ):
         self.mask = mask
@@ -96,8 +96,8 @@ class GrassMovement(BaseEffect):
     def __init__(
         self,
         mask: np.ndarray = None,   # default: bottom 30%
-        intensity: float = 2.5,
-        speed: float = 0.8,
+        intensity: float = 8.0,
+        speed: float = 1.0,
         wavelength: float = 80.0,
     ):
         self.mask = mask

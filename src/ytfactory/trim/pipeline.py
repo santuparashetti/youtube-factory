@@ -1,8 +1,8 @@
 """SurgicalTrimPipeline — standalone trim pass on a composed script.
 
 Reads script/script.md, applies SURGICAL_TRIM_PROMPT.md to reach the
-7-9 min word target, backs up the original to script_pre_trim.md,
-writes the trimmed version in place.
+6-8 min word target (780–1040 words at 130 wpm), backs up the original
+to script_pre_trim.md, writes the trimmed version in place.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()
 
-TARGET_MIN_MINUTES = 7
-TARGET_MAX_MINUTES = 9
+TARGET_MIN_MINUTES = 6
+TARGET_MAX_MINUTES = 8
 
 
 class SurgicalTrimPipeline:

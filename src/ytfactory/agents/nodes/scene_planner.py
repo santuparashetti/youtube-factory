@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field, replace as dc_replace
 from pathlib import Path
@@ -45,6 +46,7 @@ from ytfactory.images.validators import (
 )
 from ytfactory.scenes.models import FaithfulnessStatus, StructuredImagePrompt, VisualBible
 from ytfactory.shared.constants import WORKSPACE_DIR
+from ytfactory.shared.pipeline_status import PipelineAbort
 from ytfactory.story_bible.composer import compose_scene_context
 from ytfactory.story_bible.generator import load_or_generate_story_bible
 from ytfactory.story_bible.models import StoryBible
@@ -1796,18 +1798,174 @@ def _strip_image_prompt_boilerplate(prompt: str) -> str:
     return result
 
 
+_EXPORT_STYLE_HYBRID = (
+    "STYLE: Hybrid cinematic — photorealistic environment (architecture, nature, interiors, props); "
+    "illustrated storybook characters with ink outlines and cel shading (NOT photorealistic). "
+    "16:9 aspect ratio."
+)
+_EXPORT_STYLE_DOC = (
+    "STYLE: Photorealistic documentary cinema. 16:9 aspect ratio."
+)
+_EXPORT_GLOBAL_NEGATIVES = (
+    "No text, no watermark, no subtitle, no logo. "
+    "No photorealistic characters, no realistic human photos, no realistic animals. "
+    "No deformed hands, no extra fingers, no mutated or fused limbs."
+)
+
+
+def _load_story_bible_for_export(project_id: str) -> "StoryBible | None":
+    """Load bible.json from the story-bible workspace directory, if it exists."""
+    bible_path = Path(WORKSPACE_DIR) / project_id / "story-bible" / "bible.json"
+    if not bible_path.exists():
+        return None
+    try:
+        data = json.loads(bible_path.read_text(encoding="utf-8"))
+        return StoryBible(**data)
+    except Exception as exc:
+        logger.warning("Could not load story bible for export: {}", exc)
+        return None
+
+
+def _assemble_export_prompt(
+    scene: dict,
+    settings: Settings,
+    story_bible: "StoryBible | None" = None,
+) -> str:
+    """Build a self-contained, semantically-ordered image-generation prompt.
+
+    Semantic priority order (scene-specific content first, global context after):
+      1. PRIMARY SUBJECT — who/what must be shown
+      2. PRIMARY ACTION  — character posture/action, or environment key element
+      3. ENVIRONMENT     — full setting description
+      4. COMPOSITION     — shot type + camera angle
+      5. CAMERA          — focal length
+      6. CHARACTER REF   — locked visual reference for characters in this scene only
+      7. STYLE           — compact master style directive
+      8. LIGHTING        — lighting + color palette
+      9. CONTINUITY      — continuity note (omitted if empty)
+     10. NEGATIVE        — must-not constraints
+
+    Falls back to raw visual_prompt if no structured_prompt exists.
+    """
+    sp = scene.get("structured_prompt")
+    if not sp:
+        return _strip_image_prompt_boilerplate(scene.get("visual_prompt", ""))
+
+    if isinstance(sp, dict):
+        character_staging: str = sp.get("character_staging") or ""
+        environment_prompt: str = sp.get("environment_prompt") or ""
+        shot_type: str = (sp.get("shot_type") or "medium").replace("_", " ")
+        camera_angle: str = (sp.get("camera_angle") or "eye_level").replace("_", " ")
+        focal_length: str = sp.get("focal_length") or "50mm"
+        lighting_match: str = sp.get("lighting_match") or ""
+        color_palette_phase: str = sp.get("color_palette_phase") or ""
+        continuity_ref: str = sp.get("continuity_ref") or ""
+    else:
+        character_staging = sp.character_staging or ""
+        environment_prompt = sp.environment_prompt or ""
+        shot_type = (sp.shot_type or "medium").replace("_", " ")
+        camera_angle = (sp.camera_angle or "eye_level").replace("_", " ")
+        focal_length = sp.focal_length or "50mm"
+        lighting_match = sp.lighting_match or ""
+        color_palette_phase = sp.color_palette_phase or ""
+        continuity_ref = sp.continuity_ref or ""
+
+    anchor_role = scene.get("anchor_role", "absent")
+    scene_analysis = scene.get("scene_analysis") or {}
+
+    lines: list[str] = []
+
+    # ── 1. PRIMARY SUBJECT ────────────────────────────────────────────────────
+    # First identifying clause from character_staging, or key element from environment.
+    if character_staging:
+        first = re.split(r"(?<=[,;—])\s*", character_staging)[0].rstrip(",;— ").strip()
+        primary_subject = first if len(first) >= 10 else character_staging.split(".")[0].strip()
+    else:
+        first = re.split(r"[,.]", environment_prompt)[0].strip()
+        primary_subject = first if len(first) >= 10 else environment_prompt[:80]
+    lines.append(f"PRIMARY SUBJECT: {primary_subject}.")
+
+    # ── 2. PRIMARY ACTION ─────────────────────────────────────────────────────
+    if character_staging:
+        lines.append(f"PRIMARY ACTION: {character_staging}")
+    else:
+        lines.append("PRIMARY ACTION: Environment-only/symbolic scene — no character present.")
+
+    # ── 3. ENVIRONMENT ────────────────────────────────────────────────────────
+    if environment_prompt:
+        lines.append(f"ENVIRONMENT: {environment_prompt}")
+
+    # ── 4. COMPOSITION ────────────────────────────────────────────────────────
+    lines.append(
+        f"COMPOSITION: {shot_type.title()} shot, {camera_angle} camera angle."
+    )
+
+    # ── 5. CAMERA ─────────────────────────────────────────────────────────────
+    lines.append(f"CAMERA: {focal_length}.")
+
+    # ── 6. CHARACTER REFERENCE — only characters relevant to this scene ───────
+    char_refs: list[str] = []
+    if anchor_role in ("primary", "spectator"):
+        char_refs.append(f"KAI: {KAI_COMPRESSED_SPEC}.")
+    if story_bible and story_bible.characters:
+        allowed = (
+            scene_analysis.get("allowed_characters", [])
+            if isinstance(scene_analysis, dict)
+            else getattr(scene_analysis, "allowed_characters", [])
+        ) or []
+        allowed_lower = {a.lower() for a in allowed}
+        for char in story_bible.characters:
+            if char.name.lower() in allowed_lower and char.name.lower() != "kai":
+                ref = f"{char.appearance}. {char.clothing}".strip(". ")
+                char_refs.append(f"{char.name.upper()}: {ref}.")
+    for ref in char_refs:
+        lines.append(ref)
+
+    # ── 7. STYLE (compact, global) ────────────────────────────────────────────
+    hybrid = getattr(settings, "HYBRID_STYLE_ENABLED", False)
+    lines.append(_EXPORT_STYLE_HYBRID if hybrid else _EXPORT_STYLE_DOC)
+
+    # ── 8. LIGHTING + COLOR ───────────────────────────────────────────────────
+    lighting_parts: list[str] = []
+    if lighting_match:
+        lighting_parts.append(lighting_match.rstrip("."))
+    if color_palette_phase:
+        lighting_parts.append(f"Color: {color_palette_phase}")
+    if lighting_parts:
+        lines.append(f"LIGHTING: {'. '.join(lighting_parts)}.")
+
+    # ── 9. CONTINUITY ─────────────────────────────────────────────────────────
+    if continuity_ref and continuity_ref.strip():
+        lines.append(f"CONTINUITY: {continuity_ref.strip()}")
+
+    # ── 10. NEGATIVE CONSTRAINTS ──────────────────────────────────────────────
+    negatives = _EXPORT_GLOBAL_NEGATIVES
+    if isinstance(scene_analysis, dict):
+        forbidden = scene_analysis.get("forbidden_objects") or []
+        if forbidden:
+            negatives += f" Do not show: {', '.join(str(o) for o in forbidden[:8])}."
+    lines.append(f"NEGATIVE: {negatives}")
+
+    return "\n".join(lines)
+
+
 def _write_prompts_file(
     project_id: str,
     scenes: list[dict],
     style: str | None,
     settings: Settings,
+    story_bible: "StoryBible | None" = None,
 ) -> Path:
     """
     Write IMAGE_PROMPTS.md to the images/ directory.
-    The user can take these prompts to any image generator, download the images,
-    and place them with the exact filename shown — the pipeline will use them
-    automatically (skipping its own image generation for those scenes).
+    Also writes IMAGE_PROMPTS-part-NN.md split files (max 9 prompts each).
+
+    Each exported prompt is assembled from structured scene fields using
+    _assemble_export_prompt — semantically ordered, self-contained, zero extra LLM calls.
     """
+    if story_bible is None:
+        story_bible = _load_story_bible_for_export(project_id)
+
     images_dir = Path(WORKSPACE_DIR) / project_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     abs_images_dir = images_dir.resolve()
@@ -1839,14 +1997,19 @@ def _write_prompts_file(
             "before pasting any scene prompt:",
             "",
             "```",
-            f"I am generating a {total_scenes}-scene philosophical documentary storyboard in a specific",
-            "hybrid visual style. Keep this style consistent across every image.",
+            f"I am generating a {total_scenes}-scene philosophical documentary storyboard in a MANDATORY hybrid",
+            "visual style. You MUST follow this style for every single image without exception.",
             "",
-            "VISUAL STYLE: The environment in every image must be 100% photorealistic — architecture,",
-            "nature, interiors, props, lighting, and shadows rendered as cinema photography. Human",
-            "characters only are illustrated — premium hand-painted storybook style with clean ink",
-            "outlines, soft cel shading, and graphic novel quality. Characters are composited into the",
-            "photorealistic environment with matching lighting and realistic shadows.",
+            "⚠️ CRITICAL RULE — TWO-LAYER STYLE (never ignore this):",
+            "LAYER 1 — ENVIRONMENT: 100% photorealistic. Architecture, nature, interiors, soil,",
+            "trees, props, lighting, and shadows must look like real cinema photography.",
+            "LAYER 2 — CHARACTERS: 100% illustrated cartoon. Every human, eagle, bird, or animal",
+            "MUST be rendered as a hand-painted storybook illustration — visible ink outlines, flat",
+            "cel shading, painterly texture, graphic novel quality. Characters must NEVER look like",
+            "real photos. They should look like 2D cartoon characters placed inside a real photograph.",
+            "",
+            "DO NOT make characters photorealistic. DO NOT make the environment cartoon.",
+            "Think of it as: real-world photo background + animated cartoon characters composited on top.",
             "",
             f"ANCHOR CHARACTER (KAI): Appears in scenes {primary_scenes_str}. Kai is a young man,",
             "late 20s, lean build, short dark hair, simple clothing. Render Kai as an illustrated",
@@ -1873,8 +2036,9 @@ def _write_prompts_file(
         "",
         "Append these to every prompt when pasting into a generator:",
         "- **Aspect ratio:** 16:9",
-        "- **Negative:** No text, no watermark, no subtitle, no logo",
-        "- **Rendering:** Photorealistic environment (unless the prompt specifies otherwise)",
+        "- **Character style:** All characters (humans, animals, birds, eagles) MUST be illustrated cartoon style with ink outlines and cel shading — NOT photorealistic",
+        "- **Environment style:** Background and environment only are 100% photorealistic cinema photography",
+        "- **Negative:** No text, no watermark, no subtitle, no logo, no photorealistic characters, no realistic humans, no realistic animals, no real-photo people",
         "",
         "These lines are stripped from individual prompts below to reduce repetition.",
         "",
@@ -1898,8 +2062,7 @@ def _write_prompts_file(
         "| **Midjourney** | Highest quality (paid) | https://midjourney.com |",
         "| **DALL-E 3** | Via ChatGPT, great quality | https://chatgpt.com |",
         "",
-        "**Tip:** For spiritual documentary style, try Leonardo with the *Cinematic Kino* or",
-        "*Photorealism* model. Set negative prompt: `text, watermark, logo, blurry, cartoon`",
+        "**Tip:** For this hybrid style in Leonardo AI, use the *Cinematic Kino* or *Photorealism* model for the background, but set the **Alchemy** style to \"Illustration\" or \"Comic Book\". Set negative prompt: `text, watermark, logo, blurry, photorealistic characters, realistic humans, realistic animals, real photo people`",
         "",
         "---",
         "",
@@ -1917,23 +2080,17 @@ def _write_prompts_file(
         "",
     ]
 
+    # Snapshot header content before per-scene blocks — reused in every split file.
+    header_lines = list(lines)
+
+    scene_line_groups: list[list[str]] = []
     for scene in scenes:
         idx: int = scene["index"]
         filename = f"scene-{idx:03d}.png"
         save_path = abs_images_dir / filename
         vm = scene.get("visual_metadata", {})
-        # V2: use structured_prompt.compiled_prompt if available; fall back to visual_prompt.
-        # No "Storyboard Mode" language — compiled_prompt is self-contained.
-        sp = scene.get("structured_prompt")
-        if sp and not isinstance(sp, dict):
-            prompt_text = sp.compiled_prompt
-        elif isinstance(sp, dict):
-            prompt_text = sp.get("compiled_prompt") or scene.get("visual_prompt", "")
-        else:
-            prompt_text = scene.get("visual_prompt", "")
-
-        prompt_display = _strip_image_prompt_boilerplate(prompt_text)
-        lines += [
+        prompt_display = _assemble_export_prompt(scene, settings, story_bible)
+        scene_group: list[str] = [
             f"## Scene {idx} — `{filename}`",
             "",
             f"**Save to:** `{save_path}`",
@@ -1951,11 +2108,123 @@ def _write_prompts_file(
             "---",
             "",
         ]
+        scene_line_groups.append(scene_group)
+        lines.extend(scene_group)
 
     content = "\n".join(lines)
     out_path = images_dir / "IMAGE_PROMPTS.md"
     out_path.write_text(content, encoding="utf-8")
+
+    _write_split_prompt_files(images_dir, header_lines, scene_line_groups)
+
     return out_path
+
+
+MAX_PROMPTS_PER_SPLIT_FILE = 9
+
+
+def _write_split_prompt_files(
+    images_dir: Path,
+    header_lines: list[str],
+    scene_line_groups: list[list[str]],
+) -> None:
+    """Write IMAGE_PROMPTS-part-NN.md files, max MAX_PROMPTS_PER_SPLIT_FILE prompts each.
+
+    Every split file is self-contained: full header/global content + its chunk of prompt
+    blocks. Stale part files from previous longer runs are removed.
+    """
+    total = len(scene_line_groups)
+    n_parts = math.ceil(total / MAX_PROMPTS_PER_SPLIT_FILE) if total else 0
+
+    existing_parts = sorted(images_dir.glob("IMAGE_PROMPTS-part-*.md"))
+    new_part_paths: set[Path] = set()
+
+    for part_idx in range(n_parts):
+        start = part_idx * MAX_PROMPTS_PER_SPLIT_FILE
+        end = min(start + MAX_PROMPTS_PER_SPLIT_FILE, total)
+        chunk = scene_line_groups[start:end]
+
+        part_lines = header_lines.copy()
+        for group in chunk:
+            part_lines.extend(group)
+
+        part_path = images_dir / f"IMAGE_PROMPTS-part-{part_idx + 1:02d}.md"
+        new_part_paths.add(part_path)
+        part_path.write_text("\n".join(part_lines), encoding="utf-8")
+        logger.debug("Split file {}: scenes {}-{}", part_path.name, start + 1, end)
+
+    for old_path in existing_parts:
+        if old_path not in new_part_paths:
+            old_path.unlink(missing_ok=True)
+            logger.debug("Removed stale split file: {}", old_path.name)
+
+    logger.info(
+        "Generated {} prompts — Master: IMAGE_PROMPTS.md ({}) — Splits: {} file{}, max {}/file",
+        total,
+        total,
+        n_parts,
+        "s" if n_parts != 1 else "",
+        MAX_PROMPTS_PER_SPLIT_FILE,
+    )
+
+
+def _validate_prompt_split(master_path: Path, images_dir: Path) -> list[str]:
+    """Validate split prompt files against the master file.
+
+    Returns a list of error strings (empty = all checks passed).
+    Deterministic local check — zero LLM calls.
+    """
+    errors: list[str] = []
+
+    if not master_path.exists():
+        return [f"Master file not found: {master_path}"]
+
+    master_content = master_path.read_text(encoding="utf-8")
+    master_indices = [
+        int(m.group(1))
+        for m in re.finditer(r"^## Scene (\d+)", master_content, re.MULTILINE)
+    ]
+    total = len(master_indices)
+
+    part_paths = sorted(images_dir.glob("IMAGE_PROMPTS-part-*.md"))
+    if not part_paths:
+        return errors
+
+    split_indices: list[int] = []
+    for part_path in part_paths:
+        part_content = part_path.read_text(encoding="utf-8")
+        part_scene_indices = [
+            int(m.group(1))
+            for m in re.finditer(r"^## Scene (\d+)", part_content, re.MULTILINE)
+        ]
+        if len(part_scene_indices) > MAX_PROMPTS_PER_SPLIT_FILE:
+            errors.append(
+                f"{part_path.name}: {len(part_scene_indices)} prompts exceeds max "
+                f"{MAX_PROMPTS_PER_SPLIT_FILE}"
+            )
+        if not part_scene_indices:
+            errors.append(f"{part_path.name}: contains no scene prompt blocks")
+        if "## Global Instructions" not in part_content:
+            errors.append(
+                f"{part_path.name}: missing shared header ('## Global Instructions')"
+            )
+        split_indices.extend(part_scene_indices)
+
+    if len(split_indices) != total:
+        errors.append(
+            f"Split total {len(split_indices)} != master total {total}"
+        )
+    elif split_indices != master_indices:
+        missing = sorted(set(master_indices) - set(split_indices))
+        extra = sorted(set(split_indices) - set(master_indices))
+        if missing:
+            errors.append(f"Missing scenes in splits: {missing}")
+        if extra:
+            errors.append(f"Extra scenes in splits: {extra}")
+        elif split_indices != master_indices:
+            errors.append("Scene order in splits does not match master")
+
+    return errors
 
 
 def _write_faithfulness_gate_report(project_id: str, scenes: list[dict]) -> Path:
@@ -2566,14 +2835,141 @@ def _apply_director_pass(
     return pacing
 
 
+def _extract_narrative_ending(script: str) -> str:
+    """Strip brand wrap and return the last narrative sentence."""
+    brand_markers = [
+        "This is the Atma Theory",
+        "If these ideas resonate",
+        "Clear mind",
+        "Meaningful life",
+        "join us on this journey",
+    ]
+    lines = script.strip().split("\n")
+    for i, line in enumerate(lines):
+        if any(marker in line for marker in brand_markers):
+            for j in range(i - 1, -1, -1):
+                if lines[j].strip():
+                    return lines[j].strip()
+    return lines[-1].strip()
+
+
+_QUALITY_GATE_PROMPT = """\
+You are a script quality reviewer. Run all 4 checks below on the script.
+For EACH check, output PASS or FAIL and, on FAIL, one sentence describing the specific problem.
+
+CRITICAL GATE INSTRUCTIONS — you must follow these exactly, they override your own judgment:
+
+- For the hook-to-ending loop check: you will be given a NARRATIVE_ENDING field.
+  Evaluate ONLY that field. Do not read the script's final lines. Do not consider
+  anything after the narrative ending. If NARRATIVE_ENDING echoes the opening image,
+  this check PASSES. Full stop.
+
+- For the no repeated beats check: the following progressions are ALWAYS allowed and
+  must NEVER be flagged as repeated beats:
+  (a) A story observation about the eagle → followed by a human parallel making the
+      same point = pipeline formula, not repetition
+  (b) A fear/identity point in the story section → a fear/identity conclusion in the
+      philosophical section = arc progression, not repetition
+  Only flag repeated beats if the EXACT SAME POINT appears TWICE within the SAME
+  section (both in story, or both in human parallel) with nothing new between them.
+
+- For the no disclaimer paragraphs check: the following are NEVER disclaimer paragraphs
+  and must NEVER be flagged:
+  (a) Any sentence containing "Not a promise" or "Not a demand" inside a practice or
+      action section — this is framing, not disclaiming
+  (b) Any story beat describing the eagle's fear, height, or fall
+  (c) Any philosophical statement about fear or identity
+  Only flag if a paragraph directly lists worldly hardships as facts to the viewer
+  with no story or character grounding.
+
+CHECKS:
+1. SINGLE_VISUAL_WORLD — Does only one metaphor/visual universe exist throughout the script?
+   FAIL if more than one distinct visual world is introduced (e.g. an eagle story, then an unrelated lamp metaphor).
+2. NO_REPEATED_BEATS — Does every paragraph advance the script?
+   A repeated beat is when the EXACT SAME POINT appears TWICE within the SAME narrative stage
+   (both in story, or both in human parallel) with nothing new between them.
+   A story beat followed by its human-parallel equivalent is the pipeline formula — NEVER a repeated beat.
+   FAIL only if the identical idea appears twice within the same section with no development.
+3. HOOK_ENDING_LOOP — Does NARRATIVE_ENDING echo or resolve the opening image?
+   Evaluate ONLY the NARRATIVE_ENDING field provided below. Ignore the script's final lines entirely.
+   FAIL only if NARRATIVE_ENDING does not echo or resolve the opening image or tension.
+4. NO_DISCLAIMER_PARAGRAPHS — Is all hardship or limitation shown through story or character?
+   FAIL only if a paragraph directly lists worldly hardships as facts addressed to the viewer
+   with no story or character grounding (e.g. "Poverty is real. Loss is real. These are hard truths.").
+   Story beats, practice framing ("Not a promise..."), and philosophical statements about fear/identity
+   are never disclaimer paragraphs.
+
+NARRATIVE_ENDING (pre-extracted, brand wrap already stripped — use this for check 3):
+{narrative_ending}
+
+SCRIPT:
+{script}
+
+Respond ONLY with this JSON, nothing else:
+{{
+  "single_visual_world": {{"result": "PASS"|"FAIL", "reason": ""}},
+  "no_repeated_beats": {{"result": "PASS"|"FAIL", "reason": ""}},
+  "hook_ending_loop": {{"result": "PASS"|"FAIL", "reason": ""}},
+  "no_disclaimer_paragraphs": {{"result": "PASS"|"FAIL", "reason": ""}}
+}}
+"""
+
+
+class ScriptQualityGateError(RuntimeError):
+    """Raised when the script fails the quality gate before scene planning."""
+
+
+def _run_script_quality_gate(script_md: str, llm: LLMProvider) -> None:
+    """Run the 4-check quality gate on the script. Raises ScriptQualityGateError if any check fails.
+
+    Non-blocking on LLM/parse failure — logs a warning and passes through so a broken
+    gate model can't silently halt every pipeline run.
+    """
+    narrative_ending = _extract_narrative_ending(script_md)
+    prompt = _QUALITY_GATE_PROMPT.format(script=script_md[:6000], narrative_ending=narrative_ending)
+    try:
+        response = llm.generate(prompt, temperature=0.0)
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            lines = raw.splitlines()
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+        data = json.loads(raw)
+    except Exception as exc:
+        logger.warning("Script quality gate LLM call failed ({}); skipping gate", exc)
+        return
+
+    failures: list[str] = []
+    check_labels = {
+        "single_visual_world": "Single visual world",
+        "no_repeated_beats": "No repeated beats",
+        "hook_ending_loop": "Hook-to-ending loop",
+        "no_disclaimer_paragraphs": "No disclaimer paragraphs",
+    }
+    for key, label in check_labels.items():
+        check = data.get(key, {})
+        if isinstance(check, dict) and check.get("result") == "FAIL":
+            reason = check.get("reason", "no reason provided")
+            failures.append(f"[{label}] {reason}")
+
+    if failures:
+        msg = (
+            "SCRIPT QUALITY GATE FAILED — fix these issues before scene planning:\n"
+            + "\n".join(f"  ✗ {f}" for f in failures)
+        )
+        raise ScriptQualityGateError(msg)
+
+    logger.info("Script quality gate: all 4 checks passed")
+
+
 def scene_planner_node(state: VideoState) -> dict:
     """
     Scene Planner Agent:
-    1. Load script from state / disk
-    2. Generate scene plan JSON with retry loop on parse failure
-    3. Validate and fix duration totals
-    4. Second-pass: enhance visual prompts with cinematography guidance
-    5. Save scene-plan.json + scene-plan.md
+    1. Script quality gate (4 checks) — halts pipeline if script fails
+    2. Load script from state / disk
+    3. Generate scene plan JSON with retry loop on parse failure
+    4. Validate and fix duration totals
+    5. Second-pass: enhance visual prompts with cinematography guidance
+    6. Save scene-plan.json + scene-plan.md
     """
     settings = Settings()
     llm = get_llm_for_role(settings, "scene_planner")
@@ -2716,6 +3112,16 @@ def scene_planner_node(state: VideoState) -> dict:
                 f"{len(story_bible.locations)} locations, "
                 f"{len(story_bible.do_not_change)} locked rules"
             )
+
+    # ── Script Quality Gate — must pass before any scene planning ────────────
+    console.print("  [cyan]→[/cyan] Script quality gate: running 4 checks...")
+    try:
+        _run_script_quality_gate(script_md, llm)
+        console.print("  [green]✓[/green] Script quality gate: all checks passed")
+    except ScriptQualityGateError as _gate_err:
+        console.print(f"\n  [bold red]✗ SCRIPT QUALITY GATE FAILED[/bold red]\n{_gate_err}\n")
+        project_repo.update_stage(project_id, "scenes", "failed")
+        raise PipelineAbort("scene_planner", str(_gate_err)) from _gate_err
 
     # ── Phase 1: Python-based script splitting (no LLM, no truncation risk) ──
     # The LLM was reliably failing to return 25+ scenes in one JSON response —
@@ -3339,7 +3745,7 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(f"  [green]✓[/green] Story Bible: [dim]{bible_dir}[/dim]")
 
     # ── Write prompts file for manual image generation ────────────────────
-    prompts_path = _write_prompts_file(project_id, scenes, style, settings)
+    prompts_path = _write_prompts_file(project_id, scenes, style, settings, story_bible=story_bible)
     console.print(
         f"  [green]✓[/green] Image prompts exported: [dim]{prompts_path}[/dim]"
     )

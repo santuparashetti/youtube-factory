@@ -25,8 +25,8 @@ DIVISION OF LABOR — do ONLY translation, NOT styling:
 =====================================================
 STAGE 2 — SCRIPT ENHANCEMENT (the documentary arc)
 =====================================================
-Input: base script. Output: cinematic documentary narration, 7-9 min
-(~1,050-1,350 words). Extract the best ~40-50% of a 15-20 min discourse.
+Input: base script. Output: cinematic documentary narration, 6-8 min
+(~780-1,040 words). Extract the best ~40-50% of a 15-20 min discourse.
 Quality over completeness; every sentence earns its place.
 
 THE NARRATIVE ARC (in order):

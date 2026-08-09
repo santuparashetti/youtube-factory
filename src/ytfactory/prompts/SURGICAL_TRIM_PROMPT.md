@@ -6,6 +6,40 @@ This is an editorial compression pass, NOT a rewrite.
 
 Target: reduce from {current_words} words to between {target_min} and {target_max} words ({min_to_cut}–{max_to_cut} words must go).
 
+## TRIM PRIORITY ORDER — follow this exactly, never reverse it
+
+NEVER TOUCH (protected, untouchable):
+- Hook (first 1-2 sentences) — the curiosity gap that opens the video
+- Channel welcome line
+- The core revelation / deep insight moment
+- Emotional climax beat
+- Practical takeaway for the viewer
+- Philosophical question (must remain first-person)
+- Callback to opening image
+- Brand signature line
+- Closing quote / final line
+
+TRIM LAST (only if protected elements already saved and still over ceiling):
+- Transitions between sections
+- Supporting analogies that reinforce a point already made
+- Secondary examples where one example already exists
+
+TRIM FIRST (safe to cut, cut these before anything else):
+- Repeated explanations of the same idea
+- Any metaphor from a second visual world (lamp, sugarcane, river alongside eagle)
+- Generic motivational statements not tied to the story
+- Over-explanation after a strong image (the image already did the work)
+- Any sentence that explains what the previous sentence already showed
+
+CONTINUITY CHECK — after every trim pass:
+Read the script in order. Confirm:
+(1) The story still has a clear beginning, middle, and end
+(2) No protected element was removed or weakened
+(3) The narrative flows from each section to the next without a jump
+(4) The hook and ending still form a complete loop
+
+If continuity is broken after trimming, restore the minimum content needed to repair it — even if this pushes slightly over the word ceiling. Story integrity beats word count. A slightly long script with a complete arc is always better than a perfectly short script with a broken story.
+
 ## Core Principle
 
 Preserve the script's architecture.

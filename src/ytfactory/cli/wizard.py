@@ -18,6 +18,8 @@ _PRESETS = [
     "🆕  New Project (Phase 1)",
     "▶️   Resume Project (Phase 2)",
     "🔄  Re-plan Scenes (keep script)",
+    "✂️   Generate Shorts (Phase 1 — extract + script + scene plan)",
+    "📱  Render Shorts Video (Phase 2 — images → TTS → video)",
     "🎬  Full AI Video (legacy — runs through to publish)",
     "📄  Existing Script (legacy)",
     "🖼   Images Only",
@@ -170,7 +172,7 @@ def _ask_profile(default: str = "Cinematic") -> str:
 
 
 def _ask_target_minutes() -> int:
-    answer = questionary.text("Target duration in minutes (1–10):", default="8").ask()
+    answer = questionary.text("Target duration in minutes (1–10):", default="7").ask()
     try:
         return max(1, min(10, int(answer or "8")))
     except ValueError:
@@ -609,6 +611,121 @@ def _flow_resume() -> None:
     run_pipeline(title, project_id=project_id, auto=bool(auto))
 
 
+# ── Shorts flows ─────────────────────────────────────────────────────────────
+
+
+def _flow_shorts_phase1() -> None:
+    """S1 → S2 → S2b → S3 → S4: extract opportunities, generate scripts, plan scenes."""
+    project_id = _ask_project_id("Long-form project to generate Shorts from")
+    if not project_id:
+        return
+
+    project_dir = Path("workspace/jobs") / project_id
+    script_path = project_dir / "script" / "script.md"
+    if not script_path.exists():
+        console.print(f"[red]No script found at {script_path}[/red]")
+        console.print("[dim]Run 'New Project (Phase 1)' first to generate a long-form script.[/dim]")
+        return
+
+    force = questionary.confirm(
+        "Regenerate even if Shorts artifacts already exist?",
+        default=False,
+    ).ask()
+
+    if not _confirm_launch(
+        {
+            "Project": project_id,
+            "Stage": "Shorts Phase 1 (extract → scripts → scene plans)",
+            "Force": "yes" if force else "no (skip existing)",
+        }
+    ):
+        return
+
+    from ytfactory.config.settings import Settings
+    from ytfactory.shorts.pipeline import ShortsPipeline
+
+    ShortsPipeline(Settings()).run(project_id, force=bool(force))
+
+    console.print(
+        "\n[dim]Phase 1 complete. Open each short's image-prompts.json, generate "
+        "images externally, drop PNGs into "
+        f"workspace/jobs/{project_id}/shorts/<short-id>/images/, "
+        "then run 'Render Shorts Video (Phase 2)'.[/dim]"
+    )
+
+
+def _flow_shorts_phase2() -> None:
+    """Images → TTS → subtitles → render → assemble → BGM → final.mp4."""
+    project_id = _ask_project_id("Project ID whose Shorts videos to render")
+    if not project_id:
+        return
+
+    shorts_base = Path("workspace/jobs") / project_id / "shorts"
+    available_shorts: list[str] = []
+    if shorts_base.exists():
+        available_shorts = sorted(
+            d.name for d in shorts_base.iterdir()
+            if d.is_dir() and (d / "scene-plan.json").exists()
+        )
+
+    short_id: str | None = None
+    if available_shorts:
+        choices = ["All Shorts"] + available_shorts
+        pick = questionary.select(
+            "Which Short to render?",
+            choices=choices,
+            default="All Shorts",
+        ).ask()
+        if pick is None:
+            return
+        short_id = None if pick == "All Shorts" else pick
+    else:
+        console.print(
+            f"[yellow]No scene plans found under {shorts_base}.[/yellow]\n"
+            "[dim]Run 'Generate Shorts (Phase 1)' first.[/dim]"
+        )
+        return
+
+    if short_id:
+        images_dir = shorts_base / short_id / "images"
+        images = list(images_dir.glob("scene-*.png")) if images_dir.exists() else []
+        if not images:
+            console.print(
+                f"\n[bold yellow]⚠  No images found in {images_dir}[/bold yellow]\n"
+                f"  Drop scene-001.png, scene-002.png … into that folder first,\n"
+                f"  then re-run this step."
+            )
+    else:
+        console.print(
+            "\n[dim]Tip: drop scene-NNN.png files into each "
+            f"workspace/jobs/{project_id}/shorts/<short-id>/images/ folder before continuing.[/dim]"
+        )
+
+    force = questionary.confirm(
+        "Regenerate all media stages even if outputs already exist?",
+        default=False,
+    ).ask()
+
+    if not _confirm_launch(
+        {
+            "Project": project_id,
+            "Short": short_id or "all",
+            "Stage": "Shorts Phase 2 (TTS → subtitles → render → BGM)",
+            "Force": "yes" if force else "no (skip existing)",
+        }
+    ):
+        return
+
+    from ytfactory.config.settings import Settings
+    from ytfactory.shorts.media_pipeline import ShortsMediaPipeline
+
+    ShortsMediaPipeline(Settings()).run_all(
+        project_id,
+        short_id_filter=short_id,
+        force=bool(force),
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 
@@ -638,6 +755,10 @@ def run_wizard() -> None:
             _flow_replan_scenes()
         elif "Resume Project" in preset:
             _flow_resume_project()
+        elif "Generate Shorts" in preset:
+            _flow_shorts_phase1()
+        elif "Render Shorts" in preset:
+            _flow_shorts_phase2()
         elif "Full AI Video" in preset:
             _flow_full_ai_video(defaults)
         elif "Existing Script" in preset:

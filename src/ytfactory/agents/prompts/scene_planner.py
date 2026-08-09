@@ -243,23 +243,99 @@ _PLAN_SCENES_TEMPLATE = """\
 You are an expert video editor. Split the script below into scenes for: {topic}
 
 ──────────────────────────────────────────────────────────────
+SCRIPT QUALITY GATE — run before planning; BLOCK if any check fails
+──────────────────────────────────────────────────────────────
+Before producing any scene JSON, silently run all 4 checks on the script below.
+If any check fails, do NOT output scene JSON. Instead output ONLY:
+  QUALITY_GATE_FAIL: <check name> — <one sentence describing the specific failure>
+
+[ ] Single visual world — only one metaphor universe exists in the script.
+    If more than one visual world is present → FAIL.
+[ ] No repeated beats — a repeated beat is when two paragraphs make the SAME point
+    at the SAME narrative stage with nothing new added between them. A story-level
+    observation (about the eagle) and its later philosophical conclusion (about the
+    human) are NOT repeated beats — they are the story-to-insight progression required
+    by the pipeline formula. A thematic echo or callback is NOT a repeated beat. Only
+    flag as FAIL if the identical idea appears twice within the same narrative stage —
+    both in story, or both in the human parallel — with no development between them.
+    If the identical idea appears twice within the same narrative stage with no
+    development → FAIL.
+[ ] Hook-to-ending loop — identify the final narrative sentence by finding the last
+    sentence BEFORE any of these brand wrap markers: 'This is the Atma Theory',
+    'If these ideas resonate', 'Clear mind', 'Meaningful life', 'join us on this
+    journey'. The brand wrap is NOT part of the story and must be completely ignored
+    for this check. Evaluate ONLY whether the final narrative sentence echoes or
+    resolves the opening image. If it does, this check PASSES regardless of what
+    the brand wrap says.
+    If the final narrative sentence does not echo or resolve the opening image → FAIL.
+[ ] No disclaimer paragraphs — a disclaimer paragraph is one that LISTS or EXPLAINS
+    hardships directly to the viewer as facts about the world ('poverty is real',
+    'loss is real', 'circumstances can narrow choices'). This check does NOT apply
+    to: (a) story beats about the eagle's fear or situation, (b) practice or action
+    sections that frame what a discipline does and does not promise, (c) philosophical
+    statements about the nature of fear or identity. Only flag as FAIL if the paragraph
+    reads as a direct explanatory statement of worldly hardship addressed to the viewer,
+    with no story or character grounding.
+    If such a direct explanatory hardship paragraph exists → FAIL.
+
+Only proceed to scene planning if all 4 checks PASS.
+
+──────────────────────────────────────────────────────────────
+FILM EDITOR MENTAL MODEL — internalize before planning
+──────────────────────────────────────────────────────────────
+Think like a film editor, not a transcriptionist. Your script is 40 hours of footage.
+Your job is to deliver a 6–8 min film. The best editors are ruthless — they cut good material
+to serve the great material. Every scene must justify its existence in a 360–480 second runtime.
+
+──────────────────────────────────────────────────────────────
 RULES
 ──────────────────────────────────────────────────────────────
-- Cover the ENTIRE script — no content left out.
+- You are SELECTING the best 18–25 scenes from the script — not converting every paragraph
+  into a scene. Each scene must earn its place. For every scene ask: Does this deliver a new
+  emotion, insight, or narrative beat that no prior scene already achieved? If not, cut it.
 - Short dramatic lines (under 15 words): group 3-5 related lines into one scene.
 - Longer paragraphs (40+ words): one paragraph = one or two scenes.
 - Strip all markdown from narration: plain spoken text only, no **, ##, *, etc.
 - Use EXACT words from the script verbatim in narration. Do NOT paraphrase.
-- Duration: word_count / 2 seconds (slow meditative pace, ~120 wpm).
+- Duration: word_count ÷ 2 seconds (slow meditative pace, ~120 wpm).
 - Target 18–25 scenes total.
 
+HARD DURATION BUDGET — MANDATORY:
+- Total video = 6–8 minutes = 360–480 seconds.
+- Calculate each scene's duration_seconds using: word_count ÷ 2.
+- Sum all scene durations before outputting. If total > 480 seconds, remove or compress
+  the lowest-impact scenes first. Do not output scenes that exceed 480 seconds total.
+
 ──────────────────────────────────────────────────────────────
-HOOK (first 30 seconds — critical for retention)
+HOOK (first 15 seconds — critical for retention)
 ──────────────────────────────────────────────────────────────
-- The first 2–3 scenes MUST be SHORT: 6–12 words each (3–6 seconds).
+- The first 2–3 scenes MUST be SHORT: 6–10 words maximum each (3–5 seconds).
+  Any hook scene exceeding 10 words must be split or trimmed. No exceptions.
+- The viewer must feel tension or curiosity within the first 15 seconds —
+  no setup, no context-setting, no slow build.
 - Open with the most provocative, surprising, or emotionally charged line.
 - Each hook scene = one punchy idea. Do NOT group multiple sentences into scene 1.
 - Avoid slow scene-setting in the opening — drop the viewer into the most compelling moment.
+
+──────────────────────────────────────────────────────────────
+MANDATORY PRE-OUTPUT CHECKS
+──────────────────────────────────────────────────────────────
+Before outputting, run all three checks in order. This is not optional.
+
+CHECK 1 — Duration Budget:
+  Sum all scene duration_seconds values.
+  If total > 480 seconds: remove or compress lowest-impact scenes until total ≤ 480.
+  If total < 360 seconds: verify no essential scenes were cut.
+  Do not output until total is within 360–480 seconds.
+
+CHECK 2 — Scene Selection Quality:
+  For each scene, ask: Does this deliver a new emotion, insight, or narrative beat?
+  If any scene repeats what a prior scene already achieved: cut it.
+
+CHECK 3 — Consecutive Scene Scan:
+  Scan all scenes in order. Flag any two consecutive scenes that share the same mood,
+  use the same shot type, or deliver the same narrative beat.
+  Resolve every flag by merging or cutting one of the pair.
 
 ──────────────────────────────────────────────────────────────
 OUTPUT — ONLY valid JSON, no markdown fences, nothing else
@@ -726,6 +802,15 @@ A scene's visual must serve the emotional beat, not just the keyword:
   MOTION — if narration extends past ~8 seconds on one idea without a new visual
   anchor, the visual must progress: camera movement, changing subject, passing time,
   environmental shift. Holding a single static frame for many seconds is forbidden.
+
+  VISUAL VARIETY — across the full scene list:
+    — No shot type (establishing / wide / medium / close-up / drone / etc.) may repeat
+      in more than 2 consecutive scenes. Break the run with a contrasting shot type.
+    — Alternate between distant and intimate shots at least once every 4 scenes.
+    — At least 1 in every 5 scenes must be a close-up or extreme close-up — texture,
+      object, hands, eyes — to give the eye somewhere to land.
+    — At least 1 in every 6 scenes must introduce clear movement in the frame (action,
+      crowd, water, wind, subject in motion) rather than a still environment.
 
   TONE MATCH — the image's emotional register must match the narration's:
     resilience / strength → forward motion, open space, human presence, warm light

@@ -3,7 +3,7 @@ from ytfactory.trim.pipeline import SurgicalTrimPipeline
 
 
 def trim_script(project_id: str) -> None:
-    """Surgical trim pass — compress script.md to the 7-9 min word target.
+    """Surgical trim pass — compress script.md to the 6-8 min word target (780–1040 words).
 
     Applies the smallest possible edits (remove redundancy, compress verbose
     sentences, cut repeated ideas) while keeping all structural sections intact:

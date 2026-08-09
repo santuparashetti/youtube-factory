@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from ytfactory.agents.prompts.script_writer import NARRATION_WPM
 from ytfactory.config.settings import Settings
 from ytfactory.editorial_qa import checkpoint as qa_checkpoint
 from ytfactory.editorial_qa.pipeline import EditorialQAPipeline
@@ -180,10 +181,11 @@ class FinalScriptReviewGate:
             return script_text
 
         word_count = len(script_text.split())
+        minutes = word_count / NARRATION_WPM
         judge_summary = _format_judge_summary(judge_report)
         console.print(
             Panel(
-                f"[bold]Final Script Review[/bold]\nWords: {word_count}\n\n"
+                f"[bold]Final Script Review[/bold]\nWords: {word_count} (~{minutes:.1f} min)\n\n"
                 f"{_format_qa_summary(project_id)}"
                 + (f"\n\n{judge_summary}" if judge_summary else ""),
                 title="Human Review Gate",

@@ -51,7 +51,7 @@ In Pass 2's iteration loop (Viewer Retention Optimization, max 2 iterations), th
 
 Report, with real numbers from an actual run:
 1. Word count into Pass 3, word count out of Pass 3 (raw LLM response), word count of the script object used for the final duration check — all three, to prove the merge/measurement bug is fixed.
-2. Final script duration after your fix, on the same source script. Must be within 7-9 min.
+2. Final script duration after your fix, on the same source script. Must be within 6-8 min.
 3. Confirm the pipeline no longer aborts at the `documentary_enhancer_duration` stage.
 4. Confirm Pass 2 now considers duration in its exit condition (show the iteration count it actually ran).
 

@@ -11,7 +11,7 @@ class WarmBloom(BaseEffect):
     scenes. Use as the single lighting effect for calm, premium documentary style.
     """
 
-    def __init__(self, intensity: float = 0.06, pulse_speed: float = 0.12):
+    def __init__(self, intensity: float = 0.18, pulse_speed: float = 0.20):
         self.intensity = intensity   # 0.03 (barely visible) to 0.12 (noticeable)
         self.pulse_speed = pulse_speed
 
@@ -32,9 +32,9 @@ class LightHaze(BaseEffect):
 
     def __init__(
         self,
-        opacity: float = 0.07,
+        opacity: float = 0.20,
         color: tuple = (200, 215, 235),  # warm white (BGR)
-        pulse_speed: float = 0.08,
+        pulse_speed: float = 0.15,
     ):
         self.opacity = opacity
         self.color = np.array(color, dtype=np.float32)

@@ -232,6 +232,9 @@ class Settings(SharedSettings):
     # The video renderer consumes reflection.duration to insert silent hold
     # segments after narration ends; music.action is informational (BGM future use).
     cinematic_pacing_enabled: bool = True
+    # When False, reflection hold segments (still-image pauses after narration)
+    # are skipped at render time. Pacing data is still generated and stored.
+    reflection_beats_enabled: bool = False
 
     # ------------------------------------------------------------------
     # TTS Debug & Quality Control
@@ -594,6 +597,15 @@ class Settings(SharedSettings):
     qa_callback_required: bool = False
 
     # ------------------------------------------------------------------
+    # Animation Visual Analyzer
+    # ------------------------------------------------------------------
+
+    # Model used by the motion-engine SceneAnalyzer (animate stage).
+    # Needs vision capability. Defaults to the main anthropic_model.
+    # Set ANIMATE_ANALYZER_MODEL in .env to override independently.
+    animate_analyzer_model: str = ""
+
+    # ------------------------------------------------------------------
     # Motion Overlay Compositing
     # ------------------------------------------------------------------
 
@@ -653,3 +665,36 @@ class Settings(SharedSettings):
 
     # Reviewed 2026-07-12: zero call sites found — dead field, kept for cleanup pass.
     request_timeout: int = 60
+
+    # ── Shorts (Phase 1A) ───────────────────────────────────────────────
+
+    shorts_target_duration_seconds: float = 52.0
+    shorts_max_duration_seconds: float = 60.0
+
+    shorts_scene_count_min: int = 5
+    shorts_scene_count_max: int = 9
+
+    shorts_narration_wpm: int = 130
+
+    shorts_min_word_count: int = 90
+    shorts_preferred_min_word_count: int = 105
+    shorts_preferred_max_word_count: int = 115
+    shorts_hard_max_word_count: int = 120
+
+    shorts_validation_overall_threshold: float = 6.5
+    shorts_validation_hook_threshold: float = 5.0
+    shorts_validation_standalone_threshold: float = 4.0
+    shorts_validation_spoiler_max: float = 7.0
+
+    shorts_validation_generic_ai_max: float = 5.0
+    shorts_validation_advertising_max: float = 3.0
+    shorts_validation_cliche_max: float = 5.0
+    shorts_validation_naturalness_min: float = 5.0
+
+    # ── Shorts Phase 1B ──────────────────────────────────────────────────
+    shorts_video_width: int = 1080
+    shorts_video_height: int = 1920
+    shorts_video_fps: int = 30
+    shorts_subtitle_play_res_x: int = 1080
+    shorts_subtitle_play_res_y: int = 1920
+    shorts_bgm_enabled: bool = True

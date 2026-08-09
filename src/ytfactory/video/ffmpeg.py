@@ -250,6 +250,13 @@ class FFmpegRenderer:
             dur = durations[i]
             index = scene["index"]
 
+            # Reflection beat: freeze last video frame + silence instead of
+            # inserting a separate static image. Computed early so both the
+            # video (tpad) and audio (apad) filters can use it.
+            reflection = scene.get("scene_pacing", {}).get("reflection", {})
+            _beats_on = getattr(self.settings, "reflection_beats_enabled", False)
+            hold_dur = float(reflection.get("duration", 0.0)) if (_beats_on and reflection.get("enabled")) else 0.0
+
             if scene.get("scene_type") in ("asset", "brand_card"):
                 asset_path = Path(scene.get("asset_path", ""))
                 if not asset_path.is_absolute():
@@ -348,53 +355,24 @@ class FFmpegRenderer:
                 if self.settings.video_debug_showinfo:
                     vf_parts.append("showinfo")
 
+            # Freeze the last rendered frame for hold_dur seconds — no separate
+            # input needed, tpad clones the final frame of the scene's own clip.
+            if hold_dur >= 0.5:
+                vf_parts.append(f"tpad=stop_mode=clone:stop_duration={hold_dur:.4f}")
+                logger.debug(
+                    "Scene {:03d} | reflection freeze {:.1f}s (last frame hold)", index, hold_dur
+                )
+
             vf_chain = ",".join(vf_parts)
             filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
             filter_chains.append(
                 f"[{aud_inp}:a]"
                 f"atrim=duration={dur:.4f},asetpts=PTS-STARTPTS,"
                 f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-                f"[_a{i}]"
+                + (f",apad=pad_dur={hold_dur:.4f}" if hold_dur >= 0.5 else "")
+                + f"[_a{i}]"
             )
             concat_in_pads += [f"[_v{i}]", f"[_a{i}]"]
-
-            # ── Reflection beat hold segment ──────────────────────────────────
-            # A post-narration silent hold: same image, no motion, no subtitle,
-            # silence audio. Lets the viewer absorb the emotional content.
-            reflection = scene.get("scene_pacing", {}).get("reflection", {})
-            hold_dur = float(reflection.get("duration", 0.0)) if reflection.get("enabled") else 0.0
-            if hold_dur >= 0.5:
-                h_vid_inp = inp
-                h_aud_inp = inp + 1
-                inp += 2
-                h_tag = f"h{i}"
-
-                cmd += [
-                    "-loop", "1",
-                    "-framerate", str(fps),
-                    "-t", f"{hold_dur:.4f}",
-                    "-i", str(image),
-                ]
-                cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
-
-                # Static scale — no zoompan, no subtitle, no motion
-                h_vf = (
-                    f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-                    f"crop={W}:{H},"
-                    f"trim=duration={hold_dur:.4f},setpts=PTS-STARTPTS,"
-                    f"setsar=1,setdar=16/9,format=yuv420p"
-                )
-                filter_chains.append(f"[{h_vid_inp}:v]{h_vf}[_v{h_tag}]")
-                filter_chains.append(
-                    f"[{h_aud_inp}:a]"
-                    f"atrim=duration={hold_dur:.4f},asetpts=PTS-STARTPTS,"
-                    f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-                    f"[_a{h_tag}]"
-                )
-                concat_in_pads += [f"[_v{h_tag}]", f"[_a{h_tag}]"]
-                logger.debug(
-                    "Scene {:03d} | reflection hold {:.1f}s added", index, hold_dur
-                )
 
         # ── Concat filter ─────────────────────────────────────────────────────
         # n_segments is derived from concat_in_pads (always accurate even when

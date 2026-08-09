@@ -211,8 +211,8 @@ not deleted** — importable, CLI commands and full test suites retained, but un
 `ATMA_THEORY_COMPOSER.md` (`agents/prompts/composer.py::build_composer_system_prompt`, `lru_cache`);
 user content = base script. Structural principles are now composition directives inside the
 framework text, not post-hoc moves on finished prose. No mode selection, no coverage floor, no
-reorder ban — removed, they belong to the retired transform model. Length targets 7-9 min via the
-framework's LENGTH section (understanding, not a word-count gate) — `TARGET_MIN_MINUTES=7` /
+reorder ban — removed, they belong to the retired transform model. Length targets 6-8 min via the
+framework's LENGTH section (understanding, not a word-count gate) — `TARGET_MIN_MINUTES=6` /
 `TARGET_MAX_MINUTES=9`. `build_recompose_directive()` written but dormant/unwired — whole-piece
 recompose fallback for out-of-range output, to be wired only if real usage proves it's needed
 (single-call eagle output has landed in-range on every real run so far). Scripture protection

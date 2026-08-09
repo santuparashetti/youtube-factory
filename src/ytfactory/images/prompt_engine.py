@@ -185,9 +185,16 @@ class ImagePromptEngineV4:
                     if prompt and _ANATOMY_REINFORCEMENT not in prompt:
                         s["visual_prompt"] = prompt + _ANATOMY_REINFORCEMENT
 
-                # Enforce 16:9 as a hard rule — placed first so no generator can ignore it
+                # Enforce 16:9 and hybrid character style as hard rules — placed first so no generator can ignore them
                 final = s.get("visual_prompt", "")
-                _RATIO_PREFIX = "STRICT RULE: output must be 16:9 aspect ratio (1280×720 px). Do NOT generate square, portrait, or any other ratio. "
+                _RATIO_PREFIX = (
+                    "STRICT RULE 1 (ASPECT RATIO): output must be 16:9 aspect ratio (1280×720 px). "
+                    "Do NOT generate square, portrait, or any other ratio. "
+                    "STRICT RULE 2 (CHARACTER STYLE): ALL characters — humans, animals, eagles, birds, chicks — "
+                    "MUST be rendered as hand-painted illustrated storybook characters with visible ink outlines, "
+                    "cel shading, and painterly texture. Characters must NEVER be photorealistic or look like real photos. "
+                    "ONLY the environment, background, architecture, nature, and props are photorealistic. "
+                )
                 if final and not final.startswith("STRICT RULE"):
                     s["visual_prompt"] = _RATIO_PREFIX + final
             enriched.append(s)

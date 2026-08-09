@@ -18,6 +18,7 @@ dependencies = [
     "loguru>=0.7.3",
     "mutagen>=1.47",
     "numpy>=1.24.0",
+    "opencv-python>=4.11.0",
     "soundfile>=0.12.1",
     "cartesia>=2.0.0",
     "elevenlabs>=1.50.0",
@@ -39,6 +40,7 @@ dependencies = [
     "tenacity>=9.1.4",
     "tiktoken>=0.13.0",
     "typer>=0.26.8",
+    "anthropic>=0.64.0",
 ]
 
 [project.optional-dependencies]
@@ -71,7 +73,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ytfactory"]
+packages = ["src/ytfactory", "motion_engine"]
 
 [tool.mypy]
 python_version = "3.10"
