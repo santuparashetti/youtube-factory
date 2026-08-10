@@ -34,7 +34,7 @@ DIVIDER = "━" * 40
 WORDS_PER_MINUTE = 140  # display estimate only
 
 _MAX_RECOMPOSE_ATTEMPTS = 3
-_RECOMPOSE_TRIM_THRESHOLD = 1040  # words; trim recomposed output if it exceeds this
+_RECOMPOSE_TRIM_THRESHOLD = 940  # words; trim recomposed output if it exceeds this
 
 
 def _apply_recompose_trim(text: str, composer: "ComposerPipeline") -> str:
@@ -60,6 +60,7 @@ def run_composer_with_ab_selection(
     composer: ComposerPipeline,
     project_id: str,
     base_script_text: str | None = None,
+    beats: list[dict] | None = None,
 ) -> str:
     """Run the composer twice, judge the results, optionally recompose, write script.md.
 
@@ -77,7 +78,7 @@ def run_composer_with_ab_selection(
     settings = composer._settings
 
     # ── Generate Script A ────────────────────────────────────────────────────
-    composer.run(project_id, script_text=base_script_text)
+    composer.run(project_id, script_text=base_script_text, beats=beats)
     script_a_path = script_dir / "script-a.md"
     script_a_path.write_text(script_file.read_text(encoding="utf-8"), encoding="utf-8")
     script_a = script_a_path.read_text(encoding="utf-8")
@@ -85,7 +86,7 @@ def run_composer_with_ab_selection(
     # ── Generate Script B (graceful rehook degradation) ──────────────────────
     script_b: Optional[str] = None
     try:
-        composer.run(project_id, script_text=base_script_text)
+        composer.run(project_id, script_text=base_script_text, beats=beats)
         script_b_path = script_dir / "script-b.md"
         script_b_path.write_text(script_file.read_text(encoding="utf-8"), encoding="utf-8")
         script_b = script_b_path.read_text(encoding="utf-8")
@@ -124,7 +125,7 @@ def run_composer_with_ab_selection(
             console.print(
                 f"  [dim]Guided recompose — attempt {attempt}/{_MAX_RECOMPOSE_ATTEMPTS}[/dim]"
             )
-            recomposed = guided_recompose(script_a, script_b, verdict, provider, settings)
+            recomposed = guided_recompose(script_a, script_b, verdict, provider, settings, beats=beats)
             if recomposed is None:
                 logger.warning(
                     "Recomposer attempt {}/{} failed or skipped.",

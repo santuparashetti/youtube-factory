@@ -268,15 +268,19 @@ If any check fails, do NOT output scene JSON. Instead output ONLY:
     resolves the opening image. If it does, this check PASSES regardless of what
     the brand wrap says.
     If the final narrative sentence does not echo or resolve the opening image → FAIL.
-[ ] No disclaimer paragraphs — a disclaimer paragraph is one that LISTS or EXPLAINS
-    hardships directly to the viewer as facts about the world ('poverty is real',
-    'loss is real', 'circumstances can narrow choices'). This check does NOT apply
-    to: (a) story beats about the eagle's fear or situation, (b) practice or action
-    sections that frame what a discipline does and does not promise, (c) philosophical
-    statements about the nature of fear or identity. Only flag as FAIL if the paragraph
-    reads as a direct explanatory statement of worldly hardship addressed to the viewer,
-    with no story or character grounding.
-    If such a direct explanatory hardship paragraph exists → FAIL.
+[ ] No disclaimer paragraphs — a disclaimer paragraph is one that makes factual claims
+    about the real world (statistics, medical claims, financial advice) with no story
+    grounding, OR directly tells the viewer what to do in their real life without
+    connecting it to a story beat (e.g. 'Poverty is real. Loss is real. These are hard truths.').
+    This check does NOT apply to: (a) story beats about a character's situation or fate,
+    (b) practice or action sections that frame what a discipline does and does not promise,
+    (c) philosophical statements about fear, identity, or impermanence,
+    (d) paragraphs that translate a story beat into a universal principle
+    ('The body we depend on is temporary' following a story climax),
+    (e) philosophical teachings that follow directly from the narrative arc.
+    Only flag as FAIL if the paragraph reads as a direct explanatory statement of
+    real-world facts or directives addressed to the viewer with no story grounding.
+    If such a direct explanatory paragraph exists → FAIL.
 
 Only proceed to scene planning if all 4 checks PASS.
 

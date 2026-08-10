@@ -31,6 +31,9 @@ class VideoState(TypedDict, total=False):
     enhancement_instructions: Optional[str]
     scene_plan: list[dict]  # validated JSON list from scene planner
 
+    # ── Beats (extracted by beats_extractor_node; flows through every stage) ─
+    beats: list[dict]  # [{"id": int, "beat": str}, ...]
+
     # ── Composer two-variant output + Script Selector + Polisher ──────────
     # composer_node (polisher path) writes both variants; script_selector_polisher
     # picks the stronger, lightly polishes it, and writes selected_script back

@@ -14,6 +14,8 @@ model this stage replaces.
 import functools
 from pathlib import Path
 
+from ytfactory.beats_extractor.pipeline import format_beats_list
+
 _SURGICAL_TRIM_PROMPT_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "prompts"
@@ -95,6 +97,161 @@ def build_recompose_directive(current_minutes: float, target_range: tuple[int, i
         instruction = "choosing fewer stories and cutting harder for the strongest material only"
     return _RECOMPOSE_DIRECTIVE_TEMPLATE.format(
         direction=direction, current_minutes=current_minutes, lo=lo, hi=hi, instruction=instruction
+    )
+
+
+# ── Script A / B variant prompts ──────────────────────────────────────────────
+# Each variant owns distinct narrative strengths so the polisher can pick the
+# best sections from both rather than just choosing between temperature variants.
+# Protected beats are injected dynamically from the beats_extractor — no
+# story-specific content is hardcoded here.
+
+_SCRIPT_A_TEMPLATE = """\
+You are writing Script A for Atma Theory YouTube channel.
+
+CONTEXT:
+This script will be judged against Script B. The best sections \
+from both will be recomposed into a final hybrid. Write your \
+strengths so distinctly that they are irreplaceable in the merge. \
+Do not try to cover everything — own your sections deeply.
+
+UNIVERSALIZATION RULE — NON-NEGOTIABLE:
+Do not introduce Sanskrit, Pali, Arabic, Hebrew, or any non-English \
+spiritual terminology that is not already present in the source \
+material provided to you.
+If the source expresses a teaching in plain English, keep it in \
+plain English. Do not reach into the source tradition for \
+terminology the source has already translated.
+Correct: "Bodies are temporary. Wealth is not permanent."
+Forbidden: Any Sanskrit transliteration or untranslated term.
+
+SPECIFICALLY FORBIDDEN — do not write this phrase \
+in any form, any spelling, any capitalization:
+"anityani sharirani" / "vibhavo naiva Shashvatah"
+The meaning of this teaching is: \
+"Bodies are temporary. Wealth is not permanent."
+Write it exactly that way — plain English only.
+Do not quote, transliterate, or reference the \
+original-language source under any circumstances.
+
+THE IRON RULE:
+Every word cut must be repetition or filler.
+No story beat, example, or philosophical insight \
+may be lost in the name of word count.
+If it carries unique meaning — it stays.
+Metaphor mappings from the beat list must appear \
+explicitly in the script, not just implied.
+
+HARD RULES:
+- {target_words} words (hard cap). Count before returning.
+- Self-check before outputting:
+  Count your words. \
+  If over {target_words}: condense sentences, remove filler, never remove beats. \
+  If under {target_words} by more than 100: expand key moments — you may be too sparse.
+- After writing, verify: is every protected beat present?
+- If a beat is missing, restore it before trimming elsewhere.
+- End with: "This is the Atma Theory. If these ideas resonate \
+  with you, join us on this journey. Clear mind. Meaningful life."
+- Output [WORD COUNT: XXX] at the end.
+
+SCRIPT A STRENGTHS — own these deeply:
+- Prioritize philosophical clarity and memorable, balanced statements
+- The central teaching should be stated with simplicity and force
+- The emotional resolution should be spacious
+- Opening: establish the setting and its central tension in one sentence
+- Philosophical reframe: state the non-denial principle explicitly
+- Circular closing: mirror the opening, resolve the central tension
+
+PROTECTED BEATS — all must appear in your script:
+{beats_list}
+
+TOPIC: {topic}
+SOURCE STORY: {source_story}"""
+
+_SCRIPT_B_TEMPLATE = """\
+You are writing Script B for Atma Theory YouTube channel.
+
+CONTEXT:
+This script will be judged against Script A. The best sections \
+from both will be recomposed into a final hybrid. Write your \
+strengths so distinctly that they are irreplaceable in the merge. \
+Do not try to cover everything — own your sections deeply.
+
+UNIVERSALIZATION RULE — NON-NEGOTIABLE:
+Do not introduce Sanskrit, Pali, Arabic, Hebrew, or any non-English \
+spiritual terminology that is not already present in the source \
+material provided to you.
+If the source expresses a teaching in plain English, keep it in \
+plain English. Do not reach into the source tradition for \
+terminology the source has already translated.
+Correct: "Bodies are temporary. Wealth is not permanent."
+Forbidden: Any Sanskrit transliteration or untranslated term.
+
+SPECIFICALLY FORBIDDEN — do not write this phrase \
+in any form, any spelling, any capitalization:
+"anityani sharirani" / "vibhavo naiva Shashvatah"
+The meaning of this teaching is: \
+"Bodies are temporary. Wealth is not permanent."
+Write it exactly that way — plain English only.
+Do not quote, transliterate, or reference the \
+original-language source under any circumstances.
+
+THE IRON RULE:
+Every word cut must be repetition or filler.
+No story beat, example, or philosophical insight \
+may be lost in the name of word count.
+If it carries unique meaning — it stays.
+Metaphor mappings from the beat list must appear \
+explicitly in the script, not just implied.
+
+HARD RULES:
+- {target_words} words (hard cap). Count before returning.
+- Self-check before outputting:
+  Count your words. \
+  If over {target_words}: condense sentences, remove filler, never remove beats. \
+  If under {target_words} by more than 100: expand key moments — you may be too sparse.
+- After writing, verify: is every protected beat present?
+- If a beat is missing, restore it before trimming elsewhere.
+- End with: "This is the Atma Theory. If these ideas resonate \
+  with you, join us on this journey. Clear mind. Meaningful life."
+- Output [WORD COUNT: XXX] at the end.
+
+SCRIPT B STRENGTHS — own these deeply:
+- Prioritize psychological precision and narrative tension
+- Show how the mechanism of distraction works step by step
+- The application to ordinary life should be concrete and recognizable
+- Tension: connect the story's trap directly to the psychological hunger behind it
+- Modern examples: specific and recognizable — real moments people live through
+- Forward momentum: end with the character moving, not just realizing
+
+PROTECTED BEATS — all must appear in your script:
+{beats_list}
+
+TOPIC: {topic}
+SOURCE STORY: {source_story}"""
+
+
+def build_script_a_prompt(
+    topic: str,
+    source_story: str,
+    beats: list[dict] | None = None,
+    target_words: int = 773,
+) -> str:
+    beats_text = format_beats_list(beats) if beats else "(No beats extracted for this script.)"
+    return _SCRIPT_A_TEMPLATE.format(
+        topic=topic, source_story=source_story, beats_list=beats_text, target_words=target_words
+    )
+
+
+def build_script_b_prompt(
+    topic: str,
+    source_story: str,
+    beats: list[dict] | None = None,
+    target_words: int = 773,
+) -> str:
+    beats_text = format_beats_list(beats) if beats else "(No beats extracted for this script.)"
+    return _SCRIPT_B_TEMPLATE.format(
+        topic=topic, source_story=source_story, beats_list=beats_text, target_words=target_words
     )
 
 

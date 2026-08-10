@@ -1,40 +1,81 @@
-You are a master documentary writer. You are given two versions of the same script
-(Script A and Script B) and a section map identifying which script handles each
-narrative beat more effectively.
+You are performing minimal surgical edits on the WINNER script to incorporate
+specific superior sections from the other script, as identified by the judge.
 
-SOURCE TREATMENT — read this before everything else:
+RECOMPOSE METHOD — SURGICAL ONLY:
 
-You are a film editor, not a transcriptionist. Scripts A and B are raw source
-material — not content you must fully represent. Your job is to select the best
-ideas, strongest moments, and most powerful narrative beats from both sources
-combined, and build a single tight 6–8 min script from them. You are NOT expected
-to cover everything in A or B. Leaving out 40–60% of the combined content is
-normal and correct if it means the output is higher quality. Never compress to
-fit — cut to fit.
+You are NOT rewriting both scripts into something new.
+You are performing minimal surgery on the WINNER script.
 
-Draw from whichever source — A, B, or neither — best serves each moment in the
-final arc. Source balance does not matter. Quality and engagement matter.
+METHOD:
+1. Start with the WINNER script exactly as written
+2. Identify only the sections where the judge marked the OTHER script as superior
+3. Replace ONLY those specific sections with the superior version from the other script
+4. Leave every other section of the winner completely untouched — word for word
 
-Your task: write a single new whole-cloth script, selecting only what earns its
-place in the final arc.
+The result should be recognizably the winner script with 1-3 targeted section replacements.
 
-BEFORE YOU WRITE — SILENT ANALYSIS (do not output this):
+If incorporating a section from the non-winner disrupts the surrounding flow,
+do NOT include it. The winner's flow and rhythm take priority over completeness
+of the hybrid.
 
-For each section in the section map, identify and lock in three things from the
-winning script's version of that section:
-  (a) The core insight or realization — the idea the section exists to deliver
-  (b) The key image, story beat, or specific detail that carries it
-  (c) The emotional turn it produces in the viewer at that moment in the arc
-
-These three things are what made that section win. For every section you choose
-to include, (a), (b), and (c) must land intact. But not every section must be
-included — if a section from the map does not earn its place in the final 6–8 min
-arc (it repeats a beat already covered, adds no new emotion or insight, or would
-push you over the word ceiling), skip it entirely. The section map is a catalogue
-of candidates, not a required inclusion list.
+A script that is 95% the winner with 1 clean improvement is better than a
+50/50 blend that reads as two voices.
 
 PIPELINE FORMULA — the output must follow this order without skipping a stage:
 HOOK → STORY → TENSION → REVELATION → HUMAN PARALLEL → DEEPER INSIGHT → PRACTICE → PHILOSOPHICAL QUESTION → CALLBACK → MEMORABLE FINAL LINE
+
+UNIVERSALIZATION RULE — NON-NEGOTIABLE:
+Do not introduce Sanskrit, Pali, Arabic, Hebrew, or any non-English
+spiritual terminology that is not already present in the source
+material provided to you.
+If the source expresses a teaching in plain English, keep it in
+plain English. Do not reach into the source tradition for
+terminology the source has already translated.
+Correct: "Bodies are temporary. Wealth is not permanent."
+Forbidden: Any Sanskrit transliteration or untranslated term.
+
+SPECIFICALLY FORBIDDEN — do not write this phrase
+in any form, any spelling, any capitalization:
+"anityani sharirani" / "vibhavo naiva Shashvatah"
+The meaning of this teaching is:
+"Bodies are temporary. Wealth is not permanent."
+Write it exactly that way — plain English only.
+Do not quote, transliterate, or reference the
+original-language source under any circumstances.
+
+THE IRON RULE — overrides everything else when they conflict:
+Every beat from the extracted list below must be present in the recomposed output.
+Metaphor mappings must be stated explicitly, not just implied.
+Every word cut must be repetition or filler.
+No story beat, example, or philosophical insight may be lost in the name of word count.
+
+HYBRID QUALITY RULE:
+The recomposed script must be strictly better than either source script alone —
+not a compromise between them.
+
+When incorporating a section from the non-winner script:
+- Take only what the judge identified as superior in that specific section
+- Do not blend or average the two versions — keep the winner's version intact
+  and surgically insert the identified strength from the other
+- If incorporating a section from the non-winner makes the surrounding flow worse,
+  do not include it
+- The winner script's structure, rhythm, and voice are the foundation —
+  additions must serve the foundation, not dilute it
+
+PROTECTED BEATS — all must survive the merge:
+{beats_list}
+
+RECOMPOSE DISCIPLINE:
+A hybrid that loses quality is worse than the winner alone.
+When in doubt, keep the winner's version.
+Only incorporate from the non-winner when the judge explicitly identified that
+section as superior and you can integrate it without disrupting surrounding flow.
+
+If the merged script exceeds the word target:
+1. First cut: repeated ideas across the two scripts
+2. Second cut: transitional filler sentences
+3. Never cut: any beat from the PROTECTED list above
+4. If still over after steps 1–2: condense sentences, do not remove beats
 
 CRITICAL RULES:
 1. Write as ONE continuous voice from the first word to the last. This is a composition
@@ -70,13 +111,21 @@ CRITICAL RULES:
    stronger for the opening — this is the highest-leverage line.
 9. Preserve the ending from whichever script the section map designates as stronger
    for the ending — this is the second highest-leverage line.
-10. MANDATORY LENGTH ENFORCEMENT: The total length MUST be between 780–1040 words
-    (6–8 minutes at 130 wpm). Count your words before outputting. If over 1040 words,
-    cut the weakest supporting material immediately — remove repeated examples, weak
-    analogies, or redundant elaborations — until you are within range. Do not output
-    a script that exceeds 1040 words under any circumstances. This rule overrides the
-    section map: if incorporating a section's "winning" content would push you over
-    1040 words, summarise that section's core insight in fewer words instead.
+10. WORD COUNT REQUIREMENT — NON-NEGOTIABLE:
+    Target: 880-920 words.
+    This is a hard requirement, not a guideline.
+
+    The scripts you are combining are each ~960-1024 words.
+    You are NOT combining them — you are selecting the best
+    sections and writing a tighter whole.
+
+    Self-check before outputting:
+    - Under 880: you have cut beats — restore the most compressed ones
+    - Over 920: condense sentences and remove filler, never remove beats
+    - Check your word count before returning output.
+
+    This rule does NOT override the IRON RULE:
+    if a cut would remove a protected beat, condense that beat instead.
 11. The script MUST include a rehook: a closing line (before the brand card) that
     directly echoes a specific image or phrase from the opening hook.
 12. End with exactly three lines, each on its own line:
@@ -88,6 +137,11 @@ SCRIPT QUALITY GATE — run silently before outputting; rewrite if any check fai
 [ ] Single visual world — only one metaphor universe exists in the output.
 [ ] No repeated beats — no two paragraphs make the same point.
 [ ] Hook-to-ending loop — first and last sentence form a complete callback.
-[ ] No disclaimer paragraphs — all hardship is shown through story, not stated.
+[ ] No disclaimer paragraphs — only flag if a paragraph makes real-world factual claims
+    or directs the viewer without story grounding. Philosophical payoffs of story beats
+    ("The body we depend on is temporary") are NEVER disclaimers.
+[ ] All protected beats present — verify each beat from the list above.
 
-OUTPUT: The recomposed script only. No preamble, no explanation, no labels.
+OUTPUT: The recomposed script only, then on the final two lines:
+[WORD COUNT: XXX]
+[BEATS PRESERVED: X/X]

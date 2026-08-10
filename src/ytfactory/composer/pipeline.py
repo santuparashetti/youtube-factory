@@ -25,6 +25,8 @@ from rich.panel import Panel
 from ytfactory.agents.prompts.composer import (
     build_composer_system_prompt,
     build_composer_user_prompt,
+    build_script_a_prompt,
+    build_script_b_prompt,
     build_trim_system_prompt,
 )
 from ytfactory.agents.prompts.script_writer import NARRATION_WPM
@@ -43,6 +45,8 @@ console = Console()
 
 TARGET_MIN_MINUTES = 6
 TARGET_MAX_MINUTES = 7.5
+_VARIANT_TARGET_MINUTES = 7.0  # word cap target for Script A/B variants
+_VARIANT_TARGET_WORDS = int(_VARIANT_TARGET_MINUTES * 130 * 0.85)  # 773
 
 
 class ComposerRehookMissingError(RuntimeError):
@@ -88,6 +92,9 @@ class ComposerPipeline:
         script_text: str | None = None,
         *,
         temperature: float | None = None,
+        topic: str = "",
+        variant: str | None = None,
+        beats: list[dict] | None = None,
     ) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_dir.mkdir(parents=True, exist_ok=True)
@@ -98,24 +105,67 @@ class ComposerPipeline:
                 raise FileNotFoundError(f"ComposerPipeline: no base script found at {script_file}")
             script_text = script_file.read_text(encoding="utf-8")
 
+        label = f"Variant {variant}" if variant else "composing the documentary whole"
         console.print(
-            "\n[bold magenta]✍  Composer[/bold magenta] — composing the documentary whole..."
+            f"\n[bold magenta]✍  Composer[/bold magenta] — {label}..."
         )
 
-        placeholder_text, placeholders = extract_scripture_spans(script_text)
-        if placeholders:
-            console.print(
-                f"  [dim]Scripture protection: {len(placeholders)} span(s) extracted[/dim]"
+        # Variant prompts (Script A / B) are self-contained — they embed the
+        # source story directly and skip discourse-specific scripture protection.
+        if variant in ("A", "B"):
+            _w = get_writer()
+            if _w:
+                _w.stage_start("composer")
+            prompt_fn = build_script_a_prompt if variant == "A" else build_script_b_prompt
+            composed = self._compose_variant(
+                prompt_fn(topic, script_text, beats, target_words=_VARIANT_TARGET_WORDS),
+                temperature=temperature,
             )
+            # Retry-first overshoot: attempt a second compose before falling back to trim pass.
+            _v_words = len(composed.split())
+            if _v_words > _VARIANT_TARGET_WORDS + 50:
+                logger.warning(
+                    "Composer variant {}: {} words (cap {}) — retrying before trim pass",
+                    variant, _v_words, _VARIANT_TARGET_WORDS,
+                )
+                console.print(
+                    f"  [yellow]⚠ {_v_words} words — retrying with word count reinforced...[/yellow]"
+                )
+                try:
+                    _retry = self._compose_variant(
+                        prompt_fn(topic, script_text, beats, target_words=_VARIANT_TARGET_WORDS),
+                        temperature=temperature,
+                    )
+                    _retry_words = len(_retry.split())
+                    if _retry_words < _v_words:
+                        composed = _retry
+                        console.print(f"  [dim]Retry: {_retry_words} words[/dim]")
+                    else:
+                        logger.warning(
+                            "Composer variant {} retry did not improve ({} → {} words) — "
+                            "keeping first attempt",
+                            variant, _v_words, _retry_words,
+                        )
+                except Exception as _retry_exc:
+                    logger.warning(
+                        "Composer variant {} retry failed ({}) — keeping first attempt",
+                        variant, _retry_exc,
+                    )
+        else:
+            placeholder_text, placeholders = extract_scripture_spans(script_text)
+            if placeholders:
+                console.print(
+                    f"  [dim]Scripture protection: {len(placeholders)} span(s) extracted[/dim]"
+                )
 
-        system_prompt = build_composer_system_prompt(placeholders)
+            system_prompt = build_composer_system_prompt(placeholders)
 
-        _w = get_writer()
-        if _w:
-            _w.stage_start("composer")
+            _w = get_writer()
+            if _w:
+                _w.stage_start("composer")
 
-        composed_ph = self._compose(system_prompt, placeholder_text, temperature=temperature)
-        composed = restore_scripture_spans(composed_ph, placeholders)
+            composed_ph = self._compose(system_prompt, placeholder_text, temperature=temperature)
+            composed = restore_scripture_spans(composed_ph, placeholders)
 
         # Anchor character firewall — the pipeline-internal name "Kai" must never
         # reach viewer-facing output. Fail loud here rather than ship it downstream.
@@ -170,10 +220,11 @@ class ComposerPipeline:
             )
             console.print("  [yellow]⚠ Outside target range[/yellow]")
 
-        missing = check_scripture_verbatim(script_text, composed, placeholders)
-        if missing:
-            logger.warning("Composer: scripture span(s) missing from output: {}", missing)
-            console.print(f"  [red]⚠ {len(missing)} scripture span(s) missing from output[/red]")
+        if variant not in ("A", "B"):
+            missing = check_scripture_verbatim(script_text, composed, placeholders)
+            if missing:
+                logger.warning("Composer: scripture span(s) missing from output: {}", missing)
+                console.print(f"  [red]⚠ {len(missing)} scripture span(s) missing from output[/red]")
 
         if _w:
             _w.stage_complete()
@@ -207,6 +258,14 @@ class ComposerPipeline:
             prompt,
             system_prompt=system_prompt,
             temperature=0.6 if temperature is None else temperature,
+        )
+        return response.text.strip()
+
+    def _compose_variant(self, prompt: str, *, temperature: float | None = None) -> str:
+        """Single-prompt compose for Script A / B variant templates."""
+        response = self._llm.generate(
+            prompt,
+            temperature=0.7 if temperature is None else temperature,
         )
         return response.text.strip()
 

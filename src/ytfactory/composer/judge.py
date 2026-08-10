@@ -51,7 +51,7 @@ def judge_scripts(
         response = provider.generate(
             user_content,
             system_prompt=prompt,
-            temperature=0.2,
+            temperature=0,
             model=getattr(settings, "SCRIPT_JUDGE_MODEL", None),
         )
         data = json.loads(response.text.strip())

@@ -1,8 +1,12 @@
-"""SourceRefinerPipeline — conservative editorial pass on the base source script.
+"""SourceRefinerPipeline — two-job editorial pass on the base source script.
 
-Runs before compose. Reads script/script.md, applies the SOURCE_REFINER_PROMPT
-(universalise examples, improve clarity/flow, never rewrite what's already strong),
-backs up the original to script_pre_refiner.md, writes the refined text in place.
+Job 1: Universalize — strip culturally specific language, replace with
+       universal principles in plain English.
+Job 2: Distill — 550-650 words, protect dynamically extracted beats.
+
+Runs before ComposerPipeline. Reads script/script.md, applies the
+SOURCE_REFINER_PROMPT (with beats injected at runtime), backs up the
+original to script_pre_refiner.md, writes the refined text in place.
 """
 
 from __future__ import annotations
@@ -15,17 +19,25 @@ from rich.console import Console
 from rich.panel import Panel
 
 from video_core.providers.llm.factory import get_llm_for_role
+from ytfactory.beats_extractor.pipeline import format_beats_list
 from ytfactory.config.settings import Settings
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "SOURCE_REFINER_PROMPT.md"
+_MIN_WORD_COUNT = 500
 
 
 @functools.lru_cache(maxsize=1)
-def _load_prompt() -> str:
+def _load_prompt_template() -> str:
     return _PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
+def _build_prompt(beats: list[dict]) -> str:
+    """Inject the dynamic beat list into the prompt template."""
+    beats_text = format_beats_list(beats) if beats else "(No beats extracted for this script.)"
+    return _load_prompt_template().format(beats_list=beats_text)
 
 
 class SourceRefinerPipeline:
@@ -33,7 +45,7 @@ class SourceRefinerPipeline:
         self._settings = settings
         self._llm = get_llm_for_role(settings, "source_refiner")
 
-    def run(self, project_id: str) -> str:
+    def run(self, project_id: str, beats: list[dict] | None = None) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_file = script_dir / "script.md"
 
@@ -51,10 +63,12 @@ class SourceRefinerPipeline:
         )
         console.print(f"  [dim]Input: {original_words} words[/dim]")
 
+        system_prompt = _build_prompt(beats or [])
+
         try:
             response = self._llm.generate(
                 source,
-                system_prompt=_load_prompt(),
+                system_prompt=system_prompt,
                 temperature=0.2,
             )
             refined = response.text.strip()
@@ -66,6 +80,21 @@ class SourceRefinerPipeline:
             raise RuntimeError("SourceRefiner: LLM returned empty output.")
 
         refined_words = len(refined.split())
+
+        if refined_words < _MIN_WORD_COUNT:
+            backup_path = script_dir / "script_pre_refiner.md"
+            backup_path.write_text(source, encoding="utf-8")
+            (script_dir / "script_refiner_too_short.md").write_text(refined, encoding="utf-8")
+            logger.error(
+                "SourceRefiner: output too short ({} words, minimum {}). "
+                "Pipeline halted. Review script_pre_refiner.md and beats.json, then re-run.",
+                refined_words, _MIN_WORD_COUNT,
+            )
+            raise RuntimeError(
+                f"SourceRefiner output too short ({refined_words} words, minimum {_MIN_WORD_COUNT}). "
+                "Pipeline halted. Review script_pre_refiner.md and beats.json, then re-run."
+            )
+
         word_delta = refined_words - original_words
 
         backup_path = script_dir / "script_pre_refiner.md"

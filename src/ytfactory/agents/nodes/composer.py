@@ -48,20 +48,31 @@ def composer_node(state: VideoState) -> dict:
     settings = Settings()
     pipeline = ComposerPipeline(settings)
     base_script = state.get("script_md", "")
+    beats = state.get("beats") or []
 
     if state.get("ab_script_selection", False):
         composed = run_composer_with_ab_selection(
-            pipeline, project_id, base_script_text=base_script
+            pipeline, project_id, base_script_text=base_script, beats=beats
         )
         return {"script_md": composed}
 
-    # Two independent composes on the same source at slightly different
-    # temperatures — a genuinely different draft each time (the composer is
-    # non-memorizing). The polisher node chooses between them next.
+    # Two composes on the same source using distinct variant prompts (A / B),
+    # each owning different narrative strengths. The polisher node picks between them.
+    topic = state.get("topic", "")
     script_a = pipeline.run(
-        project_id, script_text=base_script, temperature=settings.composer_variant_temp_a
+        project_id,
+        script_text=base_script,
+        temperature=settings.composer_variant_temp_a,
+        topic=topic,
+        variant="A",
+        beats=beats,
     )
     script_b = pipeline.run(
-        project_id, script_text=base_script, temperature=settings.composer_variant_temp_b
+        project_id,
+        script_text=base_script,
+        temperature=settings.composer_variant_temp_b,
+        topic=topic,
+        variant="B",
+        beats=beats,
     )
     return {"script_a": script_a, "script_b": script_b}

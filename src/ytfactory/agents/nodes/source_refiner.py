@@ -57,7 +57,8 @@ def source_refiner_node(state: VideoState) -> dict:
             "— running full generation[/yellow]"
         )
 
+    beats = state.get("beats") or []
     settings = Settings()
     pipeline = SourceRefinerPipeline(settings)
-    refined = pipeline.run(project_id)
+    refined = pipeline.run(project_id, beats=beats)
     return {"script_md": refined}

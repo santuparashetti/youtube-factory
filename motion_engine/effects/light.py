@@ -11,7 +11,7 @@ class WarmBloom(BaseEffect):
     scenes. Use as the single lighting effect for calm, premium documentary style.
     """
 
-    def __init__(self, intensity: float = 0.08, pulse_speed: float = 0.20):
+    def __init__(self, intensity: float = 0.05, pulse_speed: float = 0.20):
         self.intensity = intensity   # 0.03 (barely visible) to 0.12 (noticeable)
         self.pulse_speed = pulse_speed
 

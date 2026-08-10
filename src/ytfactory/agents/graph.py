@@ -36,6 +36,8 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from ytfactory.agents.nodes.beats_extractor import beats_extractor_node
+from ytfactory.agents.nodes.beat_verifier import beat_verifier_node
 from ytfactory.agents.nodes.composer import composer_node
 from ytfactory.agents.nodes.source_refiner import source_refiner_node
 from ytfactory.agents.nodes.cta import cta_node
@@ -74,10 +76,10 @@ def _dispatch_scenes(state: VideoState) -> list[Send]:
 
 
 def _route_entry(state: VideoState) -> str:
-    """Route by input source: YouTube URL → ingestion chain; otherwise → source_refiner."""
+    """Route by input source: YouTube URL → ingestion chain; otherwise → beats_extractor."""
     if state.get("source_url"):
         return "acquire_audio"
-    return "source_refiner"
+    return "beats_extractor"
 
 
 def _route_after_composer(state: VideoState) -> str:
@@ -140,8 +142,10 @@ def build_graph() -> StateGraph:
     workflow.add_node("transcribe", transcribe_node)
     workflow.add_node("translate", translate_node)
     workflow.add_node("human_review_base_script", human_review_base_script_node)
+    workflow.add_node("beats_extractor", beats_extractor_node)
     workflow.add_node("source_refiner", source_refiner_node)
     workflow.add_node("composer", composer_node)
+    workflow.add_node("beat_verifier", beat_verifier_node)
     workflow.add_node("script_selector_polisher", script_selector_polisher_node)
     workflow.add_node("human_review_final_script", human_review_final_script_node)
     workflow.add_node("scene_planner", scene_planner_node)
@@ -163,25 +167,28 @@ def build_graph() -> StateGraph:
         _route_entry,
         {
             "acquire_audio": "acquire_audio",
-            "source_refiner": "source_refiner",
+            "beats_extractor": "beats_extractor",
         },
     )
     workflow.add_edge("acquire_audio", "transcribe")
     workflow.add_edge("transcribe", "translate")
     workflow.add_edge("translate", "human_review_base_script")
-    workflow.add_edge("human_review_base_script", "source_refiner")
+    # YT path: after human review the base script is ready → extract beats → refine
+    workflow.add_edge("human_review_base_script", "beats_extractor")
+    workflow.add_edge("beats_extractor", "source_refiner")
     workflow.add_edge("source_refiner", "composer")
-    # composer → (human A/B pick already done) human_review_final_script
-    #          → (default) script_selector_polisher → human_review_final_script
+    # composer → (human A/B pick already done) beat_verifier
+    #          → (default) script_selector_polisher → beat_verifier → human_review_final_script
     workflow.add_conditional_edges(
         "composer",
         _route_after_composer,
         {
             "script_selector_polisher": "script_selector_polisher",
-            "human_review_final_script": "human_review_final_script",
+            "human_review_final_script": "beat_verifier",
         },
     )
-    workflow.add_edge("script_selector_polisher", "human_review_final_script")
+    workflow.add_edge("script_selector_polisher", "beat_verifier")
+    workflow.add_edge("beat_verifier", "human_review_final_script")
     workflow.add_edge("human_review_final_script", "scene_planner")
     workflow.add_edge("scene_planner", "pre_render_gate")
     workflow.add_edge("pre_render_gate", "human_review_scenes")

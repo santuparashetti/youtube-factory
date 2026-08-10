@@ -6,6 +6,7 @@ from typing import Optional
 from loguru import logger
 
 from video_core.providers.llm.base import LLMProvider
+from ytfactory.beats_extractor.pipeline import format_beats_list
 from ytfactory.composer.judge import JudgeVerdict
 from ytfactory.composer.pipeline import _validate_rehook_present
 
@@ -16,6 +17,7 @@ def guided_recompose(
     verdict: JudgeVerdict,
     provider: LLMProvider,
     settings: object,
+    beats: list[dict] | None = None,
 ) -> Optional[str]:
     """Write a new whole-cloth script guided by the judge's section map.
     Returns the recomposed text, or None on failure.
@@ -25,7 +27,9 @@ def guided_recompose(
         logger.info("Guided recomposer disabled — skipping.")
         return None
 
-    prompt = _load_prompt("GUIDED_RECOMPOSER_PROMPT.md")
+    raw_prompt = _load_prompt("GUIDED_RECOMPOSER_PROMPT.md")
+    beats_text = format_beats_list(beats) if beats else "(No beats extracted for this script.)"
+    prompt = raw_prompt.format(beats_list=beats_text)
 
     section_lines = "\n".join(
         f"- {s.name}: Script {s.winner} is stronger ({s.reason})"

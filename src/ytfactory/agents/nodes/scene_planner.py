@@ -2877,10 +2877,15 @@ CRITICAL GATE INSTRUCTIONS — you must follow these exactly, they override your
   and must NEVER be flagged:
   (a) Any sentence containing "Not a promise" or "Not a demand" inside a practice or
       action section — this is framing, not disclaiming
-  (b) Any story beat describing the eagle's fear, height, or fall
-  (c) Any philosophical statement about fear or identity
-  Only flag if a paragraph directly lists worldly hardships as facts to the viewer
-  with no story or character grounding.
+  (b) Any story beat describing a character's situation, fear, or fate
+  (c) Any philosophical statement about fear, identity, impermanence, or the human condition
+  (d) Any paragraph that translates a story beat into a universal principle —
+      e.g. "The traveler lost his life — this is what distraction costs"
+      or "The body we depend on is temporary" following a story's climax
+  (e) Any philosophical teaching that follows directly from the narrative
+  Only flag if a paragraph makes factual claims about the real world (statistics,
+  medical claims, financial advice) with no story grounding, OR directly tells the
+  viewer what to do in their real life without connecting it to a story beat.
 
 CHECKS:
 1. SINGLE_VISUAL_WORLD — Does only one metaphor/visual universe exist throughout the script?
@@ -2894,10 +2899,13 @@ CHECKS:
    Evaluate ONLY the NARRATIVE_ENDING field provided below. Ignore the script's final lines entirely.
    FAIL only if NARRATIVE_ENDING does not echo or resolve the opening image or tension.
 4. NO_DISCLAIMER_PARAGRAPHS — Is all hardship or limitation shown through story or character?
-   FAIL only if a paragraph directly lists worldly hardships as facts addressed to the viewer
-   with no story or character grounding (e.g. "Poverty is real. Loss is real. These are hard truths.").
-   Story beats, practice framing ("Not a promise..."), and philosophical statements about fear/identity
-   are never disclaimer paragraphs.
+   FAIL only if a paragraph makes factual claims about the real world (statistics, medical claims,
+   financial advice) with no story grounding, OR directly tells the viewer what to do in their real
+   life without connecting it to a story beat (e.g. "Poverty is real. Loss is real. These are hard truths.").
+   NEVER flag: story beats, practice framing ("Not a promise..."), philosophical statements about
+   fear/identity/impermanence, paragraphs that translate a story beat into a universal principle
+   ("The body we depend on is temporary" after a story climax), or philosophical teachings that
+   follow directly from the narrative arc.
 
 NARRATIVE_ENDING (pre-extracted, brand wrap already stripped — use this for check 3):
 {narrative_ending}

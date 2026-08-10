@@ -29,7 +29,7 @@ class SlowPushIn(BaseEffect):
     def __init__(
         self,
         zoom_start: float = 1.0,
-        zoom_end: float = 1.15,
+        zoom_end: float = 1.25,
         duration: float = 14.0,
         center_x: float = 0.5,
         center_y: float = 0.5,
@@ -49,7 +49,7 @@ class SlowPushIn(BaseEffect):
 class SlowPullOut(BaseEffect):
     def __init__(
         self,
-        zoom_start: float = 1.15,
+        zoom_start: float = 1.25,
         zoom_end: float = 1.0,
         duration: float = 14.0,
         center_x: float = 0.5,
