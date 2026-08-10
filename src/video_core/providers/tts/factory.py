@@ -57,8 +57,16 @@ def get_tts_provider(
                 analytics=analytics,
             )
 
+        case "speechify":
+            from .speechify import SpeechifyProvider
+
+            return SpeechifyProvider(
+                settings,
+                analytics=analytics,
+            )
+
         case _:
             raise ValueError(
                 f"Unsupported TTS provider: {settings.tts_provider!r}. "
-                "Valid options: edge, kokoro, cartesia, elevenlabs, fish"
+                "Valid options: edge, kokoro, cartesia, elevenlabs, fish, speechify"
             )

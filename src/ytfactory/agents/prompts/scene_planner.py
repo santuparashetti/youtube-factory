@@ -183,6 +183,13 @@ CHECK FOR:
 3. If human_classification=named_person_required, is the named person described specifically
    (not as a generic "man in grey linen")? → FAIL if generic (minor)
 4. Does the prompt describe anything NOT in the narration without strong visual justification? → FAIL (minor)
+5. NARRATION-BEAT ALIGNMENT: Does the prompt show what is being SAID in this specific narration
+   beat, or does it show only general story atmosphere?
+   Examples of violations:
+   — Narration says "he counted again" but prompt shows an empty forest (no character) → FAIL (critical)
+   — Narration says "his life ended there" but prompt shows a living character → FAIL (critical)
+   — Narration says "a warning was given" but prompt shows no warning gesture → FAIL (minor)
+   If the image would be identical whether or not this narration beat occurred → FAIL (critical)
 """
 
 # ── Task 2.6 Part 2 — LLM validation for ENVIRONMENT_MISMATCH / ─────────────
@@ -704,22 +711,84 @@ PER-SCENE INTERNAL REASONING (work through this silently before writing each pro
      Does this image naturally connect to the scene before and after it?
 
 ═════════════════════════════════════════════════════
-PROMPT STRUCTURE — every prompt must include ALL 10 elements
+NARRATION-BEAT RULE — highest priority, apply before writing any prompt
 ═════════════════════════════════════════════════════
 
-Write one flowing paragraph per scene that naturally weaves in all of these:
-  1. Scene objective — the visual idea or emotion being conveyed
-  2. Main subject — the hero of the frame (person, object, or environment)
-  3. Environment — specific location with two or three concrete physical details
-  4. Emotional tone — the dominant feeling communicated through composition
-  5. Camera shot — the ASSIGNED shot type for this scene (from the brackets)
-  6. Lens / composition — focal length, depth of field, rule-of-thirds or symmetry;
-     state where the main subject sits in the frame using ONE of these exact phrases:
-     "positioned on the left", "positioned on the right", or "centered in the frame"
-  7. Lighting — one specific, meaningful light source or quality
-  8. Color palette — two or three dominant colors that carry the emotion
-  9. Cinematic details — texture, atmosphere, subtle motion, or environmental storytelling
-  10. Quality markers — include "no text, no watermark, photorealistic" in every prompt
+The image must visually support the NARRATION BEAT — the specific thing being said
+right now — not merely the overall story.
+
+  NARRATION: "He counted again. 999. 1,001."
+  ✗ WRONG: Empty forest + buried pot  (story context, not the beat)
+  ✓ RIGHT: Traveler hunched over scattered coin groups, recounting, lamp visibly lower, path ignored
+
+  NARRATION: "His life ended there."
+  ✗ WRONG: Traveler holding a burning lamp  (contradicts the beat)
+  ✓ RIGHT: Empty dark path, extinguished lamp, buried pot, no traveler
+
+  NARRATION: "Stay here. Leave at sunrise."
+  ✗ WRONG: Wide atmospheric forest shot  (the beat is a warning, not a landscape)
+  ✓ RIGHT: Sage in foreground with raised warning arm; dark threatening forest fills the background
+
+Ask yourself before writing: "Does this image show what is being SAID right now,
+or is it just a general illustration of the story world?" If the latter — rewrite.
+
+METAPHOR-AS-SUBSTITUTE BAN — the visual metaphor must NEVER replace the primary
+narration beat. Metaphors belong in the background or as supporting detail.
+The narration event is always the foreground subject.
+
+  NARRATION: "He counted again. 999. 1,001."
+  ✗ WRONG: Beautiful close-up of the dying lamp beside the buried pot,
+            symbolizing limited attention.  ← metaphor replaced the beat
+  ✓ RIGHT:  Traveler hunched over the coins, recounting them obsessively,
+            with the dying lamp visibly beside him and the path ignored behind.
+
+  NARRATION: "He remembered the sage's warning too late."
+  ✗ WRONG: An extinguished lamp in darkness — symbolizing wasted guidance.
+  ✓ RIGHT:  Traveler standing still in darkness, extinguished lamp in hand,
+            face showing belated recognition — with animal eyes closing in.
+
+Rule: if removing the character and their action from the prompt leaves a scene
+that still "works" visually, the metaphor has replaced the beat. Put the character
+and their action FIRST. The metaphor serves the beat — never the other way around.
+
+A metaphor may REINFORCE the narration beat, but it may NEVER be the only visual
+evidence that the narration beat occurred.
+
+Visual priority hierarchy — strictly in this order:
+  1. Narration beat       — the primary visual evidence that THIS beat happened
+  2. Supporting metaphor  — reinforces the beat; background or secondary detail only
+  3. Environment          — the physical world the beat occurs inside
+  4. Cinematic composition — how the viewer sees it (shot, lens, lighting, palette)
+
+═════════════════════════════════════════════════════
+PROMPT STRUCTURE — 5 parts, written once each, never repeated
+═════════════════════════════════════════════════════
+
+Every prompt must cover these 5 parts in this order. Each part is stated ONCE.
+Never repeat a character description or environment detail across parts.
+
+  1. CHARACTER IDENTITY (if human present)
+     — Who: compressed spec only (Kai spec for PRIMARY; one-line for secondary)
+     — State once. Do NOT re-describe later in the same prompt.
+     — If no human: skip this part entirely.
+
+  2. ACTION
+     — What the character is doing in THIS EXACT SHOT (not in the story generally).
+     — One concrete action verb + brief physical description of posture/state.
+     — If no character: state the key environmental change or focal object movement.
+
+  3. ENVIRONMENT
+     — Only what is physically visible and relevant to THIS shot.
+     — Two or three specific concrete details. No generic descriptions.
+     — Do NOT list the entire story geography — only what appears in this frame.
+
+  4. VISUAL METAPHOR
+     — What emotional idea or story truth this image must communicate.
+     — One sentence. This is the soul of the shot.
+
+  5. CAMERA / COMPOSITION
+     — Shot type (from the brackets), lens, lighting, color palette.
+     — End with: no text, no watermark, photorealistic.
 
 ═════════════════════════════════════════════════════
 VISUAL CONTINUITY
@@ -736,13 +805,16 @@ This is ONE documentary, not 30 independent images:
 WRITING RULES
 ═════════════════════════════════════════════════════
 
-— One natural flowing paragraph per scene.
-— Begin with the scene's strongest visual element — never with "A person" or "The camera."
-— 60–90 words per scene. Hero frame: 85–110 words.
-— Weave camera shot, angle, and lighting into the description naturally.
-— Vary endings — do NOT paste the same phrase at the close of every scene.
-— Include in every prompt: no text, no watermark, photorealistic.
-— The {style_label} feeling should come through the imagery — not by stating it as a keyword.
+— Write the 5 parts above in order. They may be woven into a flowing paragraph or
+  written as labeled sections — either is acceptable, but all 5 must be present.
+— Begin with the CHARACTER IDENTITY spec (if human present) or the Action/Environment
+  if no character. Never begin with "A person" or "The camera."
+— NO character description may appear more than once in the same prompt.
+  If the Kai compressed spec opens the prompt, do not describe Kai again.
+  If a secondary character is described in part 1, reference them by role only thereafter.
+— 50–75 words per scene is the target. Cutting a word always beats adding one.
+  Do NOT pad to hit a word count. If the 5 parts are covered, stop.
+— Hero frame (the thumbnail-worthy scene): up to 90 words, extra detail in Environment only.
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
 [{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "scene_group_id": "snake_case_group_name_or_null", "environment_anchor": "canonical environment description or null", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
@@ -930,41 +1002,20 @@ it, soft diffused grey light. No human figure."
 
 ## CHARACTER COMPLETENESS RULE (applies to ALL scenes)
 
-Every human character visually present in a scene MUST be explicitly described
-in the visual_prompt. Do not leave any character's appearance to the image
-generator's assumption — generators will default to whatever is convenient,
-which destroys cross-scene consistency.
+Every human character must be described exactly ONCE per prompt.
+Repeating a character description within the same prompt is forbidden —
+image generators treat repetition as emphasis and often produce hallucinations.
 
-For EVERY non-Kai character in the scene, specify all five of:
+### KAI (primary anchor character)
+The compressed spec IS his full description. If it opens the prompt, Kai is done.
+Do NOT describe him again under any other section or label.
+His spec: "Lean young man, late 20s, short dark hair, light stubble, simple dark shirt, plain trousers"
 
-1. ROLE       — what they are in this scene (e.g. instructor, executive,
-                scholar, villager, child)
-2. APPEARANCE — age range, build, skin tone, hair. Default: Western European
-                (light to medium complexion, Western hair and features) UNLESS
-                the script explicitly names a cultural identity for this
-                character (e.g. "a Japanese elder", "an African-American CEO")
-3. CLOTHING   — specific garment, color, style
-                (e.g. "simple grey linen shirt, dark trousers"
-                      "formal dark navy business suit, white shirt, slim tie")
-4. POSITION   — where in the frame relative to the composition
-                (e.g. "centre-left", "background right", "foreground")
-5. ACTION     — what they are doing in this exact moment
-                (e.g. "extending a payment envelope", "standing at attention",
-                       "turning to walk away")
-
-For GROUP characters (e.g. a group of executives), describe the GROUP as a unit:
-  - Number: approximate count ("8 to 10 executives")
-  - Shared appearance: "Western European appearance, late 40s to 60s"
-  - Shared clothing: "formal dark business suits"
-  - Formation: "standing in neat rows"
-  - Expression/action: "strained forced smiles"
-
-Kai's appearance is locked via KAI_COMPRESSED_SPEC — if his spec is already
-in the prompt, do NOT re-describe him here. Just add the secondary characters.
-
-NEVER write: "a man in a suit", "some executives", "an instructor"
-ALWAYS write: "a man in his 50s, Western European, silver hair, simple grey
-linen shirt and dark trousers, standing centre-left, turning to walk away"
+### SECONDARY / NON-KAI CHARACTERS
+Describe once, in CHARACTER IDENTITY (part 1 of PROMPT STRUCTURE), using:
+  ROLE + APPEARANCE (age, build, skin tone, hair) + CLOTHING + ACTION in this scene.
+  Frame position (foreground/background) only if it is critical to the composition.
+  After the first description, refer to them by role only ("the sage", "the instructor").
 
 ## CROSS-SCENE CHARACTER LOCKING (within a scene_group)
 

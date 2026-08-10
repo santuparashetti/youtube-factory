@@ -224,6 +224,20 @@ class SharedSettings(BaseSettings):
     elevenlabs_sample_rate: int = 44100
 
     # ------------------------------------------------------------------
+    # Speechify TTS Provider
+    # ------------------------------------------------------------------
+
+    speechify_api_key: str = Field(default="")
+    speechify_model: str = "simba-3.2"
+    speechify_voice_id: str = "dominic_32"
+    speechify_output_format: str = "mp3"
+    speechify_timeout: int = 60
+    speechify_max_chars: int = 2000
+    speechify_cache_enabled: bool = True
+    speechify_text_normalization: bool = True
+    speechify_language: str = "en-US"
+
+    # ------------------------------------------------------------------
     # TTS Retry Control
     # ------------------------------------------------------------------
 
