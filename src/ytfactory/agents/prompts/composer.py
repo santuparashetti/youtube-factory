@@ -150,8 +150,8 @@ HARD RULES:
   If under {target_words} by more than 100: expand key moments — you may be too sparse.
 - After writing, verify: is every protected beat present?
 - If a beat is missing, restore it before trimming elsewhere.
-- End with: "This is the Atma Theory. If these ideas resonate \
-  with you, join us on this journey. Clear mind. Meaningful life."
+- End with: "This is Atma Theory. If this reflection resonated \
+  with you, stay with us on the journey. Clear mind. Meaningful life."
 - Output [WORD COUNT: XXX] at the end.
 
 SCRIPT A STRENGTHS — own these deeply:
@@ -212,8 +212,8 @@ HARD RULES:
   If under {target_words} by more than 100: expand key moments — you may be too sparse.
 - After writing, verify: is every protected beat present?
 - If a beat is missing, restore it before trimming elsewhere.
-- End with: "This is the Atma Theory. If these ideas resonate \
-  with you, join us on this journey. Clear mind. Meaningful life."
+- End with: "This is Atma Theory. If this reflection resonated \
+  with you, stay with us on the journey. Clear mind. Meaningful life."
 - Output [WORD COUNT: XXX] at the end.
 
 SCRIPT B STRENGTHS — own these deeply:

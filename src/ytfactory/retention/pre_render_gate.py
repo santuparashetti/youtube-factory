@@ -120,7 +120,7 @@ def _is_rehook(text: str, index: int, total: int) -> bool:
        Atma Theory scripts always place the closing echo here.
 
     Segment 0 is always the opening hook and is excluded. Brand-card lines
-    ("This is the Atma Theory.", "Clear mind. Meaningful life.", etc.) are
+    ("This is Atma Theory.", "Clear mind. Meaningful life.", etc.) are
     never rehooks regardless of position.
     """
     if index == 0:

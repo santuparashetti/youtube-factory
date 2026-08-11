@@ -441,8 +441,7 @@ class SceneAnalyzer:
             figure_boxes=[],
             regions={},
             effects=[
-                EffectSpec("dust_particles", "fallback — always works",
-                           {"count": 80, "alpha": 0.30}),
+                EffectSpec("dust_particles", "fallback — always works"),
                 EffectSpec("mist_drift", "subtle atmospheric depth"),
                 EffectSpec("slow_push_in", "cinematic camera"),
             ],

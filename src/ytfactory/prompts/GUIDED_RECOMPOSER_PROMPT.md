@@ -129,8 +129,8 @@ CRITICAL RULES:
 11. The script MUST include a rehook: a closing line (before the brand card) that
     directly echoes a specific image or phrase from the opening hook.
 12. End with exactly three lines, each on its own line:
-    "This is the Atma Theory."
-    "If these ideas resonate with you, join us on this journey."
+    "This is Atma Theory."
+    "If this reflection resonated with you, stay with us on the journey."
     "Clear mind. Meaningful life."
 
 SCRIPT QUALITY GATE — run silently before outputting; rewrite if any check fails:

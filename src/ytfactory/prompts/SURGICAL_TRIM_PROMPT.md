@@ -59,7 +59,7 @@ The following sections are considered structurally critical and must remain inta
 - Philosophical payoff
 - Callback
 - Closing takeaway
-- Final CTA (the three closing lines: "This is the Atma Theory." / "If these ideas resonate with you, join us on this journey." / "Clear mind. Meaningful life.")
+- Final CTA (the three closing lines: "This is Atma Theory." / "If this reflection resonated with you, stay with us on the journey." / "Clear mind. Meaningful life.")
 
 Do not remove, merge, reorder, or substantially rewrite these sections.
 

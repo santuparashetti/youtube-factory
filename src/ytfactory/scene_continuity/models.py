@@ -1,0 +1,258 @@
+"""Story continuity domain models.
+
+CharacterState  — alive/dead, present/absent, last seen
+PropState       — physical description + current operational state
+SceneMode       — LITERAL / SYMBOLIC / METAPHORICAL / TRANSITIONAL / ESTABLISHING / CTA
+SceneState      — snapshot of the world at one scene
+StoryState      — accumulated history; answers "what was true BEFORE scene N?"
+ContinuityFinding — result from ContinuityValidator
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
+
+
+class SceneMode(str, Enum):
+    """Semantic mode of a scene — governs how strictly continuity rules apply."""
+
+    LITERAL = "LITERAL"            # Chronological story event — enforce all continuity
+    SYMBOLIC = "SYMBOLIC"          # Symbolic representation — continuity relaxed
+    METAPHORICAL = "METAPHORICAL"  # Visual metaphor — continuity relaxed
+    TRANSITIONAL = "TRANSITIONAL"  # Bridge — standard continuity
+    ESTABLISHING = "ESTABLISHING"  # Context-setting — standard continuity
+    CTA = "CTA"                    # Call to action / brand card — exempt
+
+
+# Maps visual_metadata.narrative_role → SceneMode
+_NARRATIVE_ROLE_TO_MODE: dict[str, SceneMode] = {
+    "STORY": SceneMode.LITERAL,
+    "ANALOGY": SceneMode.SYMBOLIC,
+    "METAPHOR": SceneMode.SYMBOLIC,
+    "EXPLANATION": SceneMode.TRANSITIONAL,
+    "ESTABLISHING": SceneMode.ESTABLISHING,
+    "CTA": SceneMode.CTA,
+}
+
+_SYMBOLIC_MODES: frozenset[SceneMode] = frozenset({
+    SceneMode.SYMBOLIC,
+    SceneMode.METAPHORICAL,
+    SceneMode.CTA,
+})
+
+
+def scene_mode_from_narrative_role(narrative_role: str) -> SceneMode:
+    """Convert visual_metadata narrative_role string to SceneMode."""
+    return _NARRATIVE_ROLE_TO_MODE.get(
+        (narrative_role or "").upper().strip(), SceneMode.LITERAL
+    )
+
+
+def is_symbolic_mode(mode: SceneMode) -> bool:
+    """True when continuity rules are relaxed (symbolic / metaphorical / CTA)."""
+    return mode in _SYMBOLIC_MODES
+
+
+class ValidationLevel(str, Enum):
+    PASS = "PASS"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
+@dataclass
+class CharacterState:
+    """Accumulated state of a single character."""
+
+    name: str
+    canonical_id: str        # normalized slug: "traveler", "old_sage", etc.
+    role: str = ""           # protagonist / mentor / antagonist / observer
+    alive: bool = True
+    present_in_story: bool = True   # still an active story participant
+    scene_introduced: int = 0
+    scene_last_seen: int = 0
+    current_location: str = ""
+    possessions: list[str] = field(default_factory=list)
+    notes: str = ""          # free-form notes from analysis
+
+    def is_available_for_literal_scene(self) -> bool:
+        """True only if the character can appear alive in a LITERAL story scene."""
+        return self.alive and self.present_in_story
+
+
+@dataclass
+class PropState:
+    """Accumulated state of a recurring prop."""
+
+    name: str
+    canonical_id: str        # normalized slug: "oil_lamp", "traveler_flask"
+    visual_description: str = ""  # locked appearance (from story bible if available)
+    current_state: str = ""       # "lit" | "unlit" | "full" | "empty" | "open" | "closed"
+    state_detail: str = ""        # free-form detail about current state
+    owner: str = ""               # which character canonical_id currently holds it
+    scene_introduced: int = 0
+    scene_last_modified: int = 0
+    is_symbolic_recurring: bool = False  # may appear in symbolic scenes as a motif
+
+    def can_be_in_state(self, proposed_state: str) -> tuple[bool, str]:
+        """Check whether *proposed_state* contradicts *current_state*.
+
+        Returns (compatible, reason_string). Only flags clear contradictions;
+        ambiguous cases return True to avoid false positives.
+        """
+        if not self.current_state or not proposed_state:
+            return True, ""
+        curr = self.current_state.lower()
+        prop = proposed_state.lower()
+        _UNLIT = frozenset({"unlit", "off", "extinguished", "dark", "dead", "cold"})
+        _LIT   = frozenset({"lit", "on", "burning", "glowing", "illuminated", "aflame"})
+        _EMPTY = frozenset({"empty", "spent", "depleted", "exhausted", "drained"})
+        _FULL  = frozenset({"full", "filled", "replenished"})
+
+        if curr in _LIT and prop in _UNLIT:
+            return False, f"'{self.name}' was {self.current_state} (scene {self.scene_last_modified})"
+        if curr in _UNLIT and prop in _LIT:
+            return False, f"'{self.name}' was {self.current_state} (scene {self.scene_last_modified})"
+        if curr in _FULL and prop in _EMPTY:
+            return False, f"'{self.name}' was {self.current_state} (scene {self.scene_last_modified})"
+        if curr in _EMPTY and prop in _FULL:
+            return False, f"'{self.name}' was {self.current_state} (scene {self.scene_last_modified})"
+        return True, ""
+
+
+@dataclass
+class ContinuityFinding:
+    """One finding from ContinuityValidator."""
+
+    scene_id: int
+    level: ValidationLevel
+    category: str        # "CHARACTER_CONTINUITY" | "PROP_STATE" | "EXTRA_CHARACTER" | ...
+    message: str
+    suggested_fix: str = ""
+
+    def is_error(self) -> bool:
+        return self.level == ValidationLevel.ERROR
+
+    def is_warning(self) -> bool:
+        return self.level == ValidationLevel.WARNING
+
+    def __str__(self) -> str:
+        fix = f" FIX: {self.suggested_fix}" if self.suggested_fix else ""
+        return f"[{self.level.value}] Scene {self.scene_id} {self.category}: {self.message}{fix}"
+
+
+@dataclass
+class SceneState:
+    """Snapshot of the story world AFTER a scene was processed."""
+
+    scene_id: int
+    mode: SceneMode
+    characters_present: list[str] = field(default_factory=list)  # names from allowed_chars
+    props_present: list[str] = field(default_factory=list)
+    # Deep copies of ALL states at the end of this scene
+    character_states: dict[str, CharacterState] = field(default_factory=dict)
+    prop_states: dict[str, PropState] = field(default_factory=dict)
+
+
+@dataclass
+class StoryState:
+    """Accumulated story state across all scenes.
+
+    Usage:
+        state = build_story_state(scenes, analysis_map)
+
+        # Get states as they were BEFORE scene 10:
+        char_states, prop_states = state.get_state_before_scene(10)
+
+        # Get a prompt-injectable context block for scene 10:
+        context = state.get_story_context_for_scene(10)
+    """
+
+    # Latest (mutable during building)
+    characters: dict[str, CharacterState] = field(default_factory=dict)
+    props: dict[str, PropState] = field(default_factory=dict)
+
+    # Immutable history: scene_id → world state AFTER that scene
+    scene_modes: dict[int, SceneMode] = field(default_factory=dict)
+    scene_history: dict[int, SceneState] = field(default_factory=dict)
+
+    def get_state_before_scene(
+        self, scene_id: int
+    ) -> tuple[dict[str, CharacterState], dict[str, PropState]]:
+        """Return character and prop states as of BEFORE scene_id.
+
+        Returns empty dicts if scene_id is the first scene.
+        """
+        prior_ids = sorted(k for k in self.scene_history if k < scene_id)
+        if not prior_ids:
+            return {}, {}
+        snapshot = self.scene_history[prior_ids[-1]]
+        return snapshot.character_states, snapshot.prop_states
+
+    def is_character_alive_before(self, scene_id: int, canonical_id: str) -> bool:
+        """True if the character was alive at the start of scene_id."""
+        char_states, _ = self.get_state_before_scene(scene_id)
+        state = char_states.get(canonical_id)
+        return True if state is None else state.is_available_for_literal_scene()
+
+    def get_prop_state_before(
+        self, scene_id: int, canonical_id: str
+    ) -> Optional[PropState]:
+        """Return prop state before scene_id, or None if not yet introduced."""
+        _, prop_states = self.get_state_before_scene(scene_id)
+        return prop_states.get(canonical_id)
+
+    def get_story_context_for_scene(self, scene_id: int) -> str:
+        """Build a compact, prompt-injectable story-state context block.
+
+        Returns empty string when there is nothing meaningful to report.
+        """
+        char_states, prop_states = self.get_state_before_scene(scene_id)
+        mode = self.scene_modes.get(scene_id, SceneMode.LITERAL)
+        lines: list[str] = []
+
+        # Dead characters
+        dead = [s.name for s in char_states.values() if not s.alive]
+        if dead and not is_symbolic_mode(mode):
+            lines.append(
+                "DEAD CHARACTERS — must NOT appear alive in this scene: "
+                + ", ".join(dead)
+            )
+
+        # Absent characters
+        absent = [s.name for s in char_states.values() if not s.present_in_story and s.alive]
+        if absent and not is_symbolic_mode(mode):
+            lines.append(
+                "ABSENT CHARACTERS — not reintroducible without narration: "
+                + ", ".join(absent)
+            )
+
+        # Known prop states
+        for prop_id, prop in prop_states.items():
+            if prop.current_state:
+                detail = f" ({prop.state_detail})" if prop.state_detail else ""
+                lines.append(
+                    f"PROP '{prop.name}': currently {prop.current_state}{detail} "
+                    f"[established scene {prop.scene_last_modified}]"
+                )
+
+        if is_symbolic_mode(mode):
+            header = [
+                "SCENE MODE: SYMBOLIC — this scene represents an idea, not a literal event.",
+                "Characters and props may appear as conceptual representations.",
+                "Make the visual obviously symbolic so it cannot be confused with the literal story.",
+            ]
+            if lines:
+                header.append("Known story state for reference:")
+            return "\n".join(header + lines)
+
+        if not lines:
+            return ""
+
+        header = [
+            "STORY STATE (apply continuity strictly for LITERAL scenes):",
+            "SCENE MODE: LITERAL — all continuity rules apply. "
+            "Do not resurrect dead characters or change prop states without narration support.",
+        ]
+        return "\n".join(header + lines)

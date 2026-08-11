@@ -18,20 +18,24 @@ class _Particle:
 class DustParticles(BaseEffect):
     def __init__(
         self,
-        count: int = 160,
+        count: int = 80,
         region_top: float = 0.1,
         region_bottom: float = 0.7,
-        color: tuple = (220, 220, 200),
-        max_size: int = 4,
-        alpha: float = 0.65,
-        drift_speed: float = 0.3,
+        color_inner: tuple = (212, 175, 55),   # saturated gold core
+        color_mid: tuple = (255, 245, 200),    # warm creamy white
+        color_outer: tuple = (255, 255, 240),  # pure white, fades to 0
+        max_size: float = 3.5,
+        alpha: float = 0.32,
+        drift_speed: float = 0.18,
         seed: int = 42,
-        exclude_mask: np.ndarray = None,   # bool mask — no particles drawn here
+        exclude_mask: np.ndarray = None,       # bool mask — no particles drawn here
     ):
         self.count = count
         self.region_top = region_top
         self.region_bottom = region_bottom
-        self.color = color
+        self.color_inner = color_inner
+        self.color_mid = color_mid
+        self.color_outer = color_outer
         self.max_size = max_size
         self.alpha = alpha
         self.drift_speed = drift_speed
@@ -44,7 +48,7 @@ class DustParticles(BaseEffect):
                 y_start=float(rng.uniform(region_top, region_bottom) * 1080),
                 vx=float(rng.uniform(-0.5, 0.5)),
                 vy=float(rng.uniform(0.1, drift_speed + 0.1)),
-                size=int(rng.integers(1, max_size + 1)),
+                size=int(rng.integers(1, int(max_size) + 1)),
                 wobble_freq=float(rng.uniform(0.3, 1.5)),
             )
             for _ in range(count)
@@ -57,7 +61,14 @@ class DustParticles(BaseEffect):
         for p in self.particles:
             x = int(p.x_start + p.vx * t * 50 + sin(t * p.wobble_freq) * 5) % w
             y = int(p.y_start - p.vy * t * 30) % h
-            cv2.circle(overlay, (x, y), p.size, self.color, -1)
+            r = p.size
+
+            # Radial gradient: outer (white) → mid (cream) → inner (gold)
+            # Outer edge alpha fades to 0 via the global addWeighted blend.
+            cv2.circle(overlay, (x, y), r, self.color_outer, -1)
+            if r >= 2:
+                cv2.circle(overlay, (x, y), max(1, round(r * 0.65)), self.color_mid, -1)
+                cv2.circle(overlay, (x, y), max(1, round(r * 0.30)), self.color_inner, -1)
 
         # erase any particle pixels that landed on excluded regions (figures)
         if self.exclude_mask is not None:

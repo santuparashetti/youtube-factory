@@ -268,8 +268,8 @@ If any check fails, do NOT output scene JSON. Instead output ONLY:
     If the identical idea appears twice within the same narrative stage with no
     development → FAIL.
 [ ] Hook-to-ending loop — identify the final narrative sentence by finding the last
-    sentence BEFORE any of these brand wrap markers: 'This is the Atma Theory',
-    'If these ideas resonate', 'Clear mind', 'Meaningful life', 'join us on this
+    sentence BEFORE any of these brand wrap markers: 'This is Atma Theory',
+    'If this reflection resonated', 'Clear mind', 'Meaningful life', 'stay with us on the
     journey'. The brand wrap is NOT part of the story and must be completely ignored
     for this check. Evaluate ONLY whether the final narrative sentence echoes or
     resolves the opening image. If it does, this check PASSES regardless of what
@@ -754,6 +754,22 @@ and their action FIRST. The metaphor serves the beat — never the other way aro
 A metaphor may REINFORCE the narration beat, but it may NEVER be the only visual
 evidence that the narration beat occurred.
 
+DEAD CHARACTER RULE — highest priority, checked before all other rules:
+If the STORY STATE context block (above, when present) lists a character as DEAD,
+that character MUST NOT appear alive in any STORY (LITERAL) scene afterward.
+
+  NARRATION (post-death): "Everyone who passed was consumed by the same question."
+  ✗ WRONG: Show the traveler standing alive beside the pot with a burning lamp.
+  ✓ RIGHT: Empty dark path, extinguished lamp, buried pot mound — no human figure.
+
+  NARRATION (post-death analogy): "He didn't lose his life because gold had no value."
+  ✓ ACCEPTABLE (ANALOGY role): Show a generic everyman figure — NOT the deceased
+    story character in their established appearance. Do not use the traveler's
+    specific clothing (cloak, beige linen shirt) for a post-death analogy scene.
+
+The same rule applies to props: if the STORY STATE context says a prop is extinguished
+or buried, do NOT show it lit or visible without new narration support.
+
 Visual priority hierarchy — strictly in this order:
   1. Narration beat       — the primary visual evidence that THIS beat happened
   2. Supporting metaphor  — reinforces the beat; background or secondary detail only
@@ -816,6 +832,22 @@ WRITING RULES
   Do NOT pad to hit a word count. If the 5 parts are covered, stop.
 — Hero frame (the thumbnail-worthy scene): up to 90 words, extra detail in Environment only.
 
+VISUAL_PROMPT CONTENT PURITY RULES — the visual_prompt field is sent to an
+image generator verbatim. Any text that is NOT a visual description MUST NOT
+appear inside visual_prompt. Specifically, never include:
+  ✗ Arc-phase labels: "Hook phase —", "Build phase —", "Climax phase —",
+    "Opening phase —", "Resolution phase —"
+  ✗ Anchor-role justifications: "Kai absent by immutable scene constraint",
+    "anchor_role = absent because…", "Kai is not appropriate here"
+  ✗ Scene-group annotations: "Continuous from scene N" (except as the literal
+    scene-group continuation prefix, which IS a valid image-composition instruction
+    for the generator — allowed only when this scene is in a scene group and N
+    is the first scene of that same group)
+  ✗ Pipeline meta-text: any phrase that describes the planner's internal reasoning
+    rather than what is physically visible in the generated image
+  Color palette instructions belong in Part 5 (CAMERA / COMPOSITION) as a brief
+  color-name list — not as editorial labels ("warm ochre arc palette").
+
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
 [{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "scene_group_id": "snake_case_group_name_or_null", "environment_anchor": "canonical environment description or null", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
 
@@ -840,12 +872,19 @@ For EACH scene, include a visual_metadata object with these exact fields:
     TRANSITIONAL — ancient and modern coexist intentionally
 
   narrative_role: one of STORY | ANALOGY | METAPHOR | EXPLANATION | ESTABLISHING | CTA
-    STORY — advancing the narrative
+    STORY — advancing the narrative (chronological story events only)
     ANALOGY — drawing a comparison to familiar life
     METAPHOR — visual representation of an abstract idea
     EXPLANATION — clarifying a concept
     ESTABLISHING — setting the scene or context
     CTA — call to action or closing
+
+  POST-DEATH RECLASSIFICATION RULE: After a named character dies in the narration,
+  any scene that shows a character in that role is by definition ANALOGY or METAPHOR —
+  NOT STORY. A dead story character cannot appear alive in a STORY-role scene.
+  If the narration reflects on the dead character's fate ("He didn't lose his life
+  because…", "I am the traveler carrying the lamp"), classify as ANALOGY or METAPHOR.
+  Reserve STORY for scenes that occur BEFORE the character's death in narrative time.
 
   environment: one of FOREST | TEMPLE | ASHRAM | KINGDOM | BATTLEFIELD | CITY |
                 OFFICE | HOME | MOUNTAIN | RIVER | ABSTRACT | COSMIC
@@ -959,6 +998,13 @@ PROMPT CONSTRUCTION BY ROLE
 anchor_role = "primary" means Kai IS the subject. The visual_prompt MUST begin
 with the compressed Kai spec, verbatim, before any scene-specific staging.
 
+EXCEPTION — STORY-SPECIFIC PROTAGONIST: If the narration describes a NAMED
+story character (traveler, sage, merchant, warrior — any specific story role
+that is NOT Kai), that character is the PRIMARY SUBJECT. Describe THEM using
+the CHARACTER CONTINUITY section. Do NOT prepend the Kai compressed spec.
+The Kai spec applies only to universal/first-person scenes where Kai is the
+stand-in for the narrator or viewer.
+
 The compressed spec is fixed. Copy it exactly:
 "Lean young man, late 20s, short dark hair, light stubble, simple dark shirt,
 plain trousers, calm expression"
@@ -973,6 +1019,7 @@ flat on the table, staring at the door. Low afternoon light."
 WRONG (never do this):
 "A man sits alone in an empty boardroom..." [no Kai spec at the start]
 "A single human figure..." [too generic — missing the locked spec]
+"Lean young man... — [story protagonist follows]" [Kai spec over a named story character]
 
 ### CLOSING SCENE RULE
 
@@ -997,6 +1044,22 @@ Standard symbolic/atmospheric prompt only. No Kai reference at all.
 Example:
 "A cracked hourglass lying on its side on a stone floor, sand pooled beneath
 it, soft diffused grey light. No human figure."
+
+ENVIRONMENT CONTINUITY RULE — do not relocate story events:
+If the narration places an event at a specific location (forest floor, path,
+river bank), the visual_prompt MUST use that location. Do NOT substitute an
+atmospheric or thematically related location (e.g. replacing a forest floor
+scene with a hermitage interior because both feel "wise"). The narration's
+location is a story fact — not a suggestion.
+
+Examples:
+  NARRATION: "He counted the coins by the pot in the forest."
+  ✗ WRONG: Hermitage interior with sage's furnishings in background.
+  ✓ RIGHT: Forest floor at night, traveler crouched beside open pot.
+
+  NARRATION: "The sage warned him at the forest boundary."
+  ✗ WRONG: Interior room with stone walls.
+  ✓ RIGHT: Threshold of the forest at dusk, sage gesturing toward the trees.
 
 ---
 
@@ -1181,6 +1244,17 @@ def build_visual_prompts_prompt(
         narration_block = _build_narration_context_block(narration)
         if narration_block:
             scene_lines.append(narration_block.rstrip("\n"))
+
+        # Story state context (character alive/dead, prop states) — injected per scene
+        story_ctx = s.get("story_context", "")
+        if story_ctx:
+            scene_lines.append(story_ctx.rstrip("\n"))
+
+        # Physical action constraints (e.g. pour oil into lamp correctly)
+        action_constraints = s.get("action_constraints", "")
+        if action_constraints:
+            scene_lines.append(action_constraints.rstrip("\n"))
+
     scene_list = "\n".join(scene_lines)
 
     if prev_context:

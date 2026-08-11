@@ -44,6 +44,11 @@ from ytfactory.images.validators import (
     compose_feedback,
     run_validators,
 )
+from ytfactory.scene_continuity import (
+    ContinuityValidator,
+    build_action_constraints_block,
+    build_story_state,
+)
 from ytfactory.scenes.models import FaithfulnessStatus, StructuredImagePrompt, VisualBible
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import PipelineAbort
@@ -90,6 +95,28 @@ _KAI_MARKERS = [
     "dark hair", "simple dark shirt", "lean young man",
     "light stubble", "plain trousers",
 ]
+
+# Markers that indicate character-staging text has leaked into environment_prompt.
+# When character_staging is empty but environment_prompt matches any of these in its
+# first 200 characters, the LLM placed character description in the wrong field.
+_CHARACTER_ENV_CONTAMINATION_MARKERS: tuple[str, ...] = (
+    "lean young man",
+    "lean young woman",
+    "lean young adult",
+    "illustrated in hand-painted storybook style",
+    "illustrated in hand-painted",
+    "storybook style —",
+    "shown in strict",
+    "in his late 20s",
+    "in her late 20s",
+    "simple dark shirt",
+    "plain trousers",
+    "light stubble",
+    "short dark hair",
+)
+
+# Marker that reliably separates a character spec from the environment description.
+_CHAR_ENV_SEPARATOR = " — "
 
 
 def _has_kai_markers(prompt: str) -> bool:
@@ -148,6 +175,37 @@ def _is_aerial_shot(prompt: str) -> bool:
     return any(ind in p for ind in _AERIAL_INDICATORS)
 
 
+def _has_story_specific_character(scene: dict, prompt: str) -> bool:
+    """True if the scene already describes a named story protagonist in the prompt.
+
+    When True, _enforce_primary_kai_spec should NOT prepend Kai's spec —
+    the scene has its own specific character from the story (e.g. Traveler,
+    Shivaji, Ali Baba) and injecting Kai would create a character mismatch.
+    """
+    analysis = scene.get("scene_analysis") or {}
+    allowed = (
+        analysis.get("allowed_characters", [])
+        if isinstance(analysis, dict)
+        else getattr(analysis, "allowed_characters", [])
+    ) or []
+
+    _KAI_NAMES = {"kai", "the anchor character", "anchor character"}
+    story_characters = [
+        c for c in allowed
+        if c and c.lower().strip() not in _KAI_NAMES
+    ]
+    if not story_characters:
+        return False
+
+    prompt_lower = prompt.lower()
+    for char_name in story_characters:
+        words = char_name.lower().split()
+        for word in words:
+            if len(word) > 3 and word in prompt_lower:
+                return True
+    return False
+
+
 def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
     """For primary scenes:
     - Aerial/overhead shots: reclassify to 'absent' — Kai cannot stand in a
@@ -157,7 +215,9 @@ def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
     - Kai markers present but NO action verb: reclassify to 'absent' — the spec
       was prepended by the LLM but the staging is atmospheric, creating a
       contradiction (Kai spec with no character action).
-    - No Kai markers, has character staging: prepend Kai spec.
+    - No Kai markers, has character staging, already has a story protagonist:
+      leave unchanged — do NOT inject Kai over a story-specific character.
+    - No Kai markers, has character staging (generic): prepend Kai spec.
     - No Kai markers, no character staging (atmospheric/symbolic): reclassify
       to 'absent' to prevent Kai spec + empty-scene contradiction.
     """
@@ -186,7 +246,12 @@ def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
             scene["visual_prompt"] = prompt
             scene["anchor_role"] = "absent"
         elif _has_character_staging(prompt):
-            scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+            # Guard: if the prompt already describes a story-specific character
+            # (e.g. Traveler, Shivaji), injecting Kai would contradict the story.
+            if _has_story_specific_character(scene, prompt):
+                pass  # leave prompt unchanged — story protagonist is already described
+            else:
+                scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
         else:
             scene["anchor_role"] = "absent"
     return scenes
@@ -656,6 +721,7 @@ def _build_structured_prompt(
     settings: Settings,
     prev_scene: dict | None = None,
     story_bible: StoryBible | None = None,
+    story_context: str = "",
 ) -> StructuredImagePrompt:
     """LLM call per scene to produce a StructuredImagePrompt."""
     arc_phase = _get_arc_phase(scene_index, total_scenes)
@@ -803,11 +869,22 @@ def _build_structured_prompt(
             arc_phase=arc_phase,
         )
 
+    # Story state context (dead characters, prop states) injected as a hard constraint
+    story_context_block = ""
+    if story_context:
+        story_context_block = (
+            "\n⚠ STORY STATE — IMMUTABLE CONSTRAINTS FROM NARRATIVE CONTINUITY:\n"
+            + story_context + "\n"
+            "Violation of these constraints (e.g. showing a dead character alive, "
+            "showing a prop in a state that contradicts the narration) is a critical error.\n"
+        )
+
     system_prompt = (
         "You are a cinematographer writing image generation prompts for a philosophical documentary.\n\n"
         + (f"{style_directive}\n\n" if style_directive else "")
         + (f"{pose_rules}\n\n" if pose_rules else "")
         + (f"{era_block}\n" if era_block else "")
+        + (story_context_block if story_context_block else "")
         + f"{bible_context}\n\n"
         + (f"{story_bible_block}\n\n" if story_bible_block else "")
         + (f"{audience_block}\n"
@@ -1798,6 +1875,41 @@ def _strip_image_prompt_boilerplate(prompt: str) -> str:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Prompt meta-annotation stripper
+# ---------------------------------------------------------------------------
+
+_PHASE_LABEL_PAT = re.compile(
+    r"\b(hook|build|climax|opening|resolution|transition)\s+phase\s*[—\-–:,]\s*",
+    re.IGNORECASE,
+)
+_META_ANNOTATION_PATTERNS: list[re.Pattern[str]] = [
+    # Arc-phase labels: "Hook phase —", "Build phase:", etc.
+    _PHASE_LABEL_PAT,
+    # Anchor-role justification notes
+    re.compile(r"Kai\s+absent\s+by\s+immutable\s+scene\s+constraint[^.]*\.?\s*", re.IGNORECASE),
+    re.compile(r"anchor_role\s*=\s*\w+\s+because[^.]*\.?\s*", re.IGNORECASE),
+    # Pipeline-internal scene-group notes that leaked outside their valid context
+    re.compile(r"Scene\s+\d+\s+establishes[^.]*;[^.]*\.\s*", re.IGNORECASE),
+]
+
+
+def _strip_prompt_meta_annotations(prompt: str) -> str:
+    """Remove pipeline-internal annotations that must not reach the image generator.
+
+    Phase labels ("Hook phase —"), anchor-role justifications, and scene-planning
+    meta-text are generated by the LLM as editorial notes but contaminate the
+    visual_prompt when they appear there. This function strips them deterministically
+    so the image generator receives only visual descriptions.
+    """
+    result = prompt
+    for pat in _META_ANNOTATION_PATTERNS:
+        result = pat.sub("", result)
+    # Collapse any double-spaces left by removal
+    result = re.sub(r"  +", " ", result).strip()
+    return result
+
+
 _EXPORT_STYLE_HYBRID = (
     "STYLE: Hybrid cinematic — photorealistic environment (architecture, nature, interiors, props); "
     "illustrated storybook characters with ink outlines and cel shading (NOT photorealistic). "
@@ -1811,6 +1923,89 @@ _EXPORT_GLOBAL_NEGATIVES = (
     "No photorealistic characters, no realistic human photos, no realistic animals. "
     "No deformed hands, no extra fingers, no mutated or fused limbs."
 )
+
+
+def _env_has_character_contamination(environment_prompt: str) -> bool:
+    """True if environment_prompt appears to contain character-staging text.
+
+    Checks the first 200 characters for known character-spec markers that should
+    live in character_staging instead.
+    """
+    env_prefix = environment_prompt.lower()[:200]
+    return any(m in env_prefix for m in _CHARACTER_ENV_CONTAMINATION_MARKERS)
+
+
+def _repair_structured_prompt_dict(
+    sp_dict: dict,
+    anchor_role: str,
+    scene_idx: int,
+) -> tuple[dict, list[str]]:
+    """Repair inconsistencies in a StructuredImagePrompt dict after LLM generation.
+
+    Detected and repaired:
+    1. Character-staging text inside environment_prompt when character_staging is empty.
+       The LLM occasionally violates the schema by placing the character description in
+       the wrong field. When detected, the text is split at the canonical " — " separator:
+       the part before becomes character_staging; the part after becomes environment_prompt.
+    2. HYBRID style prefix inside environment_prompt (the LLM included it verbatim).
+    3. Duplicate HYBRID style headers in compiled_prompt (logged but not auto-fixed —
+       the image generator reads the first header, and the duplicate is redundant noise).
+
+    Returns (repaired_dict, [error_messages]).
+    Errors are logged by the caller; the repair never blocks the pipeline.
+    """
+    errors: list[str] = []
+    result = dict(sp_dict)
+
+    character_staging: str = result.get("character_staging") or ""
+    environment_prompt: str = result.get("environment_prompt") or ""
+
+    # ── Repair 1: character text in environment_prompt ────────────────────────
+    if not character_staging and environment_prompt and _env_has_character_contamination(environment_prompt):
+        errors.append(
+            f"ERROR: Scene {scene_idx} — LLM placed character-staging text inside "
+            f"environment_prompt (character_staging is empty). "
+            f"Detected marker in: {environment_prompt[:80]!r}"
+        )
+        sep_idx = environment_prompt.find(_CHAR_ENV_SEPARATOR)
+        if sep_idx > 0:
+            extracted_char = environment_prompt[:sep_idx].strip()
+            extracted_env = environment_prompt[sep_idx + len(_CHAR_ENV_SEPARATOR):].strip()
+            result["character_staging"] = extracted_char
+            result["environment_prompt"] = extracted_env
+            errors.append(
+                f"  REPAIRED Scene {scene_idx}: character staging extracted "
+                f"('{extracted_char[:80]}...')"
+            )
+        else:
+            errors.append(
+                f"  UNREPAIRED Scene {scene_idx}: no ' — ' separator found; "
+                "character/environment text remains mixed in environment_prompt."
+            )
+
+    # ── Repair 2: HYBRID prefix inside environment_prompt ─────────────────────
+    current_env = result.get("environment_prompt") or ""
+    if current_env.upper().startswith("HYBRID CINEMATIC STYLE"):
+        stripped = current_env[current_env.find(":") + 1:].strip() if ":" in current_env else current_env
+        result["environment_prompt"] = stripped
+        errors.append(
+            f"WARNING: Scene {scene_idx} — environment_prompt started with HYBRID "
+            "style header; stripped to isolate environment description."
+        )
+
+    # ── Check 3: duplicate HYBRID headers in compiled_prompt (log only) ───────
+    compiled: str = result.get("compiled_prompt") or ""
+    if compiled:
+        hybrid_count = compiled.upper().count("HYBRID CINEMATIC STYLE")
+        if hybrid_count > 1:
+            errors.append(
+                f"WARNING: Scene {scene_idx} — compiled_prompt contains "
+                f"{hybrid_count} HYBRID style header(s). LLM duplicated the style "
+                "directive inside the body. No auto-repair (image generator reads "
+                "the first header; duplicate is redundant but not contradictory)."
+            )
+
+    return result, errors
 
 
 def _load_story_bible_for_export(project_id: str) -> "StoryBible | None":
@@ -1836,17 +2031,31 @@ def _assemble_export_prompt(
     Semantic priority order (scene-specific content first, global context after):
       1. PRIMARY SUBJECT — who/what must be shown
       2. PRIMARY ACTION  — character posture/action, or environment key element
-      3. ENVIRONMENT     — full setting description
+      3. ENVIRONMENT     — full setting description (character-free)
       4. COMPOSITION     — shot type + camera angle
       5. CAMERA          — focal length
       6. CHARACTER REF   — locked visual reference for characters in this scene only
-      7. STYLE           — compact master style directive
+      7. STYLE           — compact master style directive (global; authoritative)
       8. LIGHTING        — lighting + color palette
       9. CONTINUITY      — continuity note (omitted if empty)
-     10. NEGATIVE        — must-not constraints
+     10. NEGATIVE        — must-not constraints (auto-filtered against positive content)
+
+    Contradiction invariants enforced here:
+    - PRIMARY ACTION never says "no character present" when character text exists
+      anywhere in the assembled prompt (environment_prompt contamination guard).
+    - KAI: character reference block is only emitted when character_staging is
+      non-empty.  An empty character_staging means the LLM produced no character
+      action for this scene; injecting a KAI block would contradict that.
+    - NEGATIVE forbidden_objects items that conflict with the positive content are
+      silently dropped and a WARNING is logged.
 
     Falls back to raw visual_prompt if no structured_prompt exists.
     """
+    from ytfactory.images.prompt_validator import (
+        check_positive_negative_conflicts,
+        validate_prompt_contradictions,
+    )
+
     sp = scene.get("structured_prompt")
     if not sp:
         return _strip_image_prompt_boilerplate(scene.get("visual_prompt", ""))
@@ -1872,24 +2081,63 @@ def _assemble_export_prompt(
 
     anchor_role = scene.get("anchor_role", "absent")
     scene_analysis = scene.get("scene_analysis") or {}
+    scene_idx = scene.get("index", 0)
+
+    # ── Pre-flight: detect character text leaked into environment_prompt ──────
+    # When the LLM puts character description into environment_prompt instead of
+    # character_staging, both fields are inconsistent.  If character_staging is
+    # empty but environment_prompt starts with character markers, we cannot
+    # safely say "no character present" — that would contradict the environment
+    # text.  We detect this state and emit the prompt without the contradictory
+    # "no character" action line.
+    _env_contaminated = (
+        not character_staging
+        and bool(environment_prompt)
+        and _env_has_character_contamination(environment_prompt)
+    )
+    if _env_contaminated:
+        logger.warning(
+            "Scene {}: character staging text found in environment_prompt "
+            "(character_staging is empty). Suppressing 'no character present' "
+            "action line to avoid contradiction. Run repair pass to fix source data.",
+            scene_idx,
+        )
+
+    # Clean HYBRID style prefix from environment_prompt (should not appear there)
+    if environment_prompt.upper().startswith("HYBRID CINEMATIC STYLE"):
+        colon_pos = environment_prompt.find(":")
+        if colon_pos >= 0:
+            environment_prompt = environment_prompt[colon_pos + 1:].strip()
 
     lines: list[str] = []
 
     # ── 1. PRIMARY SUBJECT ────────────────────────────────────────────────────
-    # First identifying clause from character_staging, or key element from environment.
+    # First identifying clause from character_staging (preferred) or environment.
+    # When environment is contaminated with character text, derive subject from
+    # the environment portion only (after the " — " separator if present).
     if character_staging:
         first = re.split(r"(?<=[,;—])\s*", character_staging)[0].rstrip(",;— ").strip()
         primary_subject = first if len(first) >= 10 else character_staging.split(".")[0].strip()
+    elif _env_contaminated:
+        # environment_prompt has character text; extract environment portion if separated
+        sep_idx = environment_prompt.find(_CHAR_ENV_SEPARATOR)
+        env_for_subject = environment_prompt[sep_idx + len(_CHAR_ENV_SEPARATOR):].strip() if sep_idx >= 0 else ""
+        first = re.split(r"[,.]", env_for_subject)[0].strip() if env_for_subject else ""
+        primary_subject = first if len(first) >= 10 else "Symbolic environment"
     else:
         first = re.split(r"[,.]", environment_prompt)[0].strip()
         primary_subject = first if len(first) >= 10 else environment_prompt[:80]
     lines.append(f"PRIMARY SUBJECT: {primary_subject}.")
 
     # ── 2. PRIMARY ACTION ─────────────────────────────────────────────────────
+    # INVARIANT: never say "no character present" when character description exists
+    # anywhere in the prompt — that creates an explicit contradiction.
     if character_staging:
         lines.append(f"PRIMARY ACTION: {character_staging}")
-    else:
+    elif not _env_contaminated:
+        # Truly no character content in either field → safe to declare environment-only.
         lines.append("PRIMARY ACTION: Environment-only/symbolic scene — no character present.")
+    # else: environment_prompt has character content → skip contradictory action line.
 
     # ── 3. ENVIRONMENT ────────────────────────────────────────────────────────
     if environment_prompt:
@@ -1903,9 +2151,14 @@ def _assemble_export_prompt(
     # ── 5. CAMERA ─────────────────────────────────────────────────────────────
     lines.append(f"CAMERA: {focal_length}.")
 
-    # ── 6. CHARACTER REFERENCE — only characters relevant to this scene ───────
+    # ── 6. CHARACTER REFERENCE — only when character_staging is non-empty ─────
+    # INVARIANT: never emit KAI block when character_staging is empty.
+    # An empty character_staging means this is either an environment-only scene or
+    # the character was placed in environment_prompt (contaminated).  Either way,
+    # emitting a KAI: identity block alongside "no character present" text is a
+    # direct contradiction.
     char_refs: list[str] = []
-    if anchor_role in ("primary", "spectator"):
+    if anchor_role in ("primary", "spectator") and character_staging:
         char_refs.append(f"KAI: {KAI_COMPRESSED_SPEC}.")
     if story_bible and story_bible.characters:
         allowed = (
@@ -1921,7 +2174,10 @@ def _assemble_export_prompt(
     for ref in char_refs:
         lines.append(ref)
 
-    # ── 7. STYLE (compact, global) ────────────────────────────────────────────
+    # ── 7. STYLE (compact, global — authoritative) ────────────────────────────
+    # Global character style constraint is stated here once and takes precedence
+    # over any scene-specific style language.  Image generators should read this
+    # as the override rule for all character rendering decisions.
     hybrid = getattr(settings, "HYBRID_STYLE_ENABLED", False)
     lines.append(_EXPORT_STYLE_HYBRID if hybrid else _EXPORT_STYLE_DOC)
 
@@ -1938,15 +2194,40 @@ def _assemble_export_prompt(
     if continuity_ref and continuity_ref.strip():
         lines.append(f"CONTINUITY: {continuity_ref.strip()}")
 
-    # ── 10. NEGATIVE CONSTRAINTS ──────────────────────────────────────────────
+    # ── 10. NEGATIVE CONSTRAINTS ─────────────────────────────────────────────
+    # Filter out forbidden_objects items that contradict the positive content.
+    # Including a "do not show: lamp" when the scene explicitly depicts a lamp is
+    # a direct contradiction that confuses image generators.
     negatives = _EXPORT_GLOBAL_NEGATIVES
     if isinstance(scene_analysis, dict):
         forbidden = scene_analysis.get("forbidden_objects") or []
         if forbidden:
-            negatives += f" Do not show: {', '.join(str(o) for o in forbidden[:8])}."
+            positive_text = "\n".join(lines)
+            conflict_warnings = check_positive_negative_conflicts(
+                positive_text, [str(o) for o in forbidden], scene_idx
+            )
+            for warn in conflict_warnings:
+                logger.warning("Positive/negative conflict detected: {}", warn)
+            safe_forbidden = [
+                str(o) for o in forbidden[:8]
+                if not any(
+                    w in positive_text.lower()
+                    for w in str(o).lower().split()
+                    if len(w) > 3
+                )
+            ]
+            if safe_forbidden:
+                negatives += f" Do not show: {', '.join(safe_forbidden)}."
     lines.append(f"NEGATIVE: {negatives}")
 
-    return "\n".join(lines)
+    assembled = "\n".join(lines)
+
+    # ── Post-assembly contradiction check (log only — never blocks) ───────────
+    contradictions = validate_prompt_contradictions(assembled, scene_idx)
+    for error in contradictions:
+        logger.error("PROMPT CONTRADICTION: {}", error)
+
+    return assembled
 
 
 def _write_prompts_file(
@@ -2838,11 +3119,11 @@ def _apply_director_pass(
 def _extract_narrative_ending(script: str) -> str:
     """Strip brand wrap and return the last narrative sentence."""
     brand_markers = [
-        "This is the Atma Theory",
-        "If these ideas resonate",
+        "This is Atma Theory",
+        "If this reflection resonated",
         "Clear mind",
         "Meaningful life",
-        "join us on this journey",
+        "stay with us on the journey",
     ]
     lines = script.strip().split("\n")
     for i, line in enumerate(lines):
@@ -3173,6 +3454,15 @@ def scene_planner_node(state: VideoState) -> dict:
         f"  [green]✓[/green] Scene analysis complete for {len(scene_analysis_map)} scenes"
     )
 
+    # ── Story State — track characters/props across scenes ───────────────────
+    # Must run AFTER scene_analysis_map is populated and BEFORE Phase 2 prompts,
+    # so each scene's context block can be injected into its visual prompt.
+    story_state = build_story_state(scenes, scene_analysis_map)
+    console.print(
+        f"  [green]✓[/green] Story state: {len(story_state.characters)} characters, "
+        f"{len(story_state.props)} props tracked"
+    )
+
     total = sum(s.get("duration_seconds", 0) for s in scenes)
     narration_words = sum(len(s.get("narration", "").split()) for s in scenes)
     console.print(
@@ -3261,6 +3551,14 @@ def scene_planner_node(state: VideoState) -> dict:
             )
         else:
             console.print("  [yellow]⚠[/yellow] Pacing LLM failed — proceeding without reflection beats")
+
+    # Inject per-scene story context and action constraints BEFORE Phase 2 batch prompts.
+    # These are read by build_visual_prompts_prompt via s["story_context"] and s["action_constraints"].
+    for _s in generated_scenes:
+        _idx = _s["index"]
+        _narration = _s.get("narration", "")
+        _s["story_context"] = story_state.get_story_context_for_scene(_idx)
+        _s["action_constraints"] = build_action_constraints_block(_narration)
 
     console.print(
         f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
@@ -3634,9 +3932,15 @@ def scene_planner_node(state: VideoState) -> dict:
                 settings=settings,
                 prev_scene=prev,
                 story_bible=story_bible,
+                story_context=scene.get("story_context", ""),
             )
-            scene["structured_prompt"] = sp.model_dump()
-            scene["visual_prompt"] = sp.compiled_prompt  # backward compat
+            sp_dict, repair_errors = _repair_structured_prompt_dict(
+                sp.model_dump(), scene.get("anchor_role", "absent"), scene.get("index", i + 1)
+            )
+            for err in repair_errors:
+                logger.error("STRUCTURED PROMPT REPAIR: {}", err)
+            scene["structured_prompt"] = sp_dict
+            scene["visual_prompt"] = sp_dict.get("compiled_prompt") or sp.compiled_prompt
         console.print(f"  [green]✓[/green] V2 structured prompts: {len(gen_scenes)} scenes")
 
         # Re-validate faithfulness_qa against the FINAL prompts (V2 override
@@ -3672,11 +3976,40 @@ def scene_planner_node(state: VideoState) -> dict:
     # the shot_type constraint; demote those to absent so Step 0 is accurate.
     scenes = _enforce_primary_kai_spec(scenes)
 
+    # ── Strip pipeline meta-annotations from all visual prompts ─────────
+    # Phase labels, anchor-role justifications, and internal planning notes
+    # contaminate the image generator when they appear inside visual_prompt.
+    for _s in scenes:
+        if _s.get("visual_prompt"):
+            _s["visual_prompt"] = _strip_prompt_meta_annotations(_s["visual_prompt"])
+        # Also clean the compiled_prompt inside structured_prompt if present
+        _sp = _s.get("structured_prompt")  # type: ignore[assignment]
+        if isinstance(_sp, dict) and _sp.get("compiled_prompt"):
+            _sp["compiled_prompt"] = _strip_prompt_meta_annotations(_sp["compiled_prompt"])
+
     # ── V2: Sync visual_metadata from structured prompts ────────────────
     scenes = _sync_metadata_from_v2(scenes)
 
     # ── V2: Continuity validation (flag-and-log only) ─────────────────────
     continuity_warnings = _validate_visual_continuity(scenes, visual_bible)
+
+    # ── Story continuity validation (character/prop state, action grounding) ─
+    _story_validator = ContinuityValidator(story_state)
+    _continuity_findings = _story_validator.validate_all(scenes, scene_analysis_map)
+    _story_errors = [f for f in _continuity_findings if f.is_error()]
+    _story_warnings = [f for f in _continuity_findings if f.is_warning()]
+    if _story_errors:
+        for _f in _story_errors:
+            logger.error("STORY CONTINUITY ERROR: {}", str(_f))
+        console.print(
+            f"  [bold red]⚠ {len(_story_errors)} story continuity errors (see logs)[/bold red]"
+        )
+    if _story_warnings:
+        for _f in _story_warnings:
+            logger.warning("STORY CONTINUITY WARNING: {}", str(_f))
+        console.print(
+            f"  [yellow]⚠ {len(_story_warnings)} story continuity warnings[/yellow]"
+        )
 
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:

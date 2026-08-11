@@ -11,7 +11,80 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3268 passing, 4 skipped, 0 failures (as of 2026-08-03)
+**Test count:** 3538 passing, 3 skipped, 13 pre-existing failures (as of 2026-08-11)
+
+## 2026-08-11 — IMAGE PROMPT GENERATION PIPELINE: source-level contradiction fixes + conflict-group false-positive fix
+
+### Context
+Discovered 16+ failure classes in a generated 26-scene Atma Theory storyboard. Root causes traced to three bugs in the image prompt assembly pipeline; all fixes are source-level (no storyboard patching, no story-specific hard-coding).
+
+### Root Causes Fixed
+
+**Bug 1 — LLM field contamination (Scene 17-type):**
+The LLM sometimes placed character description text inside `environment_prompt` instead of `character_staging`. With `character_staging` empty, `_assemble_export_prompt` then emitted:
+- PRIMARY ACTION: "no character present" (from empty staging)
+- KAI: character block (from `anchor_role="primary"`)
+- ENVIRONMENT: starting with character description (from contaminated field)
+→ A three-way contradiction in one prompt.
+
+**Bug 2 — Unconditional KAI emission:**
+`KAI:` block was emitted for any scene with `anchor_role in ("primary", "spectator")` regardless of whether `character_staging` was populated.
+
+**Bug 3 — Unfiltered `forbidden_objects` in NEGATIVE:**
+Items from `scene_analysis["forbidden_objects"]` were appended verbatim to NEGATIVE without checking whether the same object appeared in positive content.
+
+**Bug 4 (discovered during e2e run) — Cross-synonym conflict false positives:**
+`LAMP_FLAME_CONFLICT` in `_POSITIVE_NEGATIVE_CONFLICT_GROUPS` used cross-group matching, causing "lamp" in positive + "torch" in NEGATIVE to fire as a conflict. These are different objects — a scene can legitimately show a lamp while forbidding a torch. Same problem in `COIN_GOLD_CONFLICT`.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/images/prompt_validator.py` | **NEW** — `validate_prompt_contradictions()`, `check_positive_negative_conflicts()`, `_POSITIVE_NEGATIVE_CONFLICT_GROUPS` with `same_word_required` flag (object-specific conflict groups use intersection matching; blanket-ban groups use cross-group matching) |
+| `src/ytfactory/agents/nodes/scene_planner.py` | Added `_CHARACTER_ENV_CONTAMINATION_MARKERS`, `_CHAR_ENV_SEPARATOR`, `_env_has_character_contamination()`, `_repair_structured_prompt_dict()`. Replaced `_assemble_export_prompt()` with invariant-enforcing version. V2 pipeline loop now calls repair pass after each LLM call. |
+| `tests/test_prompt_validation.py` | **NEW** — 55 regression tests covering all 14 failure classes (A–M) including 2 false-positive regression tests for cross-synonym conflict groups |
+
+### Architecture: Three-Layer Defence
+
+**Layer 1 — Post-LLM repair** (`_repair_structured_prompt_dict`):
+- Detects character text contaminating `environment_prompt` (via `_env_has_character_contamination`)
+- Splits on ` — ` separator: char description → `character_staging`, remainder → `environment_prompt`
+- Strips stray `HYBRID CINEMATIC STYLE:` prefix from `environment_prompt`
+- Logs duplicate HYBRID headers in `compiled_prompt`
+
+**Layer 2 — Assembly invariants** (`_assemble_export_prompt`):
+- `PRIMARY ACTION: "no character present"` only emitted when `character_staging` is empty AND `environment_prompt` has no character markers
+- `KAI:` block only emitted when `character_staging` is non-empty
+- `NEGATIVE:` filters `forbidden_objects` against positive content before including
+
+**Layer 3 — Post-assembly validation** (`validate_prompt_contradictions`):
+- Check A: "no character present" + visible character marker in positive body → ERROR
+- Check B: KAI block + "no character present" → ERROR
+- Check C: same-word positive/negative object conflict → ERROR (cross-synonym false positives eliminated by `same_word_required` flag)
+- Check D: photorealistic character language in positive body → WARNING
+- All logged only — never blocks the pipeline
+
+### `_POSITIVE_NEGATIVE_CONFLICT_GROUPS` — `same_word_required` flag
+
+`same_word_required=True` — fires only when the shared word (pos_terms ∩ neg_terms) appears in BOTH positive and negative content. Used for object-specific bans: `LAMP_FLAME_CONFLICT`, `COIN_GOLD_CONFLICT`, `BUILDING_CONFLICT`.
+
+`same_word_required=False` — fires when ANY positive term + ANY negative term match. Used for blanket bans: `HUMAN_PRESENCE_CONFLICT`, `ANIMAL_PRESENCE_CONFLICT`.
+
+### End-to-End Validation (the-story-of-a-strange-mind, 26 scenes)
+
+All 26 scenes PASS after repair + assembly. Scene 17 (the canonical failure case) repaired automatically: character description extracted from `environment_prompt` into `character_staging`. Highlighted scenes 17, 20, 21, 23, 24, 26 all pass all 12 checklist items. 6 scenes had `forbidden_objects` correctly filtered before NEGATIVE assembly (scenes 3, 8, 14, 18, 19).
+
+### Test Results
+- `tests/test_prompt_validation.py`: 55 passed
+- Full `tests/` suite: 3538 passed, 13 failed (all pre-existing, same set as before)
+- ruff: clean
+- mypy: 8 errors in `scene_planner.py`, all pre-existing; 0 errors in `prompt_validator.py`
+
+### Key Invariants to Know
+- `_CHARACTER_PRESENCE_MARKERS`: scene-specific character signals only — do NOT include generic style terms ("storybook character", "illustrated character") which appear in the STYLE block of every assembled prompt
+- `_PHOTOREALISTIC_CHARACTER_MARKERS`: checked against positive body only (before NEGATIVE:), not the full prompt — the NEGATIVE line always says "No photorealistic characters" by design
+- `_assemble_export_prompt()` reads `anchor_role` from the top-level scene dict, not from `structured_prompt`
+- Repair pass and `_assemble_export_prompt()` are both deterministic — idempotent on already-clean data
 
 ## 2026-08-03 — Visual Anchor two-model fallback; Script Judge + Guided Recomposer; Composer Craft addition
 

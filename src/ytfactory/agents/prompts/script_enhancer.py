@@ -355,7 +355,7 @@ If the input script already contains any brand blocks defined in brand_config.ya
 preserve them EXACTLY as written — do not paraphrase, reorder, merge, split, or
 rewrite them:
 
-  - "This is the Atma Theory." (channel signature)
+  - "This is Atma Theory." (channel signature)
   - The CTA line from brand_config.yaml
   - "Clear mind.\nMeaningful life." (signature)
 

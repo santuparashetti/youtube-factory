@@ -16,7 +16,7 @@ class LampFlicker(BaseEffect):
         self,
         mask: np.ndarray = None,
         base_brightness: float = 1.0,
-        flicker_intensity: float = 0.12,
+        flicker_intensity: float = 0.18,
     ):
         self.mask = mask
         self.base_brightness = base_brightness
@@ -47,7 +47,7 @@ class LampFlicker(BaseEffect):
             + fi * 0.3 * sin(t * 3.5)    # medium      ~0.56 Hz
             + fi * 0.1 * sin(t * 1.2)    # slow breathe ~0.19 Hz
         )
-        flicker = float(np.clip(flicker, 0.72, 1.28))
+        flicker = float(np.clip(flicker, 0.68, 1.35))
 
         base = frame.astype(np.float32)
         brightened = base * flicker

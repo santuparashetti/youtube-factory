@@ -65,7 +65,7 @@ _BRAND_BLOCK_PRESERVATION = """\
 BRAND BLOCK (hard-preserve verbatim — do not reword, reorder, split, or move)
 ───────────────────────────────────────────────────────────────
 The input ends with a closing brand block (channel signature, CTA line,
-closing signature — e.g. "This is the Atma Theory." / the CTA line / "Clear
+closing signature — e.g. "This is Atma Theory." / the CTA line / "Clear
 mind. Meaningful life."). Treat it as a fixed anchor:
   - Never reword, reorder, split, or move any line inside it.
   - Never place a story, example, or reordered content after it.

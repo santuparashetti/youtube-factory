@@ -513,7 +513,7 @@ Let one quiet line breathe between the emotional peak and the closing words. The
 
 Finish naturally with:
 
-"If these ideas resonate with you, join us on this journey."
+"If this reflection resonated with you, stay with us on the journey."
 
 "Clear mind. Meaningful life."
 

@@ -464,7 +464,7 @@ a different window."
 The pipeline validates for the rehook. A missing rehook aborts the run before scene
 planning. Do not omit it.
 
-The rehook is not optional. It is structurally equivalent to the opening line — the video is incomplete without it. If the script ends with "This is the Atma Theory." without a preceding rehook line, the output is malformed. Write the rehook before the closing lines, every time, without exception.
+The rehook is not optional. It is structurally equivalent to the opening line — the video is incomplete without it. If the script ends with "This is Atma Theory." without a preceding rehook line, the output is malformed. Write the rehook before the closing lines, every time, without exception.
 
 First, after the final realization, let ONE short, quiet line stand alone — a
 moment of stillness that lets the peak breathe. This line is its own beat; do not
@@ -473,8 +473,8 @@ after the climax.
 
 Then close with these three lines, exactly and in this order, each on its own line:
 
-"This is the Atma Theory."
+"This is Atma Theory."
 
-"If these ideas resonate with you, join us on this journey."
+"If this reflection resonated with you, stay with us on the journey."
 
 "Clear mind. Meaningful life."

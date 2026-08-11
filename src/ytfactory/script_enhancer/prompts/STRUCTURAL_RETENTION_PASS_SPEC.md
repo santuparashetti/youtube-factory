@@ -107,7 +107,7 @@ Report artifact fields (per run):
   (b) the four same-shape parables (eagle/Bhagiratha/watchmaker/Vinoba) are
       reduced or separated — not four identical-shape stories in a row;
   (c) a shadow beat exists before the climax;
-  (d) a breath line sits between the peak and "This is the Atma Theory";
+  (d) a breath line sits between the peak and "This is Atma Theory";
   (e) faithfulness check: no meaning-change flags (cuts/reorders are not flags).
 - Faithfulness check unit tests: a meaning-preserving reorder → 0 flags;
   a fabricated teaching injected → 1 flag; a cut story → 0 flags.
