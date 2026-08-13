@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────
+# DOCUMENTARY CHARACTER SYSTEM
+# ─────────────────────────────────────────────
+documentary:
+
+  KAI:
+    role: viewer_proxy
+    age: 28
+    sex: male
+    build: lean
+    hair: short dark brown
+    facial_hair: light stubble
+    face: narrow oval face, understated features
+    skin: light-to-medium natural complexion
+    clothing:
+      top: simple dark charcoal/navy shirt
+      bottom: plain dark charcoal trousers
+      footwear: simple worn leather sandals
+    accessories: none
+    jewelry: none
+    tattoos: none
+    pose_rule: >
+      Almost always shown from behind, in silhouette, or in profile.
+      Almost never full front-facing.
+    style_note: >
+      hand-painted 2D storybook illustration, clean ink outlines,
+      restrained cel shading, painterly brush texture, slightly
+      simplified anatomy, NOT photorealistic
+    identity_lock: >
+      This is the SAME CHARACTER whenever CHARACTER_ID=KAI appears.
+      Do not redesign him. Do not change his age, hair, face, or body proportions.
+      Do not change his clothing palette. Do not turn him into a child, teenager,
+      woman, or different man. Do not beautify or age him. Do not introduce accessories.
+
+  SOCRATES:
+    role: philosopher
+    age: 60
+    sex: male
+    build: medium
+    hair: short graying hair
+    facial_hair: thick gray beard
+    face: broad expressive face, high forehead, deep-set observant eyes
+    skin: light-to-medium natural complexion
+    clothing:
+      top: plain undyed off-white linen tunic
+      outer: weathered muted-brown wool cloak
+      footwear: simple leather sandals
+    accessories: none
+    jewelry: none
+    expression_default: >
+      calm, slightly amused, humble — never saintly or supernatural
+    identity_lock: >
+      Same Socrates in every scene. Do not alter age, face, beard, hair,
+      body, clothing palette, or proportions. Human and humble. Never supernatural
+      or saint-like. Never idealized.
+
+  YOUNG_HUSBAND:
+    role: story_subject
+    age: 25
+    sex: male
+    build: slim to average
+    hair: short wavy brown hair
+    facial_hair: clean-shaven
+    face: youthful oval face
+    eyes: expressive brown eyes
+    skin: light-to-medium natural complexion
+    clothing:
+      top: simple cream/undyed linen tunic
+      outer: muted blue-gray or brown wool mantle
+      footwear: worn leather sandals
+    accessories: none
+    jewelry: none
+    identity_lock: >
+      Same husband in every scene. Face, age, hairstyle, body, and identity NEVER change.
+      Emotional state may change. Pose may change. Expression may change.
+      Physical identity must not change.
+
+  WIFE:
+    role: story_subject
+    age: 24
+    sex: female
+    build: graceful average build
+    hair: long brown hair gathered simply behind head
+    face: consistent familiar face
+    eyes: warm brown eyes
+    skin: light-to-medium natural complexion
+    clothing:
+      top: muted linen dress or peplos (terracotta, olive, sage, or pale blue)
+      outer: muted brown/blue/sage wool shawl
+      footwear: worn leather sandals
+    accessories: minimal or none
+    identity_lock: >
+      Same wife in every scene. Physical appearance NEVER changes because the
+      husband's perception changes. She is never monstrous, villainous, glamorous,
+      or idealized. Emotional expression may change. Clothing tone may vary within
+      the muted palette above.
+
+# ─────────────────────────────────────────────
+# THUMBNAIL CHARACTER SYSTEM (separate namespace)
+# ─────────────────────────────────────────────
+thumbnail:
+
+  ATMA_BOY:
+    role: channel_mascot
+    age_range: "6-8"
+    body: child proportions
+    hair: pale/white short hair
+    glasses: round glasses
+    clothing: cream outfit
+    style_note: hand-painted storybook illustration
+    identity_lock: >
+      Never reinterpret this character as baby, toddler, adult, teenager,
+      different child, or photorealistic person. The same ATMA_BOY must remain
+      visually identical throughout all thumbnails.

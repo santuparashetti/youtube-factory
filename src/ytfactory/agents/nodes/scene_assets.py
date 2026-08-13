@@ -15,6 +15,7 @@ from video_core.providers.tts.debug import TTSDebugWriter
 from video_core.providers.tts.factory import get_tts_provider
 from video_core.providers.tts.optimizer import SpeechOptimizer
 from video_core.providers.tts.validator import AudioValidator
+from ytfactory.ssml_enhancer import SsmlEnhancer, strip_ssml
 from ytfactory.images.human_detector import (
     add_back_view_hand_orientation,
     add_hand_avoidance_composition,
@@ -40,6 +41,9 @@ _vision_provider_lock = threading.Lock()
 _tts_provider_cache: dict[str, object] = {}
 _tts_provider_lock = threading.Lock()
 
+_ssml_enhancer_cache: dict[str, SsmlEnhancer] = {}
+_ssml_enhancer_lock = threading.Lock()
+
 
 def _get_vision_provider(provider_name: str, local_model: str) -> object:
     key = f"{provider_name}:{local_model}"
@@ -64,6 +68,19 @@ def _get_tts_provider(settings: object) -> object:
         if key not in _tts_provider_cache:
             _tts_provider_cache[key] = get_tts_provider(s)
     return _tts_provider_cache[key]
+
+
+def _get_ssml_enhancer(settings: object) -> SsmlEnhancer:
+    from ytfactory.config.settings import Settings
+    from video_core.providers.llm.factory import get_llm_for_role
+    s = settings if isinstance(settings, Settings) else Settings()
+    key = getattr(s, "ssml_model", "") or getattr(s, "llm_default_model", "") or "default"
+    if key in _ssml_enhancer_cache:
+        return _ssml_enhancer_cache[key]
+    with _ssml_enhancer_lock:
+        if key not in _ssml_enhancer_cache:
+            _ssml_enhancer_cache[key] = SsmlEnhancer(get_llm_for_role(s, "ssml"))
+    return _ssml_enhancer_cache[key]
 
 
 def _get_audio_duration(path: Path) -> float:
@@ -237,6 +254,7 @@ def generate_scene_assets(state: VideoState) -> dict:
 
     # ── 2. Generate voice + capture word boundaries ───────────────────────
     boundaries: list[dict] = []
+    clean_script: str = narration  # safe default: subtitle always gets clean text
 
     # Calculate scene_position for emotional arc (0.0 = first, 1.0 = last)
     all_scenes = state.get("scene_plan", [])
@@ -257,16 +275,32 @@ def generate_scene_assets(state: VideoState) -> dict:
         try:
             tts = _get_tts_provider(settings)
 
-            optimized_narration = _optimizer.optimize(
-                narration,
-                style=style,
-                scene_position=scene_position,
-            )
+            # SSML enhancement — when enabled, ssml_script goes to TTS and
+            # clean_script (tags stripped) is used for subtitle generation only.
+            use_ssml = settings.ssml_enhancement_enabled
+            if use_ssml:
+                ssml_script = _get_ssml_enhancer(settings).enhance(narration)
+                clean_script = strip_ssml(ssml_script)
+                tts_text = ssml_script
+                logger.debug(
+                    "TTS [ssml] scene {} — enhanced SSML ({} chars):\n{}",
+                    index,
+                    len(ssml_script),
+                    ssml_script,
+                )
+            else:
+                tts_text = _optimizer.optimize(
+                    narration,
+                    style=style,
+                    scene_position=scene_position,
+                )
+                clean_script = narration
+                debug.write_optimized(tts_text)
+
             debug.write_original(narration)
-            debug.write_optimized(optimized_narration)
             debug.write_provider_request(
                 {
-                    "text": optimized_narration,
+                    "text": tts_text,
                     "language": language,
                     "style": style,
                     "scene_position": scene_position,
@@ -277,7 +311,7 @@ def generate_scene_assets(state: VideoState) -> dict:
             for attempt in range(max_retries):
                 try:
                     _, boundaries = tts.generate_with_boundaries(
-                        text=optimized_narration,
+                        text=tts_text,
                         output_path=audio_path,
                         language=language,
                         style=style,
@@ -325,10 +359,13 @@ def generate_scene_assets(state: VideoState) -> dict:
     engine = SubtitleEngine.from_settings(settings)
     use_ass = engine.format == SubtitleFormat.ASS
 
+    # Subtitles always use clean text — never SSML markup.
+    subtitle_narration = clean_script if settings.ssml_enhancement_enabled else narration
+
     if use_ass:
         ass_content, srt_content, _ = engine.build_both(
             boundaries=boundaries,
-            narration=narration,
+            narration=subtitle_narration,
             scene_index=index,
             project_id=project_id,
             total_duration=real_duration,
@@ -339,7 +376,7 @@ def generate_scene_assets(state: VideoState) -> dict:
     else:
         srt_content = engine.build(
             boundaries=boundaries,
-            narration=narration,
+            narration=subtitle_narration,
             scene_index=index,
             project_id=project_id,
             total_duration=real_duration,

@@ -49,10 +49,12 @@ def composer_node(state: VideoState) -> dict:
     pipeline = ComposerPipeline(settings)
     base_script = state.get("script_md", "")
     beats = state.get("beats") or []
+    target_minutes = state.get("target_minutes", 7)
 
     if state.get("ab_script_selection", False):
         composed = run_composer_with_ab_selection(
-            pipeline, project_id, base_script_text=base_script, beats=beats
+            pipeline, project_id, base_script_text=base_script, beats=beats,
+            target_minutes=target_minutes,
         )
         return {"script_md": composed}
 
@@ -66,6 +68,7 @@ def composer_node(state: VideoState) -> dict:
         topic=topic,
         variant="A",
         beats=beats,
+        target_minutes=target_minutes,
     )
     script_b = pipeline.run(
         project_id,
@@ -74,5 +77,6 @@ def composer_node(state: VideoState) -> dict:
         topic=topic,
         variant="B",
         beats=beats,
+        target_minutes=target_minutes,
     )
     return {"script_a": script_a, "script_b": script_b}

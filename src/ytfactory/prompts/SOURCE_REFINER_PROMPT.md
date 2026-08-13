@@ -32,18 +32,18 @@ When in doubt, replace.
 JOB 2 — DISTILL (do this second, after universalizing)
 
 WORD COUNT REQUIREMENT — NON-NEGOTIABLE:
-Your output MUST be between 550 and 600 words.
+Your output MUST be between {word_min} and {word_max} words.
 This is not a guideline. It is a hard requirement.
 
-If you finish distilling and your output is under 550 words,
+If you finish distilling and your output is under {word_min} words,
 you have cut too aggressively. Go back and restore the most
-compressed beats to their fuller form until you reach 550 words.
+compressed beats to their fuller form until you reach {word_min} words.
 
-If your output is over 600 words, condense sentences —
+If your output is over {word_max} words, condense sentences —
 never remove beats.
 
 Check your word count before outputting. If it is outside
-550-600, revise before returning.
+{word_min}-{word_max}, revise before returning.
 
 IRON RULE: cut repetition and filler. Never cut beats.
 
@@ -71,7 +71,7 @@ EDITORIAL RULES (apply throughout both jobs):
 - No motivational or self-help language
 - No new ideas not present in the original
 - Preserve original narrative order
-- If still over 600 words after cutting all safe content —
+- If still over {word_max} words after cutting all safe content —
   condense sentences, never remove beats
 
 ---

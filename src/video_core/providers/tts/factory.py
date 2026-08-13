@@ -59,10 +59,12 @@ def get_tts_provider(
 
         case "speechify":
             from .speechify import SpeechifyProvider
+            from .throttled import ThrottledTTSProvider
 
-            return SpeechifyProvider(
-                settings,
-                analytics=analytics,
+            return ThrottledTTSProvider(
+                SpeechifyProvider(settings, analytics=analytics),
+                max_concurrency=1,
+                requests_per_second=1.0,
             )
 
         case _:

@@ -11,7 +11,9 @@ from ytfactory.images.models import (
     ImageGenerationResult,
     ImageManifest,
 )
+from ytfactory.image.prompt_builder_mixin import PromptValidationError
 from ytfactory.images.prompt_engine import (
+    ImagePromptEngineV4,
     _DEFAULT_NEGATIVE_PROMPT,
     _PROVIDERS_WITH_NEGATIVE_PROMPTS,
     apply_hand_avoidance,
@@ -66,6 +68,7 @@ class ImagePipeline:
         self._escalation_config = EscalationConfig.from_settings(settings)
         self._orchestrator: ImageRemediationOrchestrator | None = self._build_orchestrator()
         self._flagged_scenes: dict[int, dict] = {}
+        self._prompt_engine = ImagePromptEngineV4()
 
     def _build_orchestrator(self) -> ImageRemediationOrchestrator | None:
         """Build the remediation orchestrator if image review is enabled."""
@@ -464,6 +467,52 @@ class ImagePipeline:
                 except Exception:
                     _vi_negative_prompt = None
 
+            # Bible-aware prompt resolution — replaces scene["visual_prompt"] for
+            # Bible-enabled scenes; falls back to visual_prompt for legacy scenes.
+            # PromptValidationError means a present-but-invalid bible_ext — this
+            # must never silently fall back to legacy generation.
+            try:
+                resolved_prompt = self._prompt_engine.build_prompt(scene)
+            except PromptValidationError as exc:
+                idx = scene.get("index", 0)
+                import logging as _logging
+                _logging.getLogger(__name__).error(
+                    "Scene %03d | Bible validation failed — skipping image generation: %s",
+                    idx, exc,
+                )
+                self._flagged_scenes[idx] = {
+                    "status": "bible_validation_failed",
+                    "score": 0.0,
+                    "reason": str(exc),
+                }
+                flag_path = output_dir / f"needs-review-{idx:03d}.json"
+                import json as _json
+                flag_path.write_text(
+                    _json.dumps(
+                        {
+                            "scene_index": idx,
+                            "status": "bible_validation_failed",
+                            "errors": exc.errors,
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                manifest.images.append(
+                    ImageArtifact(
+                        scene_index=idx,
+                        prompt="",
+                        filename=filename,
+                        path=output_path,
+                        qa_status="bible_validation_failed",
+                        qa_score=0.0,
+                        qa_failure_reason=str(exc),
+                    )
+                )
+                if _w:
+                    _w.stage_progress(index)
+                continue
+
             negative_prompt = (
                 scene.get("negative_prompt") or _DEFAULT_NEGATIVE_PROMPT
                 if self._uses_negative_prompts
@@ -473,7 +522,7 @@ class ImagePipeline:
             negative_prompt = merge_negative_prompts(negative_prompt, _vi_negative_prompt)
             tier1 = self._settings.image_model_registry.for_tier(1)
             request = ImageRequest(
-                prompt=scene["visual_prompt"],
+                prompt=resolved_prompt,
                 output_path=output_path,
                 width=self._settings.image_width,
                 height=self._settings.image_height,
@@ -484,7 +533,7 @@ class ImagePipeline:
 
             image_was_new = not output_path.exists()
 
-            prompt_text = scene.get("visual_prompt", "")
+            prompt_text = resolved_prompt
             has_humans = detect_human_presence(prompt_text)
 
             if image_was_new:

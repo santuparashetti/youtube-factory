@@ -14,12 +14,13 @@ from dataclasses import dataclass
 # Physical constraint rules: (action_pattern, object_pattern) → constraint
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class _Rule:
-    action_pattern: str     # regex for the action verb/phrase
-    object_pattern: str     # regex for the object receiving the action
-    constraint: str         # instruction to inject into the prompt
-    bad_example: str = ""   # example of what NOT to show
+    action_pattern: str  # regex for the action verb/phrase
+    object_pattern: str  # regex for the object receiving the action
+    constraint: str  # instruction to inject into the prompt
+    bad_example: str = ""  # example of what NOT to show
 
 
 _PHYSICAL_RULES: list[_Rule] = [
@@ -104,9 +105,9 @@ _PHYSICAL_RULES: list[_Rule] = [
 class ActionConstraint:
     """A detected action with its physical constraints."""
 
-    action: str               # the detected action phrase
-    obj: str                  # the detected object phrase
-    constraint: str           # prompt instruction to inject
+    action: str  # the detected action phrase
+    obj: str  # the detected object phrase
+    constraint: str  # prompt instruction to inject
     bad_example: str = ""
 
     def to_prompt_block(self) -> str:
@@ -133,12 +134,14 @@ def extract_action_constraints(narration: str) -> list[ActionConstraint]:
             obj_phrase = obj_m.group(0)
         else:
             obj_phrase = "(any)"
-        constraints.append(ActionConstraint(
-            action=action_m.group(0),
-            obj=obj_phrase,
-            constraint=rule.constraint,
-            bad_example=rule.bad_example,
-        ))
+        constraints.append(
+            ActionConstraint(
+                action=action_m.group(0),
+                obj=obj_phrase,
+                constraint=rule.constraint,
+                bad_example=rule.bad_example,
+            )
+        )
     return constraints
 
 

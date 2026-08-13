@@ -29,7 +29,6 @@ from ytfactory.agents.prompts.composer import (
     build_script_b_prompt,
     build_trim_system_prompt,
 )
-from ytfactory.agents.prompts.script_writer import NARRATION_WPM
 from ytfactory.config.settings import Settings
 from ytfactory.validators.kai_firewall import check_artifact
 from ytfactory.shared.constants import WORKSPACE_DIR
@@ -43,10 +42,8 @@ from video_core.providers.llm.factory import get_llm_for_role
 
 console = Console()
 
-TARGET_MIN_MINUTES = 6
-TARGET_MAX_MINUTES = 7.5
-_VARIANT_TARGET_MINUTES = 7.0  # word cap target for Script A/B variants
-_VARIANT_TARGET_WORDS = int(_VARIANT_TARGET_MINUTES * 130 * 0.85)  # 773
+_DEFAULT_TARGET_MINUTES = 7
+_NARRATION_WPM = 130
 
 
 class ComposerRehookMissingError(RuntimeError):
@@ -95,6 +92,7 @@ class ComposerPipeline:
         topic: str = "",
         variant: str | None = None,
         beats: list[dict] | None = None,
+        target_minutes: int = _DEFAULT_TARGET_MINUTES,
     ) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +102,10 @@ class ComposerPipeline:
             if not script_file.exists():
                 raise FileNotFoundError(f"ComposerPipeline: no base script found at {script_file}")
             script_text = script_file.read_text(encoding="utf-8")
+
+        target_min_minutes = max(1, target_minutes - 1)
+        target_max_minutes = target_minutes + 0.5
+        variant_target_words = int(target_minutes * _NARRATION_WPM * 0.85)
 
         label = f"Variant {variant}" if variant else "composing the documentary whole"
         console.print(
@@ -118,22 +120,22 @@ class ComposerPipeline:
                 _w.stage_start("composer")
             prompt_fn = build_script_a_prompt if variant == "A" else build_script_b_prompt
             composed = self._compose_variant(
-                prompt_fn(topic, script_text, beats, target_words=_VARIANT_TARGET_WORDS),
+                prompt_fn(topic, script_text, beats, target_words=variant_target_words),
                 temperature=temperature,
             )
             # Retry-first overshoot: attempt a second compose before falling back to trim pass.
             _v_words = len(composed.split())
-            if _v_words > _VARIANT_TARGET_WORDS + 50:
+            if _v_words > variant_target_words + 50:
                 logger.warning(
                     "Composer variant {}: {} words (cap {}) — retrying before trim pass",
-                    variant, _v_words, _VARIANT_TARGET_WORDS,
+                    variant, _v_words, variant_target_words,
                 )
                 console.print(
                     f"  [yellow]⚠ {_v_words} words — retrying with word count reinforced...[/yellow]"
                 )
                 try:
                     _retry = self._compose_variant(
-                        prompt_fn(topic, script_text, beats, target_words=_VARIANT_TARGET_WORDS),
+                        prompt_fn(topic, script_text, beats, target_words=variant_target_words),
                         temperature=temperature,
                     )
                     _retry_words = len(_retry.split())
@@ -182,25 +184,27 @@ class ComposerPipeline:
                 f"Closing: {closing_lines}"
             )
 
+        target_min_words = int(target_min_minutes * _NARRATION_WPM)
+        target_max_words = int(target_max_minutes * _NARRATION_WPM)
         words = len(composed.split())
-        minutes = words / NARRATION_WPM
-        in_range = TARGET_MIN_MINUTES <= minutes <= TARGET_MAX_MINUTES
+        minutes = words / _NARRATION_WPM
+        in_range = target_min_minutes <= minutes <= target_max_minutes
         console.print(
             f"  [dim]Composed:[/dim] {words} words (~{minutes:.1f} min) — "
-            f"target {TARGET_MIN_MINUTES}-{TARGET_MAX_MINUTES} min"
+            f"target {target_min_minutes}-{target_max_minutes} min"
         )
-        if not in_range and minutes > TARGET_MAX_MINUTES:
+        if not in_range and minutes > target_max_minutes:
             logger.warning(
                 "Composer: {:.1f} min outside {}-{} min target ({} words) — attempting trim pass",
-                minutes, TARGET_MIN_MINUTES, TARGET_MAX_MINUTES, words,
+                minutes, target_min_minutes, target_max_minutes, words,
             )
             console.print("  [yellow]⚠ Too long — running surgical trim pass...[/yellow]")
-            trimmed = self._trim_to_range(composed)
+            trimmed = self._trim_to_range(composed, target_min_words, target_max_words)
             if trimmed is not None:
                 composed = trimmed
                 words = len(composed.split())
-                minutes = words / NARRATION_WPM
-                in_range = TARGET_MIN_MINUTES <= minutes <= TARGET_MAX_MINUTES
+                minutes = words / _NARRATION_WPM
+                in_range = target_min_minutes <= minutes <= target_max_minutes
                 console.print(
                     f"  [dim]After trim:[/dim] {words} words (~{minutes:.1f} min)"
                 )
@@ -216,7 +220,7 @@ class ComposerPipeline:
         elif not in_range:
             logger.warning(
                 "Composer: {:.1f} min outside {}-{} min target ({} words)",
-                minutes, TARGET_MIN_MINUTES, TARGET_MAX_MINUTES, words,
+                minutes, target_min_minutes, target_max_minutes, words,
             )
             console.print("  [yellow]⚠ Outside target range[/yellow]")
 
@@ -236,7 +240,7 @@ class ComposerPipeline:
         console.print(
             Panel(
                 f"[{status_color}]Composed[/{status_color}] — {words} words, ~{minutes:.1f} min "
-                f"(target {TARGET_MIN_MINUTES}-{TARGET_MAX_MINUTES} min)\n"
+                f"(target {target_min_minutes}-{target_max_minutes} min)\n"
                 f"[dim]Base -> script_pre_composer.md | Final -> script.md[/dim]",
                 title="Composer",
                 border_style="magenta",
@@ -269,15 +273,22 @@ class ComposerPipeline:
         )
         return response.text.strip()
 
-    def _trim_to_range(self, script: str) -> str | None:
+    def _trim_to_range(
+        self,
+        script: str,
+        target_min_words: int | None = None,
+        target_max_words: int | None = None,
+    ) -> str | None:
         """Surgical trim pass: remove filler/restatements to reach word target.
 
         Takes the placeholder-restored script (scripture already back in place).
         Returns the trimmed text on success, None if the LLM call fails or the
         output is clearly corrupt (empty, lost rehook).
         """
-        target_min_words = int(TARGET_MIN_MINUTES * NARRATION_WPM)
-        target_max_words = int(TARGET_MAX_MINUTES * NARRATION_WPM)
+        if target_min_words is None:
+            target_min_words = int((_DEFAULT_TARGET_MINUTES - 1) * _NARRATION_WPM)
+        if target_max_words is None:
+            target_max_words = int((_DEFAULT_TARGET_MINUTES + 0.5) * _NARRATION_WPM)
         current_words = len(script.split())
         system_prompt = build_trim_system_prompt(
             current_words, target_min_words, target_max_words

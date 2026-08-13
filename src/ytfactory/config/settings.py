@@ -698,3 +698,11 @@ class Settings(SharedSettings):
     shorts_subtitle_play_res_x: int = 1080
     shorts_subtitle_play_res_y: int = 1920
     shorts_bgm_enabled: bool = True
+
+    # ── Scene Continuity Enforcement ────────────────────────────────────
+    scene_continuity_enabled: bool = True
+    scene_continuity_strict: bool = False
+    scene_continuity_max_retries: int = 2
+    scene_continuity_prompt_validation: bool = True
+    scene_continuity_fail_on_error: bool = False
+    scene_continuity_debug: bool = False

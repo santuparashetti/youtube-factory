@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ytfactory.image.prompt_builder_mixin import BiblePromptBuilderMixin, PromptValidationError  # noqa: F401
 from ytfactory.images.clothing_policy import (
     apply_clothing_policy,
     detect_violation,
@@ -87,7 +88,7 @@ _HAND_COMPOSITION_NEGATIVE = (
 )
 
 
-class ImagePromptEngineV4:
+class ImagePromptEngineV4(BiblePromptBuilderMixin):
     """
     V5 image prompt engine (class name kept for backward compatibility).
 
@@ -104,6 +105,24 @@ class ImagePromptEngineV4:
     For provider-aware anatomy reinforcement (call after LLM generates prompts):
         scenes = engine.enrich_for_provider(scenes, provider_name)
     """
+
+    # ── Bible-aware prompt entry point ────────────────────────────────────────
+
+    def build_prompt(self, scene: dict, **kwargs) -> str:
+        """Return the image prompt for *scene*.
+
+        Bible path: if bible_ext is present and valid, constructs the prompt
+        from CharacterBible + EnvironmentBible data. Raises PromptValidationError
+        on malformed or invalid bible_ext — caller must catch and route to the
+        existing flagged-scene remediation path.
+
+        Legacy path: falls back to scene["visual_prompt"] unchanged when
+        bible_ext is absent or empty (is_legacy() == True).
+        """
+        bible_prompt = self.try_bible_build(scene, **kwargs)
+        if bible_prompt is not None:
+            return bible_prompt
+        return scene.get("visual_prompt", "")
 
     # ── Public API ─────────────────────────────────────────────────────────────
 

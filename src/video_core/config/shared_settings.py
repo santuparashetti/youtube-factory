@@ -91,6 +91,22 @@ class SharedSettings(BaseSettings):
     research_model: str = ""
     title_model: str = ""
     subtitle_model: str = ""
+    ssml_model: str = ""
+
+    # ------------------------------------------------------------------
+    # SSML Enhancement
+    # ------------------------------------------------------------------
+
+    # Feature flag — when False the raw narration goes straight to TTS.
+    ssml_enhancement_enabled: bool = False
+
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
+
+    # Loguru sink level. DEBUG surfaces SSML output, TTS cache decisions, etc.
+    # Maps directly to LOG_LEVEL in .env. "INFO" is the production default.
+    log_level: str = "INFO"
 
     # ------------------------------------------------------------------
     # Models

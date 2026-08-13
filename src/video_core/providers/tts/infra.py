@@ -43,11 +43,25 @@ _TRANSIENT_TYPES = (
     OSError,
 )
 
+# Congestion markers: 429 rate limit, concurrency limit, provider quota — all
+# transient and worth retrying with backoff.
+_CONGESTION_MARKERS = (
+    "429",
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "concurrency limit",
+    "concurrency_limit",
+    "concurrency_limit_reached",
+    "too many requests",
+    "quota",
+)
+
 
 def is_retryable(exc: Exception) -> bool:
-    """Return True only for transient failures (timeouts, network, resets).
+    """Return True only for transient failures (timeouts, network, resets, rate limits).
 
-    Never retries 4xx auth, invalid request, or other client errors.
+    Never retries 4xx auth, invalid request, or other permanent client errors.
     """
     message = str(exc).lower()
 
@@ -58,6 +72,10 @@ def is_retryable(exc: Exception) -> bool:
     # Explicit non-retryable markers (auth / bad request) — bail immediately.
     if any(token in message for token in _NON_RETRYABLE_SUBSTRINGS):
         return False
+
+    # Congestion (429 / rate limit / quota) is transient — retry with backoff.
+    if any(token in message for token in _CONGESTION_MARKERS):
+        return True
 
     # Transient network/IO types are retryable.
     if isinstance(exc, _TRANSIENT_TYPES):

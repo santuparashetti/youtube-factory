@@ -1,0 +1,47 @@
+environments:
+
+  ANCIENT_STONE_WORKSHOP:
+    era_family: HISTORICAL
+    period: ANCIENT_GREECE
+    allowed_temporal_modes:
+      - HISTORICAL_LITERAL
+      - HISTORICAL_SYMBOLIC
+    description: >
+      Modest ancient Greek stone-carver's workshop opening into a shaded
+      domestic courtyard. Weathered pale limestone, rough timber beams,
+      worn plaster, earthenware vessels, pale stone dust, simple hand tools,
+      and an unfinished stone face. Photorealistic environmental textures
+      and cinematic depth of field. No modern objects.
+
+  ANCIENT_AGORA:
+    era_family: HISTORICAL
+    period: ANCIENT_GREECE
+    allowed_temporal_modes:
+      - HISTORICAL_LITERAL
+      - HISTORICAL_SYMBOLIC
+    description: >
+      Broad sunlit ancient Greek public agora with pale weathered limestone,
+      worn stone steps, scattered olive trees, dusty ground, simple timber
+      benches, clay vessels, and natural Mediterranean side light.
+
+  CONTEMPORARY_APARTMENT:
+    era_family: CONTEMPORARY
+    period: PRESENT_DAY
+    allowed_temporal_modes:
+      - CONTEMPORARY_LITERAL
+      - CONTEMPORARY_SYMBOLIC
+    description: >
+      Contemporary apartment interior at blue dusk with natural wood floor,
+      pale plaster walls, muted fabric sofa, plain wooden dining table,
+      and realistic domestic textures.
+
+  ABSTRACT:
+    era_family: ABSTRACT
+    period: TIMELESS
+    allowed_temporal_modes:
+      - HISTORICAL_SYMBOLIC
+      - CONTEMPORARY_SYMBOLIC
+      - TIMELESS_SYMBOLIC
+    description: >
+      Non-specific symbolic environment. No architectural period is enforced.
+      Lighting and palette are determined by scene mood.

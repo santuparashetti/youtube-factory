@@ -109,6 +109,7 @@ Answer ONLY in JSON. Do not add any explanation.
   "environment": "specific location or setting from the narration",
   "primary_action": "what is happening in one phrase",
   "emotional_beat": "dominant emotion: wonder|mystery|hope|peace|grief|isolation|determination|reverence|longing|fear|regret",
+  "narrative_phase": "one of: HOOK|STORY|TENSION|REVELATION|HUMAN_PARALLEL|DEEPER_INSIGHT|PRACTICE|PHILOSOPHICAL_QUESTION|CALLBACK|MEMORABLE_FINAL_LINE",
   "story_goal": "what this scene reveals about the story in one phrase",
   "human_requirement": "required|optional|forbidden|permitted_symbolic",
   "named_person": "named human if present, else empty string",

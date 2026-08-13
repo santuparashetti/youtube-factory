@@ -22,6 +22,7 @@ def _settings(**overrides) -> MagicMock:
     s.tts_debug = False
     s.tts_pacing_enabled = False
     s.tts_pacing_profile = "balanced"
+    s.ssml_enhancement_enabled = False
     s.tts_analytics_enabled = True
     s.tts_log_per_scene = False
     s.tts_summary_enabled = False

@@ -18,6 +18,7 @@ _ROLE_SETTINGS_FIELD: dict[str, str] = {
     "research": "research_model",
     "title": "title_model",
     "subtitle": "subtitle_model",
+    "ssml": "ssml_model",
 }
 
 

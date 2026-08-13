@@ -24,6 +24,7 @@ from .artifacts import audio_directory
 from .models import VoiceArtifact
 from .repository import VoiceRepository
 from ytfactory.shared.pipeline_status import get_writer
+from ytfactory.ssml_enhancer import SsmlEnhancer, strip_ssml
 
 _optimizer = SpeechOptimizer()
 _validator = AudioValidator()
@@ -111,6 +112,7 @@ class VoicePipeline:
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        self._ssml_enhancer: SsmlEnhancer | None = None
         self._pricing_config = ProviderPricingConfig.from_dict({
             "providers": {
                 "cartesia": {
@@ -142,6 +144,12 @@ class VoicePipeline:
         if self._provider is None:
             self._provider = get_tts_provider(self._settings, analytics=self._analytics)
         return self._provider
+
+    def _ensure_ssml_enhancer(self) -> SsmlEnhancer:
+        if self._ssml_enhancer is None:
+            from video_core.providers.llm.factory import get_llm_for_role
+            self._ssml_enhancer = SsmlEnhancer(get_llm_for_role(self._settings, "ssml"))
+        return self._ssml_enhancer
 
     def _regenerate_subtitles(
         self,
@@ -269,18 +277,47 @@ class VoicePipeline:
                 )
                 debug.write_original(original_text)
 
-                # Contemplative pacing is skipped for asset/brand scenes (short by design).
-                use_pacing = self._settings.tts_pacing_enabled and scene_type not in ("asset", "brand_card")
+                # SSML enhancement — Speechify-compatible SSML injected before TTS.
+                # When active: ssml_script goes to TTS; clean_script goes to subtitles.
+                # Pacing is bypassed because SSML already encodes all pauses via <break>.
+                use_ssml = self._settings.ssml_enhancement_enabled
+                if use_ssml:
+                    narrative_phase = scene.get("narrative_phase", "")
+                    ssml_script = self._ensure_ssml_enhancer().enhance(
+                        original_text, narrative_phase=narrative_phase
+                    )
+                    clean_script = strip_ssml(ssml_script)
+                    debug.write_ssml(ssml_script)
+                else:
+                    ssml_script = original_text
+                    clean_script = original_text
+
+                # Contemplative pacing is skipped for asset/brand scenes (short by design)
+                # and also skipped when SSML is active (SSML encodes pauses itself).
+                use_pacing = (
+                    self._settings.tts_pacing_enabled
+                    and scene_type not in ("asset", "brand_card")
+                    and not use_ssml
+                )
 
                 if not use_pacing:
-                    # Standard path: optimizer runs on the full narration.
-                    optimized = _optimizer.optimize(
-                        original_text,
-                        style=style,
-                        scene_position=scene_position,
-                        keywords=[scene_title] if scene_title else None,
-                    )
-                    debug.write_optimized(optimized)
+                    if use_ssml:
+                        tts_input = ssml_script
+                        logger.debug(
+                            "TTS [ssml] scene {} — enhanced SSML ({} chars):\n{}",
+                            scene["index"],
+                            len(ssml_script),
+                            ssml_script,
+                        )
+                    else:
+                        # Standard path: optimizer runs on the full narration.
+                        tts_input = _optimizer.optimize(
+                            original_text,
+                            style=style,
+                            scene_position=scene_position,
+                            keywords=[scene_title] if scene_title else None,
+                        )
+                        debug.write_optimized(tts_input)
 
                 # Retry loop with exponential backoff
                 boundaries: list[dict] = []
@@ -322,14 +359,14 @@ class VoicePipeline:
                         else:
                             debug.write_provider_request(
                                 {
-                                    "text": optimized,
+                                    "text": tts_input,
                                     "language": language,
                                     "style": style,
                                     "scene_position": scene_position,
                                 }
                             )
                             _, boundaries = self._provider.generate_with_boundaries(
-                                text=optimized,
+                                text=tts_input,
                                 output_path=output,
                                 language=language,
                                 style=style,
@@ -377,13 +414,15 @@ class VoicePipeline:
                     encoding="utf-8",
                 )
 
-                # WhisperX forced alignment (optional — gives accurate word timestamps)
+                # WhisperX forced alignment (optional — gives accurate word timestamps).
+                # Always aligns against clean_script (SSML tags stripped) so the
+                # transcript matches the spoken words, never the markup.
                 if self._settings.whisperx_enabled and output.exists():
                     alignment_output = output.with_suffix(".alignment.json")
                     if not alignment_output.exists():
                         try:
                             alignment = whisperx_align(
-                                original_text,
+                                clean_script,
                                 output,
                                 device=self._settings.whisperx_device,
                                 language=language,

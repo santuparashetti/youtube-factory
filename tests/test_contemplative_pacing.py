@@ -770,6 +770,7 @@ class TestVoicePipelineIntegration:
         s.tts_validate_audio = False
         s.tts_auto_retry = False
         s.tts_max_retries = 1
+        s.ssml_enhancement_enabled = False
         return s
 
     def _setup_workspace(self, tmp_path: Path, scene: dict) -> tuple[Path, Path]:

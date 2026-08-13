@@ -34,16 +34,21 @@ DIVIDER = "━" * 40
 WORDS_PER_MINUTE = 140  # display estimate only
 
 _MAX_RECOMPOSE_ATTEMPTS = 3
-_RECOMPOSE_TRIM_THRESHOLD = 940  # words; trim recomposed output if it exceeds this
+_NARRATION_WPM = 130
 
 
-def _apply_recompose_trim(text: str, composer: "ComposerPipeline") -> str:
+def _recompose_trim_threshold(target_minutes: int) -> int:
+    return int(target_minutes * _NARRATION_WPM * 1.05)
+
+
+def _apply_recompose_trim(text: str, composer: "ComposerPipeline", target_minutes: int = 7) -> str:
     """Run the trim pass on recomposed output if it exceeds the word threshold."""
     words = len(text.split())
-    if words <= _RECOMPOSE_TRIM_THRESHOLD:
+    threshold = _recompose_trim_threshold(target_minutes)
+    if words <= threshold:
         return text
     console.print(
-        f"  [yellow]⚠ Recomposed at {words} words (>{_RECOMPOSE_TRIM_THRESHOLD}) — applying trim pass...[/yellow]"
+        f"  [yellow]⚠ Recomposed at {words} words (>{threshold}) — applying trim pass...[/yellow]"
     )
     trimmed = composer._trim_to_range(text)
     if trimmed is not None:
@@ -61,6 +66,7 @@ def run_composer_with_ab_selection(
     project_id: str,
     base_script_text: str | None = None,
     beats: list[dict] | None = None,
+    target_minutes: int = 7,
 ) -> str:
     """Run the composer twice, judge the results, optionally recompose, write script.md.
 
@@ -78,7 +84,7 @@ def run_composer_with_ab_selection(
     settings = composer._settings
 
     # ── Generate Script A ────────────────────────────────────────────────────
-    composer.run(project_id, script_text=base_script_text, beats=beats)
+    composer.run(project_id, script_text=base_script_text, beats=beats, target_minutes=target_minutes)
     script_a_path = script_dir / "script-a.md"
     script_a_path.write_text(script_file.read_text(encoding="utf-8"), encoding="utf-8")
     script_a = script_a_path.read_text(encoding="utf-8")
@@ -86,7 +92,7 @@ def run_composer_with_ab_selection(
     # ── Generate Script B (graceful rehook degradation) ──────────────────────
     script_b: Optional[str] = None
     try:
-        composer.run(project_id, script_text=base_script_text, beats=beats)
+        composer.run(project_id, script_text=base_script_text, beats=beats, target_minutes=target_minutes)
         script_b_path = script_dir / "script-b.md"
         script_b_path.write_text(script_file.read_text(encoding="utf-8"), encoding="utf-8")
         script_b = script_b_path.read_text(encoding="utf-8")
@@ -125,7 +131,7 @@ def run_composer_with_ab_selection(
             console.print(
                 f"  [dim]Guided recompose — attempt {attempt}/{_MAX_RECOMPOSE_ATTEMPTS}[/dim]"
             )
-            recomposed = guided_recompose(script_a, script_b, verdict, provider, settings, beats=beats)
+            recomposed = guided_recompose(script_a, script_b, verdict, provider, settings, beats=beats, target_minutes=target_minutes)
             if recomposed is None:
                 logger.warning(
                     "Recomposer attempt {}/{} failed or skipped.",
@@ -144,7 +150,7 @@ def run_composer_with_ab_selection(
                     "Quality check returned None on attempt {} — accepting recomposed.",
                     attempt,
                 )
-                recomposed = _apply_recompose_trim(recomposed, composer)
+                recomposed = _apply_recompose_trim(recomposed, composer, target_minutes)
                 _write_final(recomposed, script_file)
                 _write_judge_report(verdict, project_id, outcome="recomposed")
                 _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")
@@ -161,7 +167,7 @@ def run_composer_with_ab_selection(
                     attempt, _MAX_RECOMPOSE_ATTEMPTS,
                     quality_check.script_a_score, candidate_score,
                 )
-                recomposed = _apply_recompose_trim(recomposed, composer)
+                recomposed = _apply_recompose_trim(recomposed, composer, target_minutes)
                 _write_final(recomposed, script_file)
                 _write_judge_report(verdict, project_id, outcome="recomposed")
                 _cleanup_ab_files(script_dir, winner=None, outcome="recomposed")

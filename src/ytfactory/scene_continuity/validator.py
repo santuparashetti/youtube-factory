@@ -93,10 +93,17 @@ class ContinuityValidator:
         scene_analysis_map: dict[int, Any] | None = None,
     ) -> list[ContinuityFinding]:
         """Validate all scenes; return list of ContinuityFindings."""
+        from .tracker import (
+            _get_scene_idx,
+        )  # local to avoid circular import at module load
+
         findings: list[ContinuityFinding] = []
         analysis_map = scene_analysis_map or {}
-        for idx, scene in enumerate(scenes):
-            findings.extend(self.validate_scene(idx, scene, analysis_map.get(idx)))
+        for enum_idx, scene in enumerate(scenes):
+            scene_idx = _get_scene_idx(enum_idx, scene)
+            findings.extend(
+                self.validate_scene(scene_idx, scene, analysis_map.get(scene_idx))
+            )
         return findings
 
     def validate_scene(
@@ -118,8 +125,12 @@ class ContinuityValidator:
         narration = _get_narration(scene)
 
         findings.extend(self._check_dead_characters(scene_idx, prompt, mode))
-        findings.extend(self._check_forbidden_characters(scene_idx, scene, scene_analysis, prompt))
-        findings.extend(self._check_prop_state_continuity(scene_idx, prompt, narration, mode))
+        findings.extend(
+            self._check_forbidden_characters(scene_idx, scene, scene_analysis, prompt)
+        )
+        findings.extend(
+            self._check_prop_state_continuity(scene_idx, prompt, narration, mode)
+        )
         findings.extend(self._check_narration_coverage(scene_idx, prompt, narration))
         return findings
 
@@ -133,20 +144,24 @@ class ContinuityValidator:
         findings: list[ContinuityFinding] = []
         char_states, _ = self._state.get_state_before_scene(scene_idx)
         for cid, char_state in char_states.items():
-            if not char_state.alive and _name_appears_in_prompt(char_state.name, prompt):
-                findings.append(ContinuityFinding(
-                    scene_id=scene_idx,
-                    level=ValidationLevel.ERROR,
-                    category="CHARACTER_CONTINUITY",
-                    message=(
-                        f"'{char_state.name}' appears in prompt but died before scene {scene_idx}. "
-                        f"Last seen at scene {char_state.scene_last_seen}."
-                    ),
-                    suggested_fix=(
-                        f"Remove '{char_state.name}' from the visual prompt, or mark this scene SYMBOLIC "
-                        "if it's a flashback/memory."
-                    ),
-                ))
+            if not char_state.alive and _name_appears_in_prompt(
+                char_state.name, prompt
+            ):
+                findings.append(
+                    ContinuityFinding(
+                        scene_id=scene_idx,
+                        level=ValidationLevel.ERROR,
+                        category="CHARACTER_CONTINUITY",
+                        message=(
+                            f"'{char_state.name}' appears in prompt but died before scene {scene_idx}. "
+                            f"Last seen at scene {char_state.scene_last_seen}."
+                        ),
+                        suggested_fix=(
+                            f"Remove '{char_state.name}' from the visual prompt, or mark this scene SYMBOLIC "
+                            "if it's a flashback/memory."
+                        ),
+                    )
+                )
         return findings
 
     def _check_forbidden_characters(
@@ -160,14 +175,19 @@ class ContinuityValidator:
         forbidden = _get_forbidden_characters(scene, scene_analysis)
         for char_name in forbidden:
             if _name_appears_in_prompt(char_name, prompt):
-                findings.append(ContinuityFinding(
-                    scene_id=scene_idx,
-                    level=ValidationLevel.ERROR,
-                    category="EXTRA_CHARACTER",
-                    message=f"Forbidden character '{char_name}' appears in prompt for scene {scene_idx}.",
-                    suggested_fix=f"Remove '{char_name}' from the prompt. Only allowed characters: "
-                    + ", ".join(_get_allowed_characters(scene, scene_analysis) or ["(none specified)"]),
-                ))
+                findings.append(
+                    ContinuityFinding(
+                        scene_id=scene_idx,
+                        level=ValidationLevel.ERROR,
+                        category="EXTRA_CHARACTER",
+                        message=f"Forbidden character '{char_name}' appears in prompt for scene {scene_idx}.",
+                        suggested_fix=f"Remove '{char_name}' from the prompt. Only allowed characters: "
+                        + ", ".join(
+                            _get_allowed_characters(scene, scene_analysis)
+                            or ["(none specified)"]
+                        ),
+                    )
+                )
         return findings
 
     def _check_prop_state_continuity(
@@ -184,9 +204,9 @@ class ContinuityValidator:
             if not prop_state.current_state:
                 continue
             # Look for contradictory state keywords in the prompt
-            _LIT_WORDS   = {"lit", "burning", "glowing", "illuminated", "aflame"}
+            _LIT_WORDS = {"lit", "burning", "glowing", "illuminated", "aflame"}
             _UNLIT_WORDS = {"unlit", "dark", "extinguished", "cold", "dead", "dim"}
-            _FULL_WORDS  = {"full", "filled"}
+            _FULL_WORDS = {"full", "filled"}
             _EMPTY_WORDS = {"empty", "empty", "depleted", "spent", "drained"}
 
             prompt_lower = prompt.lower()
@@ -207,19 +227,21 @@ class ContinuityValidator:
             if proposed:
                 ok, reason = prop_state.can_be_in_state(proposed)
                 if not ok:
-                    findings.append(ContinuityFinding(
-                        scene_id=scene_idx,
-                        level=ValidationLevel.WARNING,
-                        category="PROP_STATE",
-                        message=(
-                            f"Prop '{prop_state.name}' shown as '{proposed}' in scene {scene_idx} "
-                            f"but {reason}."
-                        ),
-                        suggested_fix=(
-                            f"Either narration should explain the state change, or update the prompt "
-                            f"to show the prop as '{prop_state.current_state}'."
-                        ),
-                    ))
+                    findings.append(
+                        ContinuityFinding(
+                            scene_id=scene_idx,
+                            level=ValidationLevel.WARNING,
+                            category="PROP_STATE",
+                            message=(
+                                f"Prop '{prop_state.name}' shown as '{proposed}' in scene {scene_idx} "
+                                f"but {reason}."
+                            ),
+                            suggested_fix=(
+                                f"Either narration should explain the state change, or update the prompt "
+                                f"to show the prop as '{prop_state.current_state}'."
+                            ),
+                        )
+                    )
         return findings
 
     def _check_narration_coverage(
@@ -231,13 +253,35 @@ class ContinuityValidator:
             return findings
 
         # Extract significant words from narration (>4 chars, skip stopwords)
-        _STOPWORDS = frozenset({
-            "there", "their", "about", "would", "could", "which", "after",
-            "before", "while", "where", "being", "these", "those", "other",
-            "every", "some", "have", "from", "with", "that", "this", "when",
-        })
+        _STOPWORDS = frozenset(
+            {
+                "there",
+                "their",
+                "about",
+                "would",
+                "could",
+                "which",
+                "after",
+                "before",
+                "while",
+                "where",
+                "being",
+                "these",
+                "those",
+                "other",
+                "every",
+                "some",
+                "have",
+                "from",
+                "with",
+                "that",
+                "this",
+                "when",
+            }
+        )
         narration_words = {
-            w.lower() for w in re.findall(r"\b\w+\b", narration)
+            w.lower()
+            for w in re.findall(r"\b\w+\b", narration)
             if len(w) > 4 and w.lower() not in _STOPWORDS
         }
         prompt_lower = prompt.lower()
@@ -249,17 +293,19 @@ class ContinuityValidator:
         matches = sum(1 for w in narration_words if w in prompt_lower)
         coverage = matches / len(narration_words)
         if coverage < 0.08:  # Less than 8% overlap — very likely a disconnected prompt
-            findings.append(ContinuityFinding(
-                scene_id=scene_idx,
-                level=ValidationLevel.WARNING,
-                category="NARRATION_COVERAGE",
-                message=(
-                    f"Scene {scene_idx} prompt shares very few words with narration "
-                    f"({matches}/{len(narration_words)} key words). "
-                    "Prompt may be disconnected from what is being said."
-                ),
-                suggested_fix="Ensure the visual prompt represents what the narration describes.",
-            ))
+            findings.append(
+                ContinuityFinding(
+                    scene_id=scene_idx,
+                    level=ValidationLevel.WARNING,
+                    category="NARRATION_COVERAGE",
+                    message=(
+                        f"Scene {scene_idx} prompt shares very few words with narration "
+                        f"({matches}/{len(narration_words)} key words). "
+                        "Prompt may be disconnected from what is being said."
+                    ),
+                    suggested_fix="Ensure the visual prompt represents what the narration describes.",
+                )
+            )
         return findings
 
     def _check_cta_scene(
@@ -272,14 +318,16 @@ class ContinuityValidator:
             if char_state.role in {"protagonist", "main"} and _name_appears_in_prompt(
                 char_state.name, prompt
             ):
-                findings.append(ContinuityFinding(
-                    scene_id=scene_idx,
-                    level=ValidationLevel.WARNING,
-                    category="CTA_STORY_LEAK",
-                    message=(
-                        f"CTA/symbolic scene {scene_idx} includes story character '{char_state.name}'. "
-                        "Brand cards should be story-neutral."
-                    ),
-                    suggested_fix="Remove story character references from brand/CTA scene prompts.",
-                ))
+                findings.append(
+                    ContinuityFinding(
+                        scene_id=scene_idx,
+                        level=ValidationLevel.WARNING,
+                        category="CTA_STORY_LEAK",
+                        message=(
+                            f"CTA/symbolic scene {scene_idx} includes story character '{char_state.name}'. "
+                            "Brand cards should be story-neutral."
+                        ),
+                        suggested_fix="Remove story character references from brand/CTA scene prompts.",
+                    )
+                )
         return findings

@@ -112,16 +112,16 @@ CRITICAL RULES:
 9. Preserve the ending from whichever script the section map designates as stronger
    for the ending — this is the second highest-leverage line.
 10. WORD COUNT REQUIREMENT — NON-NEGOTIABLE:
-    Target: 880-920 words.
+    Target: {recompose_min}-{recompose_max} words.
     This is a hard requirement, not a guideline.
 
-    The scripts you are combining are each ~960-1024 words.
+    The scripts you are combining are each ~{source_words_min}-{source_words_max} words.
     You are NOT combining them — you are selecting the best
     sections and writing a tighter whole.
 
     Self-check before outputting:
-    - Under 880: you have cut beats — restore the most compressed ones
-    - Over 920: condense sentences and remove filler, never remove beats
+    - Under {recompose_min}: you have cut beats — restore the most compressed ones
+    - Over {recompose_max}: condense sentences and remove filler, never remove beats
     - Check your word count before returning output.
 
     This rule does NOT override the IRON RULE:

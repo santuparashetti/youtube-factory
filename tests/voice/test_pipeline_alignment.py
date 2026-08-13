@@ -27,6 +27,7 @@ def _settings(whisperx_enabled: bool = False, **overrides) -> MagicMock:
     s.tts_debug = False
     s.tts_pacing_enabled = False
     s.tts_pacing_profile = "balanced"
+    s.ssml_enhancement_enabled = False
     for k, v in overrides.items():
         setattr(s, k, v)
     return s

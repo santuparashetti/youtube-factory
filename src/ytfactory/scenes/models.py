@@ -90,6 +90,7 @@ class SceneAnalysis:
     environment: str = ""
     primary_action: str = ""
     emotional_beat: str = ""
+    narrative_phase: str = ""  # NarrativePhase value, e.g. "HOOK", "TENSION"
     story_goal: str = ""
     human_requirement: Literal["required", "optional", "forbidden", "permitted_symbolic"] = "forbidden"
     named_person: str = ""
@@ -124,6 +125,7 @@ class Scene(BaseModel):
     asset_path: str | None = Field(default=None, description="Resolved path to the source image/video asset for this scene")
     asset_id: str | None = Field(default=None, description="Original asset identifier (path or ID) from brand or source config")
     faithfulness_qa: dict | None = Field(default=None, description="QA result from faithfulness validation pass")
+    narrative_phase: str = Field(default="", description="Narrative pipeline phase (HOOK, STORY, TENSION, REVELATION, …). Drives SSML emotion targeting.")
     scene_analysis: SceneAnalysis | None = Field(default=None, description="Structured scene analysis for story-first prompt generation")
     anchor_role: Literal["primary", "spectator", "absent"] = Field(
         default="absent",

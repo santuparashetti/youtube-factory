@@ -1,7 +1,10 @@
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
+from loguru import logger
 from rich.console import Console
 
 from ytfactory.animate.cli import animate_scenes
@@ -626,10 +629,33 @@ def probe(
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """YouTube Factory — run without arguments to open the interactive wizard."""
+    _configure_logging()
     if ctx.invoked_subcommand is None:
         from ytfactory.cli.wizard import run_wizard
 
         run_wizard()
+
+
+def _configure_logging() -> None:
+    """Reconfigure loguru from LOG_LEVEL env var (default: INFO).
+
+    Replaces the loguru default sink so that level is driven by .env rather
+    than loguru's built-in DEBUG default.  Called once at CLI startup before
+    any pipeline code runs.
+    """
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level=level,
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
+        colorize=True,
+    )
 
 
 @app.command(name="run")

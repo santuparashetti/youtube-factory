@@ -292,7 +292,6 @@ class SceneAnalyzer:
             if is_qwen3_model(self._model):
                 provider = {
                     "order": ["alibaba"],
-                    "quantizations": ["fp8"],
                     "allow_fallbacks": False,
                 }
             else:
@@ -357,6 +356,17 @@ class SceneAnalyzer:
             else:
                 logger.debug("Skipping malformed figure_box: %s", b)
         regions: dict = data.get("regions", {}) or {}
+        for key, region_box in list(regions.items()):
+            if not isinstance(region_box, (list, tuple)):
+                continue
+            b = region_box
+            while isinstance(b, (list, tuple)) and len(b) == 1 and isinstance(b[0], (list, tuple)):
+                b = b[0]
+            if isinstance(b, (list, tuple)) and len(b) == 4:
+                regions[key] = list(b)
+            else:
+                logger.debug("Dropping malformed region '%s': %s", key, region_box)
+                regions[key] = None
 
         raw_effects = [
             EffectSpec(

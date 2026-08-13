@@ -7,7 +7,7 @@ import math
 import re
 from dataclasses import dataclass, field, replace as dc_replace
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from loguru import logger
 from rich.console import Console
@@ -45,17 +45,26 @@ from ytfactory.images.validators import (
     run_validators,
 )
 from ytfactory.scene_continuity import (
+    ContinuityReport,
+    SceneContinuityStatus,
     ContinuityValidator,
+    StoryState,
     build_action_constraints_block,
     build_story_state,
+    validate_prompt_against_state,
 )
-from ytfactory.scenes.models import FaithfulnessStatus, StructuredImagePrompt, VisualBible
+from ytfactory.scenes.models import (
+    FaithfulnessStatus,
+    StructuredImagePrompt,
+    VisualBible,
+)
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import PipelineAbort
 from ytfactory.story_bible.composer import compose_scene_context
 from ytfactory.story_bible.generator import load_or_generate_story_bible
 from ytfactory.story_bible.models import StoryBible
 from ytfactory.story_bible.writer import write_story_bible
+from ytfactory.emotion.policy import NarrativePhase, emotion_policy
 from ytfactory.shared.script_utils import strip_script_heading
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
@@ -92,8 +101,11 @@ KAI_COMPRESSED_SPEC = (
 )
 
 _KAI_MARKERS = [
-    "dark hair", "simple dark shirt", "lean young man",
-    "light stubble", "plain trousers",
+    "dark hair",
+    "simple dark shirt",
+    "lean young man",
+    "light stubble",
+    "plain trousers",
 ]
 
 # Markers that indicate character-staging text has leaked into environment_prompt.
@@ -142,16 +154,53 @@ def _has_character_staging(prompt: str) -> bool:
 
 _ACTION_VERBS = [
     # Gerund forms (pre-V2 prompt style)
-    "sitting", "seated", "standing", "walking", "looking", "facing",
-    "leaning", "kneeling", "watching", "holding", "reaching", "turning",
-    "positioned", "gazing", "staring", "moving", "stepping",
+    "sitting",
+    "seated",
+    "standing",
+    "walking",
+    "looking",
+    "facing",
+    "leaning",
+    "kneeling",
+    "watching",
+    "holding",
+    "reaching",
+    "turning",
+    "positioned",
+    "gazing",
+    "staring",
+    "moving",
+    "stepping",
     # Simple present forms (V2 compiled_prompt style)
-    "sits", "stands", "walks", "looks", "faces",
-    "leans", "kneels", "watches", "holds", "reaches", "turns",
-    "gazes", "stares", "moves", "steps",
+    "sits",
+    "stands",
+    "walks",
+    "looks",
+    "faces",
+    "leans",
+    "kneels",
+    "watches",
+    "holds",
+    "reaches",
+    "turns",
+    "gazes",
+    "stares",
+    "moves",
+    "steps",
     # Past tense forms
-    "stood", "sat", "walked", "looked", "faced", "leaned", "knelt",
-    "watched", "held", "reached", "turned", "gazed", "stared",
+    "stood",
+    "sat",
+    "walked",
+    "looked",
+    "faced",
+    "leaned",
+    "knelt",
+    "watched",
+    "held",
+    "reached",
+    "turned",
+    "gazed",
+    "stared",
 ]
 
 
@@ -164,8 +213,13 @@ def _has_action_staging(prompt: str) -> bool:
 # Camera angles where a standing character cannot logically be placed.
 # "looking straight down" is a common false positive for _has_character_staging.
 _AERIAL_INDICATORS = [
-    "aerial", "drone shot", "bird's eye", "looking straight down",
-    "top-down", "overhead shot", "straight down on",
+    "aerial",
+    "drone shot",
+    "bird's eye",
+    "looking straight down",
+    "top-down",
+    "overhead shot",
+    "straight down on",
 ]
 
 
@@ -190,10 +244,7 @@ def _has_story_specific_character(scene: dict, prompt: str) -> bool:
     ) or []
 
     _KAI_NAMES = {"kai", "the anchor character", "anchor character"}
-    story_characters = [
-        c for c in allowed
-        if c and c.lower().strip() not in _KAI_NAMES
-    ]
+    story_characters = [c for c in allowed if c and c.lower().strip() not in _KAI_NAMES]
     if not story_characters:
         return False
 
@@ -270,9 +321,7 @@ _STYLE_FOOTER_ILLUSTRATED = (
     "texture — NOT photorealistic. No text, no watermark, no subtitle, no logo."
 )
 
-_STYLE_FOOTER_SYMBOLIC = (
-    "No text, no watermark, photorealistic."
-)
+_STYLE_FOOTER_SYMBOLIC = "No text, no watermark, photorealistic."
 
 # Two or more of these in a prompt means a footer is already present (partial or full).
 _FOOTER_INDICATORS = [
@@ -294,13 +343,19 @@ def _has_footer(prompt: str) -> bool:
 def _strip_partial_footer(prompt: str) -> str:
     """Strip any partial footer indicator phrases to prevent doubling on re-append."""
     for indicator in [
-        "documentary-quality realism", "no text, no watermark", "photorealistic",
-        "ink outlines", "cel shading", "painterly storybook texture",
-        "not photorealistic", "no subtitle", "no logo",
+        "documentary-quality realism",
+        "no text, no watermark",
+        "photorealistic",
+        "ink outlines",
+        "cel shading",
+        "painterly storybook texture",
+        "not photorealistic",
+        "no subtitle",
+        "no logo",
     ]:
         prompt = re.sub(
-            rf'[,.]?\s*{re.escape(indicator)}[^.]*\.?',
-            '',
+            rf"[,.]?\s*{re.escape(indicator)}[^.]*\.?",
+            "",
             prompt,
             flags=re.IGNORECASE,
         ).strip(" ,.")
@@ -362,9 +417,7 @@ def _enforce_style_footer(scenes: list[dict], hybrid: bool = False) -> list[dict
             char_marker = None
 
         has_full_footer = _has_footer(prompt)
-        needs_upgrade = (
-            char_marker is not None and char_marker not in prompt.lower()
-        )
+        needs_upgrade = char_marker is not None and char_marker not in prompt.lower()
 
         if has_full_footer and not needs_upgrade:
             continue  # already complete and correct
@@ -412,12 +465,16 @@ def _enforce_kai_distribution(
     promoted scenes get the Kai spec prepended via a follow-up
     _enforce_primary_kai_spec call in the main pipeline.
     """
-    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    gen_scenes = [
+        s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")
+    ]
     total = len(gen_scenes)
     if total < 4:
         return scenes
 
-    kai_count = sum(1 for s in gen_scenes if s.get("anchor_role") in ("primary", "spectator"))
+    kai_count = sum(
+        1 for s in gen_scenes if s.get("anchor_role") in ("primary", "spectator")
+    )
     target = max(3, int(total * 0.30))
     if kai_count >= target:
         return scenes
@@ -434,11 +491,19 @@ def _enforce_kai_distribution(
         ents = entity_map.get(idx)
         if ents and ents.human_classification == HumanClassification.NO_HUMAN_ALLOWED:
             continue
-        priority = 2 if (ents and ents.human_classification in (
-            HumanClassification.HUMAN_REQUIRED,
-            HumanClassification.HUMAN_OPTIONAL,
-            HumanClassification.HUMAN_SYMBOLIC,
-        )) else 1
+        priority = (
+            2
+            if (
+                ents
+                and ents.human_classification
+                in (
+                    HumanClassification.HUMAN_REQUIRED,
+                    HumanClassification.HUMAN_OPTIONAL,
+                    HumanClassification.HUMAN_SYMBOLIC,
+                )
+            )
+            else 1
+        )
         candidates.append((s, priority))
 
     if not candidates:
@@ -446,7 +511,10 @@ def _enforce_kai_distribution(
 
     # Spread evenly across arc phases so Kai isn't clustered in one section.
     phase_buckets: dict[str, list[tuple[dict, int]]] = {
-        "opening": [], "build": [], "climax": [], "resolution": [],
+        "opening": [],
+        "build": [],
+        "climax": [],
+        "resolution": [],
     }
     for s, prio in candidates:
         phase = _get_arc_phase(s.get("index", 1), total)
@@ -485,7 +553,9 @@ def _enforce_kai_distribution(
     if promoted > 0:
         logger.info(
             "Kai distribution: promoted {} scenes to primary (total {}/{})",
-            promoted, kai_count + promoted, total,
+            promoted,
+            kai_count + promoted,
+            total,
         )
     return scenes
 
@@ -497,7 +567,9 @@ def _enforce_era_consistency(scenes: list[dict]) -> list[dict]:
     in a single video.  TRANSITIONAL scenes are intentional bridges and are
     never overridden.  SYMBOLIC scenes are era-neutral and are left alone.
     """
-    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    gen_scenes = [
+        s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")
+    ]
     era_counts: dict[str, int] = {}
     for s in gen_scenes:
         vm = s.get("visual_metadata") or {}
@@ -525,13 +597,17 @@ def _enforce_era_consistency(scenes: list[dict]) -> list[dict]:
             harmonized += 1
             logger.info(
                 "Era consistency: scene {} harmonized {} → {}",
-                s.get("index"), old_era, dominant_era,
+                s.get("index"),
+                old_era,
+                dominant_era,
             )
 
     if harmonized > 0:
         logger.info(
             "Era consistency: harmonized {}/{} scenes to dominant era '{}'",
-            harmonized, len(gen_scenes), dominant_era,
+            harmonized,
+            len(gen_scenes),
+            dominant_era,
         )
     return scenes
 
@@ -539,15 +615,76 @@ def _enforce_era_consistency(scenes: list[dict]) -> list[dict]:
 # Environment keyword mapping for metadata sync from V2 prompts.
 _ENVIRONMENT_KEYWORDS: dict[str, list[str]] = {
     "FOREST": ["forest", "woods", "trees", "grove", "jungle", "woodland", "canopy"],
-    "TEMPLE": ["temple", "shrine", "cathedral", "church", "mosque", "chapel", "sanctuary"],
+    "TEMPLE": [
+        "temple",
+        "shrine",
+        "cathedral",
+        "church",
+        "mosque",
+        "chapel",
+        "sanctuary",
+    ],
     "ASHRAM": ["ashram", "monastery", "hermitage", "retreat", "meditation hall"],
-    "KINGDOM": ["palace", "throne", "castle", "court", "kingdom", "fortress", "citadel"],
+    "KINGDOM": [
+        "palace",
+        "throne",
+        "castle",
+        "court",
+        "kingdom",
+        "fortress",
+        "citadel",
+    ],
     "BATTLEFIELD": ["battlefield", "battle", "combat", "army", "siege", "warzone"],
-    "CITY": ["city", "street", "urban", "downtown", "skyline", "skyscraper", "alley", "boulevard"],
-    "OFFICE": ["office", "desk", "boardroom", "corporate", "cubicle", "conference room"],
-    "HOME": ["home", "house", "apartment", "kitchen", "bedroom", "living room", "domestic", "cottage", "hearth"],
-    "MOUNTAIN": ["mountain", "cliff", "peak", "summit", "hill", "ridge", "highland", "alpine"],
-    "RIVER": ["river", "stream", "lake", "pond", "water", "shore", "bank", "ghat", "riverbank"],
+    "CITY": [
+        "city",
+        "street",
+        "urban",
+        "downtown",
+        "skyline",
+        "skyscraper",
+        "alley",
+        "boulevard",
+    ],
+    "OFFICE": [
+        "office",
+        "desk",
+        "boardroom",
+        "corporate",
+        "cubicle",
+        "conference room",
+    ],
+    "HOME": [
+        "home",
+        "house",
+        "apartment",
+        "kitchen",
+        "bedroom",
+        "living room",
+        "domestic",
+        "cottage",
+        "hearth",
+    ],
+    "MOUNTAIN": [
+        "mountain",
+        "cliff",
+        "peak",
+        "summit",
+        "hill",
+        "ridge",
+        "highland",
+        "alpine",
+    ],
+    "RIVER": [
+        "river",
+        "stream",
+        "lake",
+        "pond",
+        "water",
+        "shore",
+        "bank",
+        "ghat",
+        "riverbank",
+    ],
     "ABSTRACT": ["abstract", "void", "emptiness", "geometric", "surreal"],
     "COSMIC": ["cosmos", "universe", "stars", "galaxy", "celestial", "space", "nebula"],
 }
@@ -566,8 +703,9 @@ def _sync_metadata_from_v2(scenes: list[dict]) -> list[dict]:
         if not sp:
             continue
         env_prompt = (
-            (sp.get("environment_prompt", "") if isinstance(sp, dict)
-             else getattr(sp, "environment_prompt", ""))
+            sp.get("environment_prompt", "")
+            if isinstance(sp, dict)
+            else getattr(sp, "environment_prompt", "")
         ).lower()
         if not env_prompt:
             continue
@@ -591,15 +729,22 @@ def _sync_metadata_from_v2(scenes: list[dict]) -> list[dict]:
             synced += 1
             logger.debug(
                 "Metadata sync: scene {} environment {} → {}",
-                scene.get("index"), old_env, best_match,
+                scene.get("index"),
+                old_env,
+                best_match,
             )
 
     if synced > 0:
-        logger.info("Metadata sync: updated environment for {}/{} scenes from V2 prompts", synced, len(scenes))
+        logger.info(
+            "Metadata sync: updated environment for {}/{} scenes from V2 prompts",
+            synced,
+            len(scenes),
+        )
     return scenes
 
 
 # ── Scene Planner V2 — Visual Bible + Structured Prompts ─────────────────────
+
 
 def _load_prompt_file(filename: str) -> str:
     """Load a .md prompt file from src/ytfactory/prompts/."""
@@ -630,7 +775,9 @@ def _stub_visual_bible() -> VisualBible:
     )
 
 
-def _generate_visual_bible(script_text: str, llm: LLMProvider, settings: Settings) -> VisualBible:
+def _generate_visual_bible(
+    script_text: str, llm: LLMProvider, settings: Settings
+) -> VisualBible:
     """Single LLM call to produce a VisualBible. Falls back to stub on failure."""
     if not settings.VISUAL_BIBLE_ENABLED:
         return _stub_visual_bible()
@@ -654,7 +801,9 @@ def _generate_visual_bible(script_text: str, llm: LLMProvider, settings: Setting
         # Strip markdown fences if present
         if raw.startswith("```"):
             lines = raw.splitlines()
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+            raw = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            ).strip()
         data = json.loads(raw)
         return VisualBible(**data)
     except Exception as e:
@@ -726,9 +875,17 @@ def _build_structured_prompt(
     """LLM call per scene to produce a StructuredImagePrompt."""
     arc_phase = _get_arc_phase(scene_index, total_scenes)
 
-    style_directive = _load_prompt_file("CINEMATIC_HYBRID_STYLE.md") if settings.HYBRID_STYLE_ENABLED else ""
+    style_directive = (
+        _load_prompt_file("CINEMATIC_HYBRID_STYLE.md")
+        if settings.HYBRID_STYLE_ENABLED
+        else ""
+    )
     anchor_role = scene.get("anchor_role", "absent")
-    pose_rules = _load_prompt_file("KAI_POSE_RULES.md") if (anchor_role != "absent" and settings.KAI_POSE_DISCIPLINE_ENABLED) else ""
+    pose_rules = (
+        _load_prompt_file("KAI_POSE_RULES.md")
+        if (anchor_role != "absent" and settings.KAI_POSE_DISCIPLINE_ENABLED)
+        else ""
+    )
     kai_profile = _load_prompt_file("KAI_PROFILE.md") if anchor_role != "absent" else ""
 
     audience_profile = getattr(settings, "AUDIENCE_PROFILE", "western_english")
@@ -752,7 +909,11 @@ def _build_structured_prompt(
         audience_block = ""
 
     # Era constraint — prevents modern environments for ancient/historical scenes
-    era = (scene.get("visual_metadata") or {}).get("era", "") if isinstance(scene.get("visual_metadata"), dict) else (getattr(scene.get("visual_metadata"), "era", "") or "")
+    era = (
+        (scene.get("visual_metadata") or {}).get("era", "")
+        if isinstance(scene.get("visual_metadata"), dict)
+        else (getattr(scene.get("visual_metadata"), "era", "") or "")
+    )
     _ERA_FORBIDDEN = {
         "ANCIENT": (
             "ERA CONSTRAINT — ANCIENT: Environment MUST pre-date recorded history.\n"
@@ -786,9 +947,21 @@ def _build_structured_prompt(
     prev_context = ""
     if prev_scene and prev_scene.get("structured_prompt"):
         sp = prev_scene["structured_prompt"]
-        prev_env = sp.get("environment_prompt", "") if isinstance(sp, dict) else getattr(sp, "environment_prompt", "")
-        prev_lighting = (sp.get("lighting_match", "") if isinstance(sp, dict) else getattr(sp, "lighting_match", ""))[:80]
-        prev_focal = (sp.get("focal_length", "") if isinstance(sp, dict) else getattr(sp, "focal_length", ""))[:40]
+        prev_env = (
+            sp.get("environment_prompt", "")
+            if isinstance(sp, dict)
+            else getattr(sp, "environment_prompt", "")
+        )
+        prev_lighting = (
+            sp.get("lighting_match", "")
+            if isinstance(sp, dict)
+            else getattr(sp, "lighting_match", "")
+        )[:80]
+        prev_focal = (
+            sp.get("focal_length", "")
+            if isinstance(sp, dict)
+            else getattr(sp, "focal_length", "")
+        )[:40]
         prev_context = (
             f"PREVIOUS SCENE (scene {scene_index}):\n"
             f"- Environment: {prev_env[:120]}\n"
@@ -808,44 +981,48 @@ def _build_structured_prompt(
         )
 
     compiled_prompt_rules = (
-        "COMPILED_PROMPT ASSEMBLY RULES:\n"
-        "1. First line: HYBRID CINEMATIC STYLE compressed directive (≤40 words). MANDATORY — never omit.\n"
-        "   Do NOT embed detailed anatomy/lighting/negative-prompt boilerplate inside compiled_prompt —\n"
-        "   those live in the style block above. Keep technical rendering words out of individual scenes.\n"
-        "2. Shot type, camera angle, and focal_length (e.g. 'Medium shot, eye level, 50mm')\n"
-        "3. environment_prompt verbatim — environment must be directly inspired by the scene narration\n"
-        "   and respect the AUDIENCE rule above (Western/universal aesthetic unless narration says otherwise).\n"
-        "   Do NOT default to an office interior unless narration explicitly describes one.\n"
-        "4. If character_staging is not null: write 'Illustrated in hand-painted storybook style — '\n"
-        "   then the staging description, then lighting_match. The rendering prefix is MANDATORY so the\n"
-        "   image model knows these figures are NOT photorealistic.\n"
-        "5. color_palette_phase\n"
-        "6. continuity_ref (brief) — if same environment as a previous scene, describe HOW this scene\n"
-        "   differs visually (framing, time-of-day, detail focus, mood) so each scene is unique.\n"
-        "7. If Kai SPECTATOR scene: Kai must be tiny in the background (5-10% of frame),\n"
-        "   partially obscured, no dramatic gestures. Describe him last, briefly.\n"
-        "   If Kai PRIMARY scene with OTHER story characters also present: Kai is secondary\n"
-        "   in visual scale — describe story characters first, Kai after, slightly smaller or\n"
-        "   further back. Kai reacts to the scene, he does not dominate it.\n"
-        "   If Kai PRIMARY scene ALONE (no other story characters): Kai is the visual subject.\n"
-        "8. STORY BIBLE CLOTHING RULE (CRITICAL): When a LOCKED CHARACTER description exists,\n"
-        "   you MUST reproduce their EXACT clothing items (tunic, trousers, boots, belt, cloak,\n"
-        "   crown, etc.) in the character_staging. NEVER simplify to 'peasant garb' or 'robes'\n"
-        "   when the bible specifies individual garments. NEVER drop footwear — if the bible\n"
-        "   says 'worn leather boots', the character wears boots, not barefoot.\n"
-        "9. SUPPORTING CHARACTER DISTINCTION: When multiple characters appear, each must be\n"
-        "   visually distinguishable by clothing color, garment type, or accessories.\n"
-        "   A minister/advisor must NOT look like a second king — use subdued colors (grey,\n"
-        "   brown, dark blue), simpler garments, no crown, no royal insignia.\n"
-        '10. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
-    ) if settings.HYBRID_STYLE_ENABLED else (
-        "COMPILED_PROMPT ASSEMBLY RULES:\n"
-        "1. Shot type, camera angle, and focal_length (e.g. 'Wide shot, high angle, 24mm')\n"
-        "2. environment_prompt verbatim — derive from the narration's central idea, not a generic default.\n"
-        "3. If character_staging is not null: character_staging + lighting_match\n"
-        "4. color_palette_phase\n"
-        "5. continuity_ref (brief)\n"
-        '6. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+        (
+            "COMPILED_PROMPT ASSEMBLY RULES:\n"
+            "1. First line: HYBRID CINEMATIC STYLE compressed directive (≤40 words). MANDATORY — never omit.\n"
+            "   Do NOT embed detailed anatomy/lighting/negative-prompt boilerplate inside compiled_prompt —\n"
+            "   those live in the style block above. Keep technical rendering words out of individual scenes.\n"
+            "2. Shot type, camera angle, and focal_length (e.g. 'Medium shot, eye level, 50mm')\n"
+            "3. environment_prompt verbatim — environment must be directly inspired by the scene narration\n"
+            "   and respect the AUDIENCE rule above (Western/universal aesthetic unless narration says otherwise).\n"
+            "   Do NOT default to an office interior unless narration explicitly describes one.\n"
+            "4. If character_staging is not null: write 'Illustrated in hand-painted storybook style — '\n"
+            "   then the staging description, then lighting_match. The rendering prefix is MANDATORY so the\n"
+            "   image model knows these figures are NOT photorealistic.\n"
+            "5. color_palette_phase\n"
+            "6. continuity_ref (brief) — if same environment as a previous scene, describe HOW this scene\n"
+            "   differs visually (framing, time-of-day, detail focus, mood) so each scene is unique.\n"
+            "7. If Kai SPECTATOR scene: Kai must be tiny in the background (5-10% of frame),\n"
+            "   partially obscured, no dramatic gestures. Describe him last, briefly.\n"
+            "   If Kai PRIMARY scene with OTHER story characters also present: Kai is secondary\n"
+            "   in visual scale — describe story characters first, Kai after, slightly smaller or\n"
+            "   further back. Kai reacts to the scene, he does not dominate it.\n"
+            "   If Kai PRIMARY scene ALONE (no other story characters): Kai is the visual subject.\n"
+            "8. STORY BIBLE CLOTHING RULE (CRITICAL): When a LOCKED CHARACTER description exists,\n"
+            "   you MUST reproduce their EXACT clothing items (tunic, trousers, boots, belt, cloak,\n"
+            "   crown, etc.) in the character_staging. NEVER simplify to 'peasant garb' or 'robes'\n"
+            "   when the bible specifies individual garments. NEVER drop footwear — if the bible\n"
+            "   says 'worn leather boots', the character wears boots, not barefoot.\n"
+            "9. SUPPORTING CHARACTER DISTINCTION: When multiple characters appear, each must be\n"
+            "   visually distinguishable by clothing color, garment type, or accessories.\n"
+            "   A minister/advisor must NOT look like a second king — use subdued colors (grey,\n"
+            "   brown, dark blue), simpler garments, no crown, no royal insignia.\n"
+            '10. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+        )
+        if settings.HYBRID_STYLE_ENABLED
+        else (
+            "COMPILED_PROMPT ASSEMBLY RULES:\n"
+            "1. Shot type, camera angle, and focal_length (e.g. 'Wide shot, high angle, 24mm')\n"
+            "2. environment_prompt verbatim — derive from the narration's central idea, not a generic default.\n"
+            "3. If character_staging is not null: character_staging + lighting_match\n"
+            "4. color_palette_phase\n"
+            "5. continuity_ref (brief)\n"
+            '6. End with: "16:9 aspect ratio. No text, no watermark, no subtitle, no logo."\n'
+        )
     )
 
     # ── Story Bible context (locked character/location/world descriptions) ──
@@ -874,7 +1051,8 @@ def _build_structured_prompt(
     if story_context:
         story_context_block = (
             "\n⚠ STORY STATE — IMMUTABLE CONSTRAINTS FROM NARRATIVE CONTINUITY:\n"
-            + story_context + "\n"
+            + story_context
+            + "\n"
             "Violation of these constraints (e.g. showing a dead character alive, "
             "showing a prop in a state that contradicts the narration) is a critical error.\n"
         )
@@ -887,19 +1065,24 @@ def _build_structured_prompt(
         + (story_context_block if story_context_block else "")
         + f"{bible_context}\n\n"
         + (f"{story_bible_block}\n\n" if story_bible_block else "")
-        + (f"{audience_block}\n"
-           "⚠ AUDIENCE OVERRIDE: If ANY locked character clothing or location description\n"
-           "above contradicts the AUDIENCE rule (e.g. dhoti, kurta, Indian palace), the\n"
-           "AUDIENCE rule wins. Translate the character/location to the audience-appropriate\n"
-           "cultural equivalent while preserving the narrative role and visual function.\n\n"
-           if audience_block else "")
+        + (
+            f"{audience_block}\n"
+            "⚠ AUDIENCE OVERRIDE: If ANY locked character clothing or location description\n"
+            "above contradicts the AUDIENCE rule (e.g. dhoti, kurta, Indian palace), the\n"
+            "AUDIENCE rule wins. Translate the character/location to the audience-appropriate\n"
+            "cultural equivalent while preserving the narrative role and visual function.\n\n"
+            if audience_block
+            else ""
+        )
         + (f"{prev_context}\n\n" if prev_context else "")
         + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
-        + 'OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n'
-        + '{\n'
-        + ('  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette>",\n'
-           if anchor_role in ("primary", "spectator")
-           else '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette|aerial>",\n')
+        + "OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n"
+        + "{\n"
+        + (
+            '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette>",\n'
+            if anchor_role in ("primary", "spectator")
+            else '  "shot_type": "<one of: establishing_wide|medium|close_up|insert|POV|over_shoulder|silhouette|aerial>",\n'
+        )
         + '  "camera_angle": "<one of: eye_level|low_angle|high_angle|dutch_tilt>",\n'
         + '  "environment_prompt": "<photorealistic environment description — no character details>",\n'
         + '  "character_staging": "<illustrated character description, or null if no character>",\n'
@@ -908,14 +1091,14 @@ def _build_structured_prompt(
         + '  "color_palette_phase": "<arc phase + specific palette for this scene>",\n'
         + '  "continuity_ref": "<reference to prev/next scene environment and Kai clothing if applicable>",\n'
         + '  "compiled_prompt": "<full merged prompt for image generator — see assembly rules below>"\n'
-        + '}\n\n'
-        + 'FOCAL LENGTH GUIDE (match to shot_type):\n'
-        + '  establishing_wide / aerial → 24mm wide-angle (expansive, environmental scale)\n'
-        + '  medium / over_shoulder → 50mm standard (natural perspective, no distortion)\n'
-        + '  close_up / insert → 85mm portrait or 100mm macro (shallow DOF, subject isolation)\n'
-        + '  POV → 35mm (natural human perspective)\n'
-        + '  silhouette → 35mm or 50mm (clean silhouette edges)\n'
-        + '  Vary focal length across consecutive scenes — avoid repeating the same lens.\n\n'
+        + "}\n\n"
+        + "FOCAL LENGTH GUIDE (match to shot_type):\n"
+        + "  establishing_wide / aerial → 24mm wide-angle (expansive, environmental scale)\n"
+        + "  medium / over_shoulder → 50mm standard (natural perspective, no distortion)\n"
+        + "  close_up / insert → 85mm portrait or 100mm macro (shallow DOF, subject isolation)\n"
+        + "  POV → 35mm (natural human perspective)\n"
+        + "  silhouette → 35mm or 50mm (clean silhouette edges)\n"
+        + "  Vary focal length across consecutive scenes — avoid repeating the same lens.\n\n"
         + compiled_prompt_rules
         + "\nNo preamble. No markdown fences. Output only valid JSON."
     )
@@ -944,10 +1127,10 @@ def _build_structured_prompt(
             f"- Allowed characters: {', '.join(allowed)}\n"
             f"- Forbidden characters: {', '.join(forbidden) if forbidden else 'none'}\n"
             f"- Required environment: {required_env if required_env else 'as narrated'}\n"
-            "- NEVER substitute \"man\", \"woman\", \"person\", \"figure\", or \"people\" for a named entity\n"
+            '- NEVER substitute "man", "woman", "person", "figure", or "people" for a named entity\n'
             "- Use the EXACT names from the allowed list in character_staging\n"
-            "- If a character name feels generic (e.g. \"villager\"), use it verbatim — do not upgrade\n"
-            "  to \"man\" or \"woman\"\n"
+            '- If a character name feels generic (e.g. "villager"), use it verbatim — do not upgrade\n'
+            '  to "man" or "woman"\n'
         )
     elif forbidden and human_req == "forbidden":
         # No allowed characters + forbidden list + confirmed forbidden = no-character scene.
@@ -985,7 +1168,11 @@ def _build_structured_prompt(
             "5-10% of the frame. He should look like he happened to be there, not like he "
             "is watching the main event. No dramatic poses, no gestures, no raised arms.\n"
         )
-    elif anchor_role == "primary" and human_req in ("required", "optional", "permitted_symbolic"):
+    elif anchor_role == "primary" and human_req in (
+        "required",
+        "optional",
+        "permitted_symbolic",
+    ):
         kai_placement_block = (
             "\nKAI SPATIAL PLACEMENT (PRIMARY with story characters):\n"
             "Story characters are the VISUAL FOCUS. Describe them first, larger, in the\n"
@@ -998,20 +1185,25 @@ def _build_structured_prompt(
     # Extract emotional beat for Kai posture selection
     _vm = scene.get("visual_metadata") or {}
     _emotional_beat = (
-        (_vm.get("mood") if isinstance(_vm, dict) else getattr(_vm, "mood", "")) or ""
-    )
+        _vm.get("mood") if isinstance(_vm, dict) else getattr(_vm, "mood", "")
+    ) or ""
     _scene_analysis = scene.get("scene_analysis") or {}
     if not _emotional_beat and _scene_analysis:
         _emotional_beat = (
-            (_scene_analysis.get("emotional_beat") if isinstance(_scene_analysis, dict)
-             else getattr(_scene_analysis, "emotional_beat", "")) or ""
-        )
+            _scene_analysis.get("emotional_beat")
+            if isinstance(_scene_analysis, dict)
+            else getattr(_scene_analysis, "emotional_beat", "")
+        ) or ""
     _posture_variant = ("A", "B", "C")[scene.get("index", scene_index) % 3]
     kai_emotion_hint = (
-        f"\nSCENE EMOTIONAL BEAT: {_emotional_beat} — "
-        f"use POSTURE VARIANT {_posture_variant} from the EMOTION-RESPONSIVE BODY LANGUAGE table above. "
-        "Variant letters rotate A→B→C across scenes to prevent consecutive Kai scenes from sharing the same posture.\n"
-    ) if _emotional_beat and anchor_role != "absent" else ""
+        (
+            f"\nSCENE EMOTIONAL BEAT: {_emotional_beat} — "
+            f"use POSTURE VARIANT {_posture_variant} from the EMOTION-RESPONSIVE BODY LANGUAGE table above. "
+            "Variant letters rotate A→B→C across scenes to prevent consecutive Kai scenes from sharing the same posture.\n"
+        )
+        if _emotional_beat and anchor_role != "absent"
+        else ""
+    )
 
     user_prompt = (
         f"SCENE NARRATION:\n{scene.get('narration', '')}\n\n"
@@ -1028,22 +1220,36 @@ def _build_structured_prompt(
         raw = response.text.strip()
         if raw.startswith("```"):
             lines = raw.splitlines()
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+            raw = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            ).strip()
         data = json.loads(raw)
         sp = StructuredImagePrompt(**data)
         # Guard: LLM sometimes omits the hybrid header for EXPLANATION/ANALOGY/CTA roles.
         # Inject it deterministically so no role ever slips through without it.
-        if settings.HYBRID_STYLE_ENABLED and not sp.compiled_prompt.lstrip().upper().startswith("HYBRID"):
-            data["compiled_prompt"] = _HYBRID_COMPRESSED_PREFIX + " " + sp.compiled_prompt
+        if (
+            settings.HYBRID_STYLE_ENABLED
+            and not sp.compiled_prompt.lstrip().upper().startswith("HYBRID")
+        ):
+            data["compiled_prompt"] = (
+                _HYBRID_COMPRESSED_PREFIX + " " + sp.compiled_prompt
+            )
             sp = StructuredImagePrompt(**data)
         return sp
     except Exception as e:
-        logger.warning("StructuredImagePrompt build failed for scene {}: {} — using fallback", scene_index + 1, e)
+        logger.warning(
+            "StructuredImagePrompt build failed for scene {}: {} — using fallback",
+            scene_index + 1,
+            e,
+        )
         fallback_prompt = scene.get(
             "visual_prompt",
             "cinematic environment. 16:9 aspect ratio. No text, no watermark, no subtitle, no logo.",
         )
-        if settings.HYBRID_STYLE_ENABLED and not fallback_prompt.lstrip().upper().startswith("HYBRID"):
+        if (
+            settings.HYBRID_STYLE_ENABLED
+            and not fallback_prompt.lstrip().upper().startswith("HYBRID")
+        ):
             fallback_prompt = _HYBRID_COMPRESSED_PREFIX + " " + fallback_prompt
         return StructuredImagePrompt(
             shot_type="medium",
@@ -1070,7 +1276,13 @@ def _validate_visual_continuity(
     anchor_refs = 0
     for scene in scenes:
         if scene.get("structured_prompt"):
-            env = scene["structured_prompt"].get("environment_prompt", "").lower() if isinstance(scene["structured_prompt"], dict) else getattr(scene["structured_prompt"], "environment_prompt", "").lower()
+            env = (
+                scene["structured_prompt"].get("environment_prompt", "").lower()
+                if isinstance(scene["structured_prompt"], dict)
+                else getattr(
+                    scene["structured_prompt"], "environment_prompt", ""
+                ).lower()
+            )
             for anchor in visual_bible.anchor_environments:
                 key_words = anchor.lower().split()[:4]
                 if any(w in env for w in key_words):
@@ -1087,7 +1299,11 @@ def _validate_visual_continuity(
     for s in scenes:
         sp = s.get("structured_prompt")
         if sp:
-            st = sp.get("shot_type") if isinstance(sp, dict) else getattr(sp, "shot_type", None)
+            st = (
+                sp.get("shot_type")
+                if isinstance(sp, dict)
+                else getattr(sp, "shot_type", None)
+            )
             if st:
                 shot_types.append(st)
     if shot_types:
@@ -1105,7 +1321,11 @@ def _validate_visual_continuity(
     if climax_scene:
         sp = climax_scene.get("structured_prompt")
         if sp:
-            st = sp.get("shot_type") if isinstance(sp, dict) else getattr(sp, "shot_type", None)
+            st = (
+                sp.get("shot_type")
+                if isinstance(sp, dict)
+                else getattr(sp, "shot_type", None)
+            )
             if st and st not in ("close_up", "insert", "medium"):
                 warnings.append(
                     f"CONTINUITY: Scene {climax_index + 1} (climax position) has shot_type "
@@ -1117,10 +1337,18 @@ def _validate_visual_continuity(
     for scene in scenes:
         sp = scene.get("structured_prompt")
         if sp and scene.get("anchor_role") == "primary":
-            staging = sp.get("character_staging") if isinstance(sp, dict) else getattr(sp, "character_staging", None)
+            staging = (
+                sp.get("character_staging")
+                if isinstance(sp, dict)
+                else getattr(sp, "character_staging", None)
+            )
             if staging:
                 staging_lower = staging.lower()
-                if "facing forward" in staging_lower or "front-facing" in staging_lower or "looking directly" in staging_lower:
+                if (
+                    "facing forward" in staging_lower
+                    or "front-facing" in staging_lower
+                    or "looking directly" in staging_lower
+                ):
                     front_facing_count += 1
     if front_facing_count > 1:
         warnings.append(
@@ -1133,7 +1361,11 @@ def _validate_visual_continuity(
     for s in scenes:
         sp = s.get("structured_prompt")
         if sp:
-            ca = sp.get("camera_angle") if isinstance(sp, dict) else getattr(sp, "camera_angle", None)
+            ca = (
+                sp.get("camera_angle")
+                if isinstance(sp, dict)
+                else getattr(sp, "camera_angle", None)
+            )
             if ca:
                 camera_angles.append(ca)
     if camera_angles:
@@ -1148,9 +1380,34 @@ def _validate_visual_continuity(
 
     # Check 6: Consecutive environment duplicates
     _STOP_WORDS = {
-        "a", "an", "the", "of", "in", "on", "at", "by", "with", "and", "or",
-        "is", "are", "to", "from", "as", "that", "this", "it", "for", "its",
-        "into", "over", "under", "through", "across", "between", "around",
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "with",
+        "and",
+        "or",
+        "is",
+        "are",
+        "to",
+        "from",
+        "as",
+        "that",
+        "this",
+        "it",
+        "for",
+        "its",
+        "into",
+        "over",
+        "under",
+        "through",
+        "across",
+        "between",
+        "around",
     }
     env_keywords: list[set[str]] = []
     for scene in scenes:
@@ -1161,8 +1418,11 @@ def _validate_visual_continuity(
                 if isinstance(sp, dict)
                 else getattr(sp, "environment_prompt", "")
             )
-            words = {w for w in re.sub(r"[^\w\s]", " ", env.lower()).split()
-                     if w not in _STOP_WORDS and len(w) > 3}
+            words = {
+                w
+                for w in re.sub(r"[^\w\s]", " ", env.lower()).split()
+                if w not in _STOP_WORDS and len(w) > 3
+            }
             env_keywords.append(words)
         else:
             env_keywords.append(set())
@@ -1184,7 +1444,11 @@ def _validate_visual_continuity(
     for s in scenes:
         sp = s.get("structured_prompt")
         if sp:
-            fl = sp.get("focal_length") if isinstance(sp, dict) else getattr(sp, "focal_length", None)
+            fl = (
+                sp.get("focal_length")
+                if isinstance(sp, dict)
+                else getattr(sp, "focal_length", None)
+            )
             if fl:
                 focal_lengths.append(fl.split()[0] if fl else "")  # e.g. "50mm"
     if focal_lengths:
@@ -1207,6 +1471,7 @@ class SceneEntities:
     Who and what are literally present in this narration segment.
     Extracted before visual_prompt generation. Injected as a constraint.
     """
+
     characters: list[str] = field(default_factory=list)
     environment: list[str] = field(default_factory=list)
     objects: list[str] = field(default_factory=list)
@@ -1262,7 +1527,9 @@ def _extract_scene_entities(narration: str, llm_client: LLMProvider) -> SceneEnt
 
     data = _parse_json_response(response.text)
     if not data:
-        logger.warning("Entity extraction returned invalid JSON; defaulting to abstract")
+        logger.warning(
+            "Entity extraction returned invalid JSON; defaulting to abstract"
+        )
         return SceneEntities(scene_category="abstract")
 
     raw_classification = data.get("human_classification", "").lower()
@@ -1313,7 +1580,8 @@ def _posthoc_correct_scene_analysis(
                 logger.warning(
                     "posthoc scene {}: upgrading human_requirement "
                     "forbidden → permitted_symbolic (narration contains '{}')",
-                    scene_id, phrase,
+                    scene_id,
+                    phrase,
                 )
                 corrected["human_requirement"] = "permitted_symbolic"
                 break
@@ -1323,7 +1591,8 @@ def _posthoc_correct_scene_analysis(
                     logger.warning(
                         "posthoc scene {}: upgrading human_requirement "
                         "forbidden → required (narration contains '{}')",
-                        scene_id, role,
+                        scene_id,
+                        role,
                     )
                     corrected["human_requirement"] = "required"
                     break
@@ -1336,12 +1605,15 @@ def _posthoc_correct_scene_analysis(
             obj_words = obj.lower().split()
             mentioned = any(
                 re.search(r"\b" + re.escape(w) + r"\b", narration_lower)
-                for w in obj_words if len(w) > 2
+                for w in obj_words
+                if len(w) > 2
             )
             if mentioned:
                 logger.warning(
                     "posthoc scene {}: removing '{}' from forbidden_objects "
-                    "(mentioned in narration)", scene_id, obj,
+                    "(mentioned in narration)",
+                    scene_id,
+                    obj,
                 )
             else:
                 cleaned.append(obj)
@@ -1383,14 +1655,22 @@ def _build_entity_block(entities: SceneEntities) -> str:
         lines.append(f"  objects: {', '.join(entities.objects)}")
     lines.append("")
     lines.append("VIOLATION EXAMPLES (never do these):")
-    lines.append("  - Narration is about an eagle and chick → prompt adds 'a man watching from a cliff' ❌")
-    lines.append("  - Narration is about Bhagiratha → prompt adds a generic man in grey linen ❌")
-    lines.append("  - Narration is a rhetorical question → prompt shows a specific person ❌")
+    lines.append(
+        "  - Narration is about an eagle and chick → prompt adds 'a man watching from a cliff' ❌"
+    )
+    lines.append(
+        "  - Narration is about Bhagiratha → prompt adds a generic man in grey linen ❌"
+    )
+    lines.append(
+        "  - Narration is a rhetorical question → prompt shows a specific person ❌"
+    )
     lines.append("")
     return "\n".join(lines)
 
 
-def _build_entity_constraints_section(scenes: list[dict], entity_map: dict[int, SceneEntities]) -> str:
+def _build_entity_constraints_section(
+    scenes: list[dict], entity_map: dict[int, SceneEntities]
+) -> str:
     """Build per-scene entity constraints for the batch prompt."""
     if not entity_map:
         return ""
@@ -1402,7 +1682,9 @@ def _build_entity_constraints_section(scenes: list[dict], entity_map: dict[int, 
             continue
         hc_rule = HUMAN_CLASSIFICATION_RULES.get(entities.human_classification, "")
         lines.append(f"Scene {idx}:")
-        lines.append(f"  category={entities.scene_category}  human_classification={entities.human_classification.value}: {hc_rule}")
+        lines.append(
+            f"  category={entities.scene_category}  human_classification={entities.human_classification.value}: {hc_rule}"
+        )
         if entities.characters:
             lines.append(f"  characters={', '.join(entities.characters)}")
         if entities.human_names:
@@ -1487,18 +1769,25 @@ def _run_llm_validation(
 
     for model in models:
         try:
-            response = llm_client.generate(prompt, json_mode=True, temperature=0.0, model=model)
+            response = llm_client.generate(
+                prompt, json_mode=True, temperature=0.0, model=model
+            )
             data = _parse_json_response(response.text)
             if not data:
                 logger.warning(
-                    "LLM validation returned invalid JSON (model={}) — trying fallback", model
+                    "LLM validation returned invalid JSON (model={}) — trying fallback",
+                    model,
                 )
                 continue
-            passed = bool(data.get("environment_ok", True)) and bool(data.get("human_ok", True))
+            passed = bool(data.get("environment_ok", True)) and bool(
+                data.get("human_ok", True)
+            )
             return passed, data.get("reason", "")
         except Exception as exc:
             logger.warning(
-                "LLM validation call failed (model={}): {} — trying fallback", model, exc
+                "LLM validation call failed (model={}): {} — trying fallback",
+                model,
+                exc,
             )
 
     logger.warning("LLM validation failed on all models — accepting prompt")
@@ -1589,10 +1878,14 @@ def _build_visual_anchors(
             }
         except Exception as exc:
             logger.warning(
-                "Visual anchor attempt failed (model={}): {} — trying fallback", model, exc
+                "Visual anchor attempt failed (model={}): {} — trying fallback",
+                model,
+                exc,
             )
 
-    logger.warning("Visual anchor batch failed on all models — proceeding without anchors")
+    logger.warning(
+        "Visual anchor batch failed on all models — proceeding without anchors"
+    )
     return {}
 
 
@@ -1735,6 +2028,7 @@ def _split_script_to_scenes(
 def _normalise_closing(text: str) -> str:
     """Lowercase, collapse repeated dots, strip trailing punctuation."""
     import re as _re
+
     return _re.sub(r"\.{2,}", ".", text.lower().strip()).rstrip(".")
 
 
@@ -1805,8 +2099,7 @@ def _mark_asset_scenes(scenes: list[dict]) -> list[dict]:
 
     if not brand_cfg.closing.enabled or not brand_cfg.branding.asset_path:
         logger.debug(
-            "branding: skipped closing asset card — "
-            "closing.enabled={} asset_path={!r}",
+            "branding: skipped closing asset card — closing.enabled={} asset_path={!r}",
             brand_cfg.closing.enabled,
             brand_cfg.branding.asset_path,
         )
@@ -1887,7 +2180,9 @@ _META_ANNOTATION_PATTERNS: list[re.Pattern[str]] = [
     # Arc-phase labels: "Hook phase —", "Build phase:", etc.
     _PHASE_LABEL_PAT,
     # Anchor-role justification notes
-    re.compile(r"Kai\s+absent\s+by\s+immutable\s+scene\s+constraint[^.]*\.?\s*", re.IGNORECASE),
+    re.compile(
+        r"Kai\s+absent\s+by\s+immutable\s+scene\s+constraint[^.]*\.?\s*", re.IGNORECASE
+    ),
     re.compile(r"anchor_role\s*=\s*\w+\s+because[^.]*\.?\s*", re.IGNORECASE),
     # Pipeline-internal scene-group notes that leaked outside their valid context
     re.compile(r"Scene\s+\d+\s+establishes[^.]*;[^.]*\.\s*", re.IGNORECASE),
@@ -1915,9 +2210,7 @@ _EXPORT_STYLE_HYBRID = (
     "illustrated storybook characters with ink outlines and cel shading (NOT photorealistic). "
     "16:9 aspect ratio."
 )
-_EXPORT_STYLE_DOC = (
-    "STYLE: Photorealistic documentary cinema. 16:9 aspect ratio."
-)
+_EXPORT_STYLE_DOC = "STYLE: Photorealistic documentary cinema. 16:9 aspect ratio."
 _EXPORT_GLOBAL_NEGATIVES = (
     "No text, no watermark, no subtitle, no logo. "
     "No photorealistic characters, no realistic human photos, no realistic animals. "
@@ -1961,7 +2254,11 @@ def _repair_structured_prompt_dict(
     environment_prompt: str = result.get("environment_prompt") or ""
 
     # ── Repair 1: character text in environment_prompt ────────────────────────
-    if not character_staging and environment_prompt and _env_has_character_contamination(environment_prompt):
+    if (
+        not character_staging
+        and environment_prompt
+        and _env_has_character_contamination(environment_prompt)
+    ):
         errors.append(
             f"ERROR: Scene {scene_idx} — LLM placed character-staging text inside "
             f"environment_prompt (character_staging is empty). "
@@ -1970,7 +2267,9 @@ def _repair_structured_prompt_dict(
         sep_idx = environment_prompt.find(_CHAR_ENV_SEPARATOR)
         if sep_idx > 0:
             extracted_char = environment_prompt[:sep_idx].strip()
-            extracted_env = environment_prompt[sep_idx + len(_CHAR_ENV_SEPARATOR):].strip()
+            extracted_env = environment_prompt[
+                sep_idx + len(_CHAR_ENV_SEPARATOR) :
+            ].strip()
             result["character_staging"] = extracted_char
             result["environment_prompt"] = extracted_env
             errors.append(
@@ -1986,7 +2285,11 @@ def _repair_structured_prompt_dict(
     # ── Repair 2: HYBRID prefix inside environment_prompt ─────────────────────
     current_env = result.get("environment_prompt") or ""
     if current_env.upper().startswith("HYBRID CINEMATIC STYLE"):
-        stripped = current_env[current_env.find(":") + 1:].strip() if ":" in current_env else current_env
+        stripped = (
+            current_env[current_env.find(":") + 1 :].strip()
+            if ":" in current_env
+            else current_env
+        )
         result["environment_prompt"] = stripped
         errors.append(
             f"WARNING: Scene {scene_idx} — environment_prompt started with HYBRID "
@@ -2107,7 +2410,7 @@ def _assemble_export_prompt(
     if environment_prompt.upper().startswith("HYBRID CINEMATIC STYLE"):
         colon_pos = environment_prompt.find(":")
         if colon_pos >= 0:
-            environment_prompt = environment_prompt[colon_pos + 1:].strip()
+            environment_prompt = environment_prompt[colon_pos + 1 :].strip()
 
     lines: list[str] = []
 
@@ -2117,11 +2420,17 @@ def _assemble_export_prompt(
     # the environment portion only (after the " — " separator if present).
     if character_staging:
         first = re.split(r"(?<=[,;—])\s*", character_staging)[0].rstrip(",;— ").strip()
-        primary_subject = first if len(first) >= 10 else character_staging.split(".")[0].strip()
+        primary_subject = (
+            first if len(first) >= 10 else character_staging.split(".")[0].strip()
+        )
     elif _env_contaminated:
         # environment_prompt has character text; extract environment portion if separated
         sep_idx = environment_prompt.find(_CHAR_ENV_SEPARATOR)
-        env_for_subject = environment_prompt[sep_idx + len(_CHAR_ENV_SEPARATOR):].strip() if sep_idx >= 0 else ""
+        env_for_subject = (
+            environment_prompt[sep_idx + len(_CHAR_ENV_SEPARATOR) :].strip()
+            if sep_idx >= 0
+            else ""
+        )
         first = re.split(r"[,.]", env_for_subject)[0].strip() if env_for_subject else ""
         primary_subject = first if len(first) >= 10 else "Symbolic environment"
     else:
@@ -2136,7 +2445,9 @@ def _assemble_export_prompt(
         lines.append(f"PRIMARY ACTION: {character_staging}")
     elif not _env_contaminated:
         # Truly no character content in either field → safe to declare environment-only.
-        lines.append("PRIMARY ACTION: Environment-only/symbolic scene — no character present.")
+        lines.append(
+            "PRIMARY ACTION: Environment-only/symbolic scene — no character present."
+        )
     # else: environment_prompt has character content → skip contradictory action line.
 
     # ── 3. ENVIRONMENT ────────────────────────────────────────────────────────
@@ -2144,9 +2455,7 @@ def _assemble_export_prompt(
         lines.append(f"ENVIRONMENT: {environment_prompt}")
 
     # ── 4. COMPOSITION ────────────────────────────────────────────────────────
-    lines.append(
-        f"COMPOSITION: {shot_type.title()} shot, {camera_angle} camera angle."
-    )
+    lines.append(f"COMPOSITION: {shot_type.title()} shot, {camera_angle} camera angle.")
 
     # ── 5. CAMERA ─────────────────────────────────────────────────────────────
     lines.append(f"CAMERA: {focal_length}.")
@@ -2209,7 +2518,8 @@ def _assemble_export_prompt(
             for warn in conflict_warnings:
                 logger.warning("Positive/negative conflict detected: {}", warn)
             safe_forbidden = [
-                str(o) for o in forbidden[:8]
+                str(o)
+                for o in forbidden[:8]
                 if not any(
                     w in positive_text.lower()
                     for w in str(o).lower().split()
@@ -2303,7 +2613,7 @@ def _write_prompts_file(
             "```",
             "",
             f"Keep all {total_scenes} generations in ONE conversation window. If style drifts, paste",
-            "scene 1 back and say \"same hybrid style — continue with scene [X]\".",
+            'scene 1 back and say "same hybrid style — continue with scene [X]".',
             "",
             f"**Midjourney / Leonardo:** Generate scene {first_primary} first. Use that as your style",
             "reference (--sref) for all subsequent scenes. For Kai-primary scenes, also use --cref.",
@@ -2343,7 +2653,7 @@ def _write_prompts_file(
         "| **Midjourney** | Highest quality (paid) | https://midjourney.com |",
         "| **DALL-E 3** | Via ChatGPT, great quality | https://chatgpt.com |",
         "",
-        "**Tip:** For this hybrid style in Leonardo AI, use the *Cinematic Kino* or *Photorealism* model for the background, but set the **Alchemy** style to \"Illustration\" or \"Comic Book\". Set negative prompt: `text, watermark, logo, blurry, photorealistic characters, realistic humans, realistic animals, real photo people`",
+        '**Tip:** For this hybrid style in Leonardo AI, use the *Cinematic Kino* or *Photorealism* model for the background, but set the **Alchemy** style to "Illustration" or "Comic Book". Set negative prompt: `text, watermark, logo, blurry, photorealistic characters, realistic humans, realistic animals, real photo people`',
         "",
         "---",
         "",
@@ -2492,9 +2802,7 @@ def _validate_prompt_split(master_path: Path, images_dir: Path) -> list[str]:
         split_indices.extend(part_scene_indices)
 
     if len(split_indices) != total:
-        errors.append(
-            f"Split total {len(split_indices)} != master total {total}"
-        )
+        errors.append(f"Split total {len(split_indices)} != master total {total}")
     elif split_indices != master_indices:
         missing = sorted(set(master_indices) - set(split_indices))
         extra = sorted(set(split_indices) - set(master_indices))
@@ -2519,9 +2827,7 @@ def _write_faithfulness_gate_report(project_id: str, scenes: list[dict]) -> Path
     gate_result = evaluate_faithfulness_gate(scenes)
     out_path = Path(WORKSPACE_DIR) / project_id / "scenes" / "faithfulness-gate.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(gate_result.to_dict(), indent=2), encoding="utf-8"
-    )
+    out_path.write_text(json.dumps(gate_result.to_dict(), indent=2), encoding="utf-8")
     if gate_result.failed_count:
         console.print(
             f"  [yellow]⚠[/yellow] Faithfulness gate: {gate_result.failed_count} scene(s) FAILED "
@@ -2551,20 +2857,90 @@ _ANCHOR_ROLES: frozenset[str] = frozenset({"primary", "spectator", "absent"})
 
 # Words stripped before comparing prompts for duplication — style boilerplate and
 # structural filler that appears in every prompt regardless of scene content.
-_VP_BOILERPLATE: frozenset[str] = frozenset({
-    "hybrid", "cinematic", "style", "photorealistic", "environment",
-    "illustrated", "hand", "painted", "storybook", "characters", "composited",
-    "matching", "lighting", "shadows", "shot", "angle", "color", "colour",
-    "palette", "continuity", "aspect", "ratio", "text", "watermark", "subtitle",
-    "logo", "documentary", "quality", "realism", "depth", "field", "natural",
-    "film", "grain", "image", "visual", "scene", "background", "foreground",
-    "light", "warm", "cool", "camera", "wide", "medium", "close", "level",
-    "cast", "shadow", "glow", "soft", "dark", "deep", "long", "high", "inch",
-    # English stop words
-    "this", "that", "with", "from", "into", "over", "under", "through",
-    "across", "between", "around", "their", "there", "where", "which",
-    "have", "been", "each", "same", "both", "will", "also", "more",
-})
+_VP_BOILERPLATE: frozenset[str] = frozenset(
+    {
+        "hybrid",
+        "cinematic",
+        "style",
+        "photorealistic",
+        "environment",
+        "illustrated",
+        "hand",
+        "painted",
+        "storybook",
+        "characters",
+        "composited",
+        "matching",
+        "lighting",
+        "shadows",
+        "shot",
+        "angle",
+        "color",
+        "colour",
+        "palette",
+        "continuity",
+        "aspect",
+        "ratio",
+        "text",
+        "watermark",
+        "subtitle",
+        "logo",
+        "documentary",
+        "quality",
+        "realism",
+        "depth",
+        "field",
+        "natural",
+        "film",
+        "grain",
+        "image",
+        "visual",
+        "scene",
+        "background",
+        "foreground",
+        "light",
+        "warm",
+        "cool",
+        "camera",
+        "wide",
+        "medium",
+        "close",
+        "level",
+        "cast",
+        "shadow",
+        "glow",
+        "soft",
+        "dark",
+        "deep",
+        "long",
+        "high",
+        "inch",
+        # English stop words
+        "this",
+        "that",
+        "with",
+        "from",
+        "into",
+        "over",
+        "under",
+        "through",
+        "across",
+        "between",
+        "around",
+        "their",
+        "there",
+        "where",
+        "which",
+        "have",
+        "been",
+        "each",
+        "same",
+        "both",
+        "will",
+        "also",
+        "more",
+    }
+)
 
 
 _CHARACTER_STRIP_RE = re.compile(
@@ -2573,16 +2949,56 @@ _CHARACTER_STRIP_RE = re.compile(
 )
 
 # Words specific to character descriptions — stripped when comparing environments.
-_CHARACTER_BOILERPLATE: frozenset[str] = frozenset({
-    "lean", "young", "stubble", "shirt", "trousers", "clothing",
-    "hair", "dark", "late", "20s", "plain", "simple", "wearing",
-    "standing", "sitting", "facing", "profile", "posture", "pose",
-    "variant", "back", "behind", "front", "shoulders", "arms",
-    "hands", "pockets", "weight", "foot", "expression", "calm",
-    "quiet", "determined", "reflective", "thoughtful", "peaceful",
-    "storybook", "illustrated", "character", "composited", "outlines",
-    "shading", "painterly", "realistic", "consistent", "previous",
-})
+_CHARACTER_BOILERPLATE: frozenset[str] = frozenset(
+    {
+        "lean",
+        "young",
+        "stubble",
+        "shirt",
+        "trousers",
+        "clothing",
+        "hair",
+        "dark",
+        "late",
+        "20s",
+        "plain",
+        "simple",
+        "wearing",
+        "standing",
+        "sitting",
+        "facing",
+        "profile",
+        "posture",
+        "pose",
+        "variant",
+        "back",
+        "behind",
+        "front",
+        "shoulders",
+        "arms",
+        "hands",
+        "pockets",
+        "weight",
+        "foot",
+        "expression",
+        "calm",
+        "quiet",
+        "determined",
+        "reflective",
+        "thoughtful",
+        "peaceful",
+        "storybook",
+        "illustrated",
+        "character",
+        "composited",
+        "outlines",
+        "shading",
+        "painterly",
+        "realistic",
+        "consistent",
+        "previous",
+    }
+)
 
 
 def _extract_env_words(prompt: str) -> frozenset[str]:
@@ -2590,10 +3006,9 @@ def _extract_env_words(prompt: str) -> frozenset[str]:
     character descriptions and boilerplate."""
     cleaned = _CHARACTER_STRIP_RE.sub(" ", prompt.lower())
     return frozenset(
-        w for w in re.sub(r"[^\w\s]", " ", cleaned).split()
-        if len(w) > 3
-        and w not in _VP_BOILERPLATE
-        and w not in _CHARACTER_BOILERPLATE
+        w
+        for w in re.sub(r"[^\w\s]", " ", cleaned).split()
+        if len(w) > 3 and w not in _VP_BOILERPLATE and w not in _CHARACTER_BOILERPLATE
     )
 
 
@@ -2615,14 +3030,16 @@ def _is_prompt_duplicate(
     ``_is_environment_duplicate`` (strips characters, checks cluster count).
     """
     words = frozenset(
-        w for w in re.sub(r"[^\w\s]", " ", prompt.lower()).split()
+        w
+        for w in re.sub(r"[^\w\s]", " ", prompt.lower()).split()
         if len(w) > 3 and w not in _VP_BOILERPLATE
     )
     if not words:
         return None
     for earlier_idx, earlier_prompt in sorted(earlier_prompts.items()):
         earlier_words = frozenset(
-            w for w in re.sub(r"[^\w\s]", " ", earlier_prompt.lower()).split()
+            w
+            for w in re.sub(r"[^\w\s]", " ", earlier_prompt.lower()).split()
             if len(w) > 3 and w not in _VP_BOILERPLATE
         )
         if not earlier_words:
@@ -2680,26 +3097,78 @@ def _is_environment_duplicate(
 
 # Unambiguous human role words: if any of these appear in the narration, the scene
 # contains human characters and human_classification=NO_HUMAN_ALLOWED is wrong.
-_STRONG_HUMAN_ROLES: frozenset[str] = frozenset({
-    "king", "queen", "minister", "priest", "elder", "merchant", "soldier",
-    "guard", "judge", "teacher", "master", "servant", "prince", "princess",
-    "emperor", "crowd", "villager", "disciple", "farmer", "doctor", "hunter",
-    "adviser", "advisor", "counselor", "monk", "sage", "warrior", "general",
-    "swimmer", "fisherman", "shepherd", "pilgrim", "devotee", "speaker",
-})
+_STRONG_HUMAN_ROLES: frozenset[str] = frozenset(
+    {
+        "king",
+        "queen",
+        "minister",
+        "priest",
+        "elder",
+        "merchant",
+        "soldier",
+        "guard",
+        "judge",
+        "teacher",
+        "master",
+        "servant",
+        "prince",
+        "princess",
+        "emperor",
+        "crowd",
+        "villager",
+        "disciple",
+        "farmer",
+        "doctor",
+        "hunter",
+        "adviser",
+        "advisor",
+        "counselor",
+        "monk",
+        "sage",
+        "warrior",
+        "general",
+        "swimmer",
+        "fisherman",
+        "shepherd",
+        "pilgrim",
+        "devotee",
+        "speaker",
+    }
+)
 
 # Multi-word phrases that unambiguously indicate human presence.
 # Single-word "man"/"woman" are too generic (mankind, ottoman, etc.) but
 # these compound phrases are safe.
 _STRONG_HUMAN_PHRASES: tuple[str, ...] = (
-    "old man", "old woman", "young man", "young woman",
-    "a man who", "a woman who", "the man who", "the woman who",
-    "a man of", "a woman of",
-    "the person who", "a person who", "anyone who", "someone who",
-    "whoever has", "whoever wants", "the one who",
-    "his wife", "her husband", "his family", "a family",
-    "his body", "her body", "his heart", "her heart",
-    "his face", "her face", "his eyes", "her eyes",
+    "old man",
+    "old woman",
+    "young man",
+    "young woman",
+    "a man who",
+    "a woman who",
+    "the man who",
+    "the woman who",
+    "a man of",
+    "a woman of",
+    "the person who",
+    "a person who",
+    "anyone who",
+    "someone who",
+    "whoever has",
+    "whoever wants",
+    "the one who",
+    "his wife",
+    "her husband",
+    "his family",
+    "a family",
+    "his body",
+    "her body",
+    "his heart",
+    "her heart",
+    "his face",
+    "her face",
+    "his eyes",
+    "her eyes",
 )
 
 
@@ -2731,17 +3200,25 @@ def _sanitize_scene_analysis(
 
     # 1. Remove from forbidden_characters any term that appears in allowed_characters
     #    OR that appears as an active participant in the narration.
-    allowed_lower = {c.lower() for c in (sanitized_analysis.get("allowed_characters") or [])}
+    allowed_lower = {
+        c.lower() for c in (sanitized_analysis.get("allowed_characters") or [])
+    }
     forbidden_chars = sanitized_analysis.get("forbidden_characters") or []
     cleaned_forbidden: list[str] = []
     for char in forbidden_chars:
         char_lower = char.lower()
         if char_lower in allowed_lower:
-            logger.debug("scene_analysis sanity: removing '{}' from forbidden (also allowed)", char)
-            continue
-        if len(char_lower) > 3 and re.search(r"\b" + re.escape(char_lower) + r"\b", narration_lower):
             logger.debug(
-                "scene_analysis sanity: removing '{}' from forbidden (active in narration)", char
+                "scene_analysis sanity: removing '{}' from forbidden (also allowed)",
+                char,
+            )
+            continue
+        if len(char_lower) > 3 and re.search(
+            r"\b" + re.escape(char_lower) + r"\b", narration_lower
+        ):
+            logger.debug(
+                "scene_analysis sanity: removing '{}' from forbidden (active in narration)",
+                char,
             )
             continue
         cleaned_forbidden.append(char)
@@ -2784,7 +3261,8 @@ def _sanitize_scene_analysis(
             logger.warning(
                 "scene_analysis sanity: upgrading human_classification "
                 "NO_HUMAN_ALLOWED → {} (scene_analysis.human_requirement='{}')",
-                target.value, hr,
+                target.value,
+                hr,
             )
             sanitized_entities = dc_replace(
                 sanitized_entities, human_classification=target
@@ -2822,7 +3300,8 @@ def _sanitize_scene_analysis(
         logger.warning(
             "scene_analysis sanity: clearing {} hallucinated forbidden_objects "
             "(normal range 0–10, threshold {})",
-            len(forbidden_objs), _MAX_FORBIDDEN_OBJECTS,
+            len(forbidden_objs),
+            _MAX_FORBIDDEN_OBJECTS,
         )
         sanitized_analysis["forbidden_objects"] = []
 
@@ -2835,12 +3314,14 @@ def _sanitize_scene_analysis(
             obj_words = obj.lower().split()
             narration_mentions = any(
                 re.search(r"\b" + re.escape(w) + r"\b", narration_lower)
-                for w in obj_words if len(w) > 2
+                for w in obj_words
+                if len(w) > 2
             )
             if narration_mentions:
                 logger.debug(
                     "scene_analysis sanity: removing '{}' from forbidden_objects "
-                    "(mentioned in narration)", obj
+                    "(mentioned in narration)",
+                    obj,
                 )
             else:
                 cleaned_objs.append(obj)
@@ -2941,7 +3422,9 @@ def _generate_vp_sub_batches(
         if not sub:
             continue
         sub_prompt = build_visual_prompts_prompt(
-            sub, style, prev_context=visual_diary or None,
+            sub,
+            style,
+            prev_context=visual_diary or None,
             entity_constraints_section=entity_constraints_section,
             scene_analysis_section=scene_analysis_section,
         )
@@ -2960,15 +3443,30 @@ def _generate_vp_sub_batches(
 
 # ── Cinematic Pacing System ────────────────────────────────────────────────────
 
-_VALID_MUSIC_ACTIONS: frozenset[str] = frozenset({
-    "continue", "continue_softly", "slight_swell",
-    "emotional_swell", "resolve", "fade", "fade_to_silence", "hold",
-})
+_VALID_MUSIC_ACTIONS: frozenset[str] = frozenset(
+    {
+        "continue",
+        "continue_softly",
+        "slight_swell",
+        "emotional_swell",
+        "resolve",
+        "fade",
+        "fade_to_silence",
+        "hold",
+    }
+)
 
 # Imported at call site from the prompts module — defined here for node-level validation.
-_VALID_MOODS: frozenset[str] = frozenset({
-    "neutral", "reflective", "building", "dramatic", "resolving", "fading",
-})
+_VALID_MOODS: frozenset[str] = frozenset(
+    {
+        "neutral",
+        "reflective",
+        "building",
+        "dramatic",
+        "resolving",
+        "fading",
+    }
+)
 
 # Default music entry used when the LLM omits or mis-formats a field.
 _DEFAULT_MUSIC: dict = {"action": "continue", "mood": "neutral", "intensity": 0.5}
@@ -3052,7 +3550,9 @@ def _apply_director_pass(
     3. If total reflections exceed 25% of scene count, trim lowest-priority ones
        (those with "continue" action and shortest duration, excluding final).
     """
-    gen_scenes = [s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")]
+    gen_scenes = [
+        s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")
+    ]
     if not gen_scenes:
         return pacing_map
 
@@ -3088,7 +3588,11 @@ def _apply_director_pass(
     if not final_p.get("enabled") or final_p.get("duration", 0.0) < 5.0:
         final_p["enabled"] = True
         final_p["duration"] = max(5.0, final_p.get("duration", 0.0))
-        final_p["music"] = {"action": "continue_softly", "mood": "reflective", "intensity": 0.3}
+        final_p["music"] = {
+            "action": "continue_softly",
+            "mood": "reflective",
+            "intensity": 0.3,
+        }
 
     # Rule 3: trim excess reflections (>25%)
     max_allowed = max(2, int(len(gen_scenes) * 0.25))
@@ -3215,13 +3719,17 @@ def _run_script_quality_gate(script_md: str, llm: LLMProvider) -> None:
     gate model can't silently halt every pipeline run.
     """
     narrative_ending = _extract_narrative_ending(script_md)
-    prompt = _QUALITY_GATE_PROMPT.format(script=script_md[:6000], narrative_ending=narrative_ending)
+    prompt = _QUALITY_GATE_PROMPT.format(
+        script=script_md[:6000], narrative_ending=narrative_ending
+    )
     try:
         response = llm.generate(prompt, temperature=0.0)
         raw = response.text.strip()
         if raw.startswith("```"):
             lines = raw.splitlines()
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+            raw = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            ).strip()
         data = json.loads(raw)
     except Exception as exc:
         logger.warning("Script quality gate LLM call failed ({}); skipping gate", exc)
@@ -3248,6 +3756,27 @@ def _run_script_quality_gate(script_md: str, llm: LLMProvider) -> None:
         raise ScriptQualityGateError(msg)
 
     logger.info("Script quality gate: all 4 checks passed")
+
+
+def _inject_continuity_context(
+    scenes: list[dict],
+    scene_analysis_map: dict,
+) -> StoryState:
+    """Build StoryState and inject story_context + action_constraints into each scene dict.
+
+    Called from BOTH the fresh-generation path and the cached idempotency path so that
+    every scene dict always carries up-to-date continuity data regardless of whether
+    a new plan was generated or an existing one was loaded from disk.
+    """
+    story_state = build_story_state(scenes, scene_analysis_map)
+    for _s in scenes:
+        if _s.get("scene_type", "generated_image") != "generated_image":
+            continue
+        _idx = _s["index"]
+        _narration = _s.get("narration", "")
+        _s["story_context"] = story_state.get_story_context_for_scene(_idx)
+        _s["action_constraints"] = build_action_constraints_block(_narration)
+    return story_state
 
 
 def scene_planner_node(state: VideoState) -> dict:
@@ -3307,7 +3836,9 @@ def scene_planner_node(state: VideoState) -> dict:
             for _scene in scenes:
                 _narration = _scene.get("narration", "")
                 if _narration.startswith(_heading_text):
-                    _scene["narration"] = _narration[len(_heading_text):].lstrip(" ,.:;")
+                    _scene["narration"] = _narration[len(_heading_text) :].lstrip(
+                        " ,.:;"
+                    )
                     existing_plan_path.write_text(
                         json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
                         encoding="utf-8",
@@ -3325,7 +3856,8 @@ def scene_planner_node(state: VideoState) -> dict:
                             _stale.unlink()
                             logger.info(
                                 "Deleted stale {} for scene {:03d} after heading-strip patch",
-                                _stale.name, _idx,
+                                _stale.name,
+                                _idx,
                             )
                     break
 
@@ -3338,6 +3870,46 @@ def scene_planner_node(state: VideoState) -> dict:
         # Re-apply brand-card guarantee so cached plans (including plans from
         # before this fix) always end with the dedicated brand card asset.
         scenes = _mark_asset_scenes(scenes)
+
+        # ── Re-inject story context for cached plans ─────────────────────────
+        # Scenes loaded from disk have story_context="" (the planner's idempotency
+        # early-return previously skipped all continuity code).  Rebuild the
+        # analysis map from the scene_analysis stored per-scene, then call the
+        # shared helper so every scene receives fresh story_context and
+        # action_constraints before the plan is written back to disk.
+        _cached_analysis_map: dict[int, Any] = {
+            _s["index"]: _s["scene_analysis"]
+            for _s in scenes
+            if _s.get("scene_analysis")
+        }
+        if _cached_analysis_map:
+            _cached_story_state = _inject_continuity_context(
+                scenes, _cached_analysis_map
+            )
+            _cached_findings = ContinuityValidator(_cached_story_state).validate_all(
+                scenes, _cached_analysis_map
+            )
+            _cached_errors = [f for f in _cached_findings if f.is_error()]
+            _cached_warnings = [f for f in _cached_findings if f.is_warning()]
+            if _cached_errors:
+                for _f in _cached_errors:
+                    logger.error("STORY CONTINUITY (cached): {}", str(_f))
+                console.print(
+                    f"  [bold red]⚠ {len(_cached_errors)} story continuity errors "
+                    f"in cached plan[/bold red]"
+                )
+            if _cached_warnings:
+                for _f in _cached_warnings:
+                    logger.warning("STORY CONTINUITY WARNING (cached): {}", str(_f))
+                console.print(
+                    f"  [yellow]⚠ {len(_cached_warnings)} story continuity warnings[/yellow]"
+                )
+            console.print(
+                f"  [green]✓[/green] Story context refreshed — "
+                f"{len(_cached_story_state.characters)} chars, "
+                f"{len(_cached_story_state.props)} props"
+            )
+
         existing_plan_path.write_text(
             json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -3376,13 +3948,15 @@ def scene_planner_node(state: VideoState) -> dict:
     visual_bible = _generate_visual_bible(script_md, llm, settings)
     if settings.VISUAL_BIBLE_ENABLED:
         console.print(
-            f"  [green]✓[/green] Visual Bible: \"{visual_bible.dominant_metaphor[:60]}...\""
+            f'  [green]✓[/green] Visual Bible: "{visual_bible.dominant_metaphor[:60]}..."'
         )
 
     # ── Story Bible: locked character/location/world descriptions ─────────
     story_bible = StoryBible()
     if settings.VISUAL_BIBLE_ENABLED:
-        console.print("  [cyan]→[/cyan] Generating Story Bible (characters, locations, world)...")
+        console.print(
+            "  [cyan]→[/cyan] Generating Story Bible (characters, locations, world)..."
+        )
         all_narrations = _extract_all_narrations(script_md)
         story_bible = load_or_generate_story_bible(
             project_id=project_id,
@@ -3408,7 +3982,9 @@ def scene_planner_node(state: VideoState) -> dict:
         _run_script_quality_gate(script_md, llm)
         console.print("  [green]✓[/green] Script quality gate: all checks passed")
     except ScriptQualityGateError as _gate_err:
-        console.print(f"\n  [bold red]✗ SCRIPT QUALITY GATE FAILED[/bold red]\n{_gate_err}\n")
+        console.print(
+            f"\n  [bold red]✗ SCRIPT QUALITY GATE FAILED[/bold red]\n{_gate_err}\n"
+        )
         project_repo.update_stage(project_id, "scenes", "failed")
         raise PipelineAbort("scene_planner", str(_gate_err)) from _gate_err
 
@@ -3422,7 +3998,9 @@ def scene_planner_node(state: VideoState) -> dict:
     # Detect channel closing scenes and mark them as asset scenes so that
     # image generation is skipped and the brand card is used instead.
     _mark_asset_scenes(scenes)
-    asset_count = sum(1 for s in scenes if s.get("scene_type") in ("asset", "brand_card"))
+    asset_count = sum(
+        1 for s in scenes if s.get("scene_type") in ("asset", "brand_card")
+    )
     if asset_count:
         brand_asset = get_brand_config().branding.asset_path
         console.print(
@@ -3449,15 +4027,48 @@ def scene_planner_node(state: VideoState) -> dict:
             )
             scene_analysis_map[scene["index"]] = analysis
             scene["scene_analysis"] = analysis
+            # Propagate narrative_phase to the top-level scene dict so downstream
+            # stages (SSML enhancer, motion engine) can read it without unwrapping
+            # scene_analysis.  Falls back to UNKNOWN if LLM didn't classify.
+            raw_phase = analysis.get("narrative_phase", "") if isinstance(analysis, dict) else ""
+            scene["narrative_phase"] = emotion_policy.parse_phase(raw_phase).value
     scene_analysis_section = build_scene_analysis_section(scene_analysis_map)
     console.print(
         f"  [green]✓[/green] Scene analysis complete for {len(scene_analysis_map)} scenes"
     )
 
+    # ── Emotional diversity validation ───────────────────────────────────────
+    _gen_scenes = [s for s in scenes if s.get("scene_type", "generated_image") == "generated_image"]
+    _phase_seq = [s.get("narrative_phase", "UNKNOWN") for s in _gen_scenes]
+    _passes, _distinct, _families = emotion_policy.validate_script_diversity(_phase_seq)
+    if _passes:
+        logger.info(
+            "Emotion diversity: {} distinct families — PASS (min {})",
+            _distinct, 5,
+        )
+    else:
+        logger.warning(
+            "Emotion diversity: only {} distinct families ({}) — BELOW MINIMUM of 5. "
+            "Script may be emotionally flat. Check narrative_phase assignments.",
+            _distinct, ", ".join(_families),
+        )
+        console.print(
+            f"  [yellow]⚠ Emotion diversity: {_distinct} distinct families "
+            f"(min 5). Script may be emotionally flat.[/yellow]"
+        )
+    _adj_warnings = emotion_policy.validate_adjacent_continuity(
+        _phase_seq,
+        [emotion_policy.get_target(emotion_policy.parse_phase(p)).primary for p in _phase_seq],
+    )
+    for _scene_idx, _adj_msg in _adj_warnings:
+        logger.warning("Adjacent continuity: {}", _adj_msg)
+
     # ── Story State — track characters/props across scenes ───────────────────
     # Must run AFTER scene_analysis_map is populated and BEFORE Phase 2 prompts,
     # so each scene's context block can be injected into its visual prompt.
-    story_state = build_story_state(scenes, scene_analysis_map)
+    # _inject_continuity_context calls build_story_state internally and writes
+    # story_context + action_constraints into every generated-image scene dict.
+    story_state = _inject_continuity_context(scenes, scene_analysis_map)
     console.print(
         f"  [green]✓[/green] Story state: {len(story_state.characters)} characters, "
         f"{len(story_state.props)} props tracked"
@@ -3502,7 +4113,9 @@ def scene_planner_node(state: VideoState) -> dict:
             entities.human_classification.value,
             entities.characters,
         )
-    entity_constraints_section = _build_entity_constraints_section(generated_scenes, entity_map)
+    entity_constraints_section = _build_entity_constraints_section(
+        generated_scenes, entity_map
+    )
 
     # ── Narrative-Visual Bridge (Task 2.7) ────────────────────────────────
     # Runs after entity extraction, before prompt generation, so abstract/
@@ -3511,7 +4124,9 @@ def scene_planner_node(state: VideoState) -> dict:
     # generate exactly as before this task.
     _llm_validation_client = _get_cheap_llm(settings, "llm_validation")
     if settings.visual_anchor_enabled:
-        visual_anchors = _build_visual_anchors(generated_scenes, _llm_validation_client, settings)
+        visual_anchors = _build_visual_anchors(
+            generated_scenes, _llm_validation_client, settings
+        )
     else:
         visual_anchors = {}
     for scene in generated_scenes:
@@ -3526,7 +4141,9 @@ def scene_planner_node(state: VideoState) -> dict:
     # Director pass (pure Python) enforces distribution targets.
     # Non-blocking: if LLM fails, scenes get no pacing metadata and render unchanged.
     if settings.cinematic_pacing_enabled:
-        console.print("  [cyan]→[/cyan] Cinematic Pacing: assigning reflection beats...")
+        console.print(
+            "  [cyan]→[/cyan] Cinematic Pacing: assigning reflection beats..."
+        )
         _pacing_llm = _get_cheap_llm(settings, "extraction")
         pacing_map = _run_pacing_pass(generated_scenes, _pacing_llm)
         if pacing_map:
@@ -3543,22 +4160,18 @@ def scene_planner_node(state: VideoState) -> dict:
                         "music": p["music"],
                     }
             enabled_count = sum(
-                1 for s in scenes if s.get("scene_pacing", {}).get("reflection", {}).get("enabled")
+                1
+                for s in scenes
+                if s.get("scene_pacing", {}).get("reflection", {}).get("enabled")
             )
             console.print(
                 f"  [green]✓[/green] Pacing: {enabled_count}/{len(generated_scenes)} "
                 f"reflection beats assigned"
             )
         else:
-            console.print("  [yellow]⚠[/yellow] Pacing LLM failed — proceeding without reflection beats")
-
-    # Inject per-scene story context and action constraints BEFORE Phase 2 batch prompts.
-    # These are read by build_visual_prompts_prompt via s["story_context"] and s["action_constraints"].
-    for _s in generated_scenes:
-        _idx = _s["index"]
-        _narration = _s.get("narration", "")
-        _s["story_context"] = story_state.get_story_context_for_scene(_idx)
-        _s["action_constraints"] = build_action_constraints_block(_narration)
+            console.print(
+                "  [yellow]⚠[/yellow] Pacing LLM failed — proceeding without reflection beats"
+            )
 
     console.print(
         f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
@@ -3577,7 +4190,9 @@ def scene_planner_node(state: VideoState) -> dict:
         batch = generated_scenes[batch_start : batch_start + _VP_BATCH]
         batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
         prompt = build_visual_prompts_prompt(
-            batch, style, prev_context=visual_diary or None,
+            batch,
+            style,
+            prev_context=visual_diary or None,
             entity_constraints_section=entity_constraints_section,
             scene_analysis_section=scene_analysis_section,
         )
@@ -3591,7 +4206,9 @@ def scene_planner_node(state: VideoState) -> dict:
                 batch_nums,
                 vp_response.completion_tokens,
             )
-            vp_list = _generate_vp_sub_batches(llm, batch, style, visual_diary, entity_constraints_section)
+            vp_list = _generate_vp_sub_batches(
+                llm, batch, style, visual_diary, entity_constraints_section
+            )
         else:
             vp_list = _parse_visual_prompts(vp_response.text)
             # Retry once on parse failure
@@ -3661,7 +4278,7 @@ def scene_planner_node(state: VideoState) -> dict:
     # scenes where the entity extractor happened to list it.
     _story_characters: set[str] = set()
     for _sc in generated_scenes:
-        for _ch in (_sc.get("scene_analysis", {}).get("allowed_characters") or []):
+        for _ch in _sc.get("scene_analysis", {}).get("allowed_characters") or []:
             _story_characters.add(_ch)
 
     for scene in generated_scenes:
@@ -3711,7 +4328,9 @@ def scene_planner_node(state: VideoState) -> dict:
             if dup_of is not None:
                 logger.warning(
                     "Scene {:03d} | attempt {} | DUPLICATE of scene {:03d} — forcing retry",
-                    idx, attempt, dup_of,
+                    idx,
+                    attempt,
+                    dup_of,
                 )
                 dup_error = ValidationError(
                     code="DUPLICATE_PROMPT",
@@ -3740,7 +4359,10 @@ def scene_planner_node(state: VideoState) -> dict:
             if not critical_errors:
                 if settings.faithfulness_validation_enabled:
                     legacy_passed, legacy_violation = _validate_prompt_faithfulness(
-                        scene.get("narration", ""), entities, current_prompt, _validation_llm
+                        scene.get("narration", ""),
+                        entities,
+                        current_prompt,
+                        _validation_llm,
                     )
                     if not legacy_passed:
                         logger.warning(
@@ -3764,12 +4386,16 @@ def scene_planner_node(state: VideoState) -> dict:
             # spend an LLM call when they're the ONLY remaining failures —
             # structural violations (FORBIDDEN_CHARACTER, SYMBOLIC_REPLACEMENT,
             # etc.) go through the normal retry path first.
-            if settings.faithfulness_llm_validation_enabled and _should_use_llm_validation(
-                critical_error_codes
+            if (
+                settings.faithfulness_llm_validation_enabled
+                and _should_use_llm_validation(critical_error_codes)
             ):
                 llm_passed, llm_reason = _run_llm_validation(
-                    scene_analysis, entities.human_classification, current_prompt,
-                    _llm_validation_client, settings,
+                    scene_analysis,
+                    entities.human_classification,
+                    current_prompt,
+                    _llm_validation_client,
+                    settings,
                 )
                 if llm_passed:
                     logger.info(
@@ -3864,7 +4490,9 @@ def scene_planner_node(state: VideoState) -> dict:
             "status": final_status.value,
             "violation": last_violation,
             "attempts": attempts,
-            "critical_errors": critical_error_codes if final_status == FaithfulnessStatus.FAILED else [],
+            "critical_errors": critical_error_codes
+            if final_status == FaithfulnessStatus.FAILED
+            else [],
             "llm_validated": llm_validated,
             "llm_reason": llm_reason_text,
         }
@@ -3935,13 +4563,19 @@ def scene_planner_node(state: VideoState) -> dict:
                 story_context=scene.get("story_context", ""),
             )
             sp_dict, repair_errors = _repair_structured_prompt_dict(
-                sp.model_dump(), scene.get("anchor_role", "absent"), scene.get("index", i + 1)
+                sp.model_dump(),
+                scene.get("anchor_role", "absent"),
+                scene.get("index", i + 1),
             )
             for err in repair_errors:
                 logger.error("STRUCTURED PROMPT REPAIR: {}", err)
             scene["structured_prompt"] = sp_dict
-            scene["visual_prompt"] = sp_dict.get("compiled_prompt") or sp.compiled_prompt
-        console.print(f"  [green]✓[/green] V2 structured prompts: {len(gen_scenes)} scenes")
+            scene["visual_prompt"] = (
+                sp_dict.get("compiled_prompt") or sp.compiled_prompt
+            )
+        console.print(
+            f"  [green]✓[/green] V2 structured prompts: {len(gen_scenes)} scenes"
+        )
 
         # Re-validate faithfulness_qa against the FINAL prompts (V2 override
         # may have resolved errors that were present in the pre-V2 prompts).
@@ -3951,7 +4585,9 @@ def scene_planner_node(state: VideoState) -> dict:
             if not entities or not scene.get("faithfulness_qa"):
                 continue
             sa = scene.get("scene_analysis", {})
-            sa, ents = _sanitize_scene_analysis(sa, entities, scene.get("narration", ""))
+            sa, ents = _sanitize_scene_analysis(
+                sa, entities, scene.get("narration", "")
+            )
             post_v2_result = run_validators(
                 scene_analysis=sa,
                 prompt=scene["visual_prompt"],
@@ -3967,7 +4603,9 @@ def scene_planner_node(state: VideoState) -> dict:
                     "violation": "",
                     "attempts": scene["faithfulness_qa"].get("attempts", 0),
                     "critical_errors": [],
-                    "llm_validated": scene["faithfulness_qa"].get("llm_validated", False),
+                    "llm_validated": scene["faithfulness_qa"].get(
+                        "llm_validated", False
+                    ),
                     "llm_reason": scene["faithfulness_qa"].get("llm_reason", ""),
                 }
 
@@ -3985,7 +4623,9 @@ def scene_planner_node(state: VideoState) -> dict:
         # Also clean the compiled_prompt inside structured_prompt if present
         _sp = _s.get("structured_prompt")  # type: ignore[assignment]
         if isinstance(_sp, dict) and _sp.get("compiled_prompt"):
-            _sp["compiled_prompt"] = _strip_prompt_meta_annotations(_sp["compiled_prompt"])
+            _sp["compiled_prompt"] = _strip_prompt_meta_annotations(
+                _sp["compiled_prompt"]
+            )
 
     # ── V2: Sync visual_metadata from structured prompts ────────────────
     scenes = _sync_metadata_from_v2(scenes)
@@ -4010,6 +4650,63 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(
             f"  [yellow]⚠ {len(_story_warnings)} story continuity warnings[/yellow]"
         )
+
+    # ── Canonical prompt validation (post-LLM contradiction check) ─────────
+    _continuity_report = ContinuityReport()
+    if settings.scene_continuity_enabled and settings.scene_continuity_prompt_validation:
+        _prompt_validation_errors = 0
+        for _s in scenes:
+            if _s.get("scene_type", "generated_image") != "generated_image":
+                continue
+            _idx = _s["index"]
+            _prompt = _s.get("visual_prompt", "")
+            if not _prompt:
+                continue
+            from ytfactory.scene_continuity.models import scene_mode_from_narrative_role
+            _vm = _s.get("visual_metadata") or {}
+            _narrative_role = (
+                _vm.get("narrative_role", "STORY") if isinstance(_vm, dict)
+                else getattr(_vm, "narrative_role", "STORY")
+            ) or "STORY"
+            _mode = scene_mode_from_narrative_role(_narrative_role)
+            _sa = scene_analysis_map.get(_idx)
+            _findings = validate_prompt_against_state(
+                _prompt, story_state, _idx, _mode, _sa
+            )
+            _errors = [f for f in _findings if f.is_error()]
+            if _errors:
+                _prompt_validation_errors += len(_errors)
+                for _f in _errors:
+                    logger.error("PROMPT CONTINUITY VIOLATION Scene {}: {}", _idx, str(_f))
+                _scene_status = SceneContinuityStatus(
+                    scene_index=_idx,
+                    status="REPAIRED" if _f.suggested_fix else "FAILED",
+                    prompt_violations=_errors,
+                )
+                _continuity_report.record_scene(_scene_status)
+            else:
+                _scene_status = SceneContinuityStatus(
+                    scene_index=_idx, status="PASS"
+                )
+                _continuity_report.record_scene(_scene_status)
+
+        if _prompt_validation_errors:
+            console.print(
+                f"  [yellow]⚠[/yellow] Prompt continuity: {_prompt_validation_errors} violation(s) in generated prompts"
+            )
+        else:
+            console.print(
+                "  [green]✓[/green] Prompt continuity: all prompts match canonical state"
+            )
+
+    # ── Write continuity report ─────────────────────────────────────────
+    _project_dir = Path(WORKSPACE_DIR) / project_id
+    if settings.scene_continuity_enabled:
+        _report_path = _continuity_report.write_report(_project_dir)
+        if settings.scene_continuity_debug and _continuity_report.all_violations:
+            console.print(
+                f"  [dim]Continuity report: {_report_path}[/dim]"
+            )
 
     # ── Visual Intelligence logging ──────────────────────────────────────
     for s in scenes:
@@ -4086,7 +4783,9 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(f"  [green]✓[/green] Story Bible: [dim]{bible_dir}[/dim]")
 
     # ── Write prompts file for manual image generation ────────────────────
-    prompts_path = _write_prompts_file(project_id, scenes, style, settings, story_bible=story_bible)
+    prompts_path = _write_prompts_file(
+        project_id, scenes, style, settings, story_bible=story_bible
+    )
     console.print(
         f"  [green]✓[/green] Image prompts exported: [dim]{prompts_path}[/dim]"
     )

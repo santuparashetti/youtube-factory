@@ -11,7 +11,63 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3538 passing, 3 skipped, 13 pre-existing failures (as of 2026-08-11)
+**Test count:** 3552 passing, 3 skipped, 13 pre-existing failures (as of 2026-08-11)
+
+## 2026-08-11 — Scene-state continuity: five localized bug fixes + 14 regression tests
+
+### Context
+Audit of job `the-story-of-a-strange-mind` uncovered five distinct bugs in the `scene_continuity` package that caused stale or incorrect story context to be injected into visual prompts: wrong character states, wrong scene modes, missing lamp-extinguish and death signals, and a key-alignment off-by-one. All five are source-level fixes; no prompt files were modified.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/scene_continuity/tracker.py` | Fix 4 (lamp patterns), Fix 5 (death patterns), `_get_scene_idx` helper (fixes 2+3), `build_story_state` updated to use it |
+| `src/ytfactory/scene_continuity/validator.py` | `validate_all` updated to use `_get_scene_idx` for consistent key resolution |
+| `src/ytfactory/agents/nodes/scene_planner.py` | `_inject_continuity_context` helper extracted; wired into both cached and fresh paths (Fix 1) |
+| `tests/test_scene_continuity.py` | 14 new regression tests in `TestContinuityRegressions` (73 total, all passing) |
+
+### Fix 1 — Idempotency bypass: cached path skipped story-context injection
+
+`scene_planner_node` checks for an existing `scene-plan.json` and returned early before any continuity infrastructure ran. Cached re-runs (including incremental pipeline resumes) therefore received stale or missing `story_context` / `action_constraints` on every scene.
+
+**Fix:** Extracted `_inject_continuity_context(scenes, scene_analysis_map) -> StoryState` — calls `build_story_state`, writes `story_context` + `action_constraints` into every generated-image scene dict, returns the `StoryState`. Wired into the **cached path** (rebuilds analysis map from `scene["scene_analysis"]` dicts in the cached JSON, calls the helper, runs `ContinuityValidator`, logs findings, then writes the plan back). Replaced the inline injection loop in the **fresh path** with the same helper call. Scenes loaded from disk now receive fresh story context on every re-run.
+
+### Fix 2+3 — Key mismatch / off-by-one: build_story_state used 0-based keys, prompt call used 1-based
+
+Production `scene-plan.json` dicts carry `scene["index"]` (1-based). `build_story_state` was iterating with `enumerate` and using the 0-based `enum_idx` as the key for `scene_history`, `scene_modes`, and the `scene_analysis_map` lookup. But `get_story_context_for_scene(scene["index"])` — called at injection time — used the 1-based dict index. Result: every scene received the wrong scene's context; METAPHOR (scene 26) stored its mode at key 25, so it received LITERAL context instead of SYMBOLIC.
+
+**Fix:** Added `_get_scene_idx(enum_idx, scene) -> int` helper in `tracker.py`:
+- For production dicts: returns `scene["index"]` (1-based)
+- For test `FakeScene` objects (no `index` attribute): falls back to `enum_idx` (0-based, backward compatible)
+
+Updated `build_story_state` and `validate_all` to resolve every scene index through this helper. All `scene_history` / `scene_modes` / analysis-map lookups now use consistent 1-based keys in production.
+
+### Fix 4 — Lamp extinguish patterns: "went out", "oil was gone", "oil had run out"
+
+`_extract_prop_state_from_narration()` in `tracker.py` did not match the exact narration from scene 14: *"Then the lamp went out. The oil was gone."* The lamp therefore remained `lit` in the story state, and scene 15's context incorrectly showed the lamp as lit.
+
+**Fix:** Extended `_extinguish_pat` to include `\bwent out\b`, `\burned out\b`, `\bflickered out\b`, `\bgave out\b`. Added a second oil-exhaustion pattern for reversed word order: `\boil\b.{0,25}\b(was gone|had run out|is gone|ran out)\b`.
+
+### Fix 5 — Death patterns: "lost his/her life", "was slain/killed/murdered", "met his/her/their end"
+
+`_infer_death_from_narration()` did not match the exact narration from scene 16: *"the traveler lost his life"*. The traveler therefore remained alive in story state, and scene 17 context did not show "DEAD CHARACTERS: Traveler".
+
+**Fix:** Added three death patterns:
+- `(\w[\w ]+?)\s+lost\s+(?:his|her|their)\s+life`
+- `(\w[\w ]+?)\s+(?:was\s+slain|was\s+killed|was\s+murdered)`
+- `(\w[\w ]+?)\s+met\s+(?:his|her|their)\s+(?:end|death)`
+
+### Key Invariants
+- `_get_scene_idx` is the canonical index resolver for all continuity code — `build_story_state`, `validate_all`, and the cached-path analysis-map reconstruction all use it. Never read `enumerate` idx directly as a scene key in continuity code.
+- Test `FakeScene` objects have no `index` attribute → `_get_scene_idx` falls back to 0-based enumerate → all 60 existing tests are unaffected.
+- `_inject_continuity_context` must be called in BOTH the cached path (before JSON write) and the fresh path (replacing the `build_story_state` call + old inline injection loop). Don't add a third call site; reuse this helper.
+- Continuity findings (WARNINGS/ERRORS) are logged only — never block the pipeline. Preserve the existing `ContinuityFinding` severity/logging model.
+
+### Test Results
+- `tests/test_scene_continuity.py`: **73 passed** (60 existing + 13 new regression tests)
+- Full suite: **3552 passed, 13 failed (all pre-existing), 3 skipped**
+- ruff: clean; mypy: 0 new errors
 
 ## 2026-08-11 — IMAGE PROMPT GENERATION PIPELINE: source-level contradiction fixes + conflict-group false-positive fix
 

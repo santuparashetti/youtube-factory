@@ -55,6 +55,10 @@ class TTSDebugWriter:
         """Raw narration from scene-plan.json."""
         self._write_text("original.txt", text)
 
+    def write_ssml(self, text: str) -> None:
+        """Speechify-compatible SSML sent to the TTS provider (SSML path only)."""
+        self._write_text("ssml.xml", text)
+
     def write_optimized(self, text: str) -> None:
         """After SpeechOptimizer — \\n\\n-separated spoken phrases."""
         self._write_text("optimized.txt", text)
@@ -170,6 +174,7 @@ class TTSDebugWriter:
             "├── TTS_DIAGNOSTICS.md       ← this file",
             "└── scene-NNN/",
             "    ├── original.txt         ← raw narration from scene-plan.json",
+            "    ├── ssml.xml             ← Speechify SSML sent to TTS (SSML path only)",
             "    ├── optimized.txt        ← after SpeechOptimizer",
             "    ├── formatted.txt        ← after SpeechFormatter (sent to TTS)",
             "    ├── provider_request.json",

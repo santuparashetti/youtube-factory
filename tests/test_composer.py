@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ytfactory.composer.pipeline import ComposerPipeline, TARGET_MAX_MINUTES, TARGET_MIN_MINUTES
+from ytfactory.composer.pipeline import ComposerPipeline, _DEFAULT_TARGET_MINUTES, _NARRATION_WPM
 from ytfactory.composer.selection import run_composer_with_ab_selection
 
 # Minimal valid composed script: 11 non-empty lines, "lighthouse" echoed as rehook.
@@ -133,8 +133,9 @@ class TestComposerPipeline:
         assert "UNIQUE_BASE_SCRIPT_MARKER" in prompt_arg
 
     def test_target_range_constants(self):
-        assert TARGET_MIN_MINUTES == 7
-        assert TARGET_MAX_MINUTES == 9
+        # Range is now computed dynamically from target_minutes; verify defaults.
+        assert _DEFAULT_TARGET_MINUTES == 7
+        assert _NARRATION_WPM == 130
 
 
 class TestPromptBuilders:

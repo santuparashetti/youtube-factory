@@ -11,6 +11,9 @@ from ytfactory.composer.judge import JudgeVerdict
 from ytfactory.composer.pipeline import _validate_rehook_present
 
 
+_NARRATION_WPM = 130
+
+
 def guided_recompose(
     script_a: str,
     script_b: str,
@@ -18,6 +21,7 @@ def guided_recompose(
     provider: LLMProvider,
     settings: object,
     beats: list[dict] | None = None,
+    target_minutes: int = 7,
 ) -> Optional[str]:
     """Write a new whole-cloth script guided by the judge's section map.
     Returns the recomposed text, or None on failure.
@@ -29,7 +33,14 @@ def guided_recompose(
 
     raw_prompt = _load_prompt("GUIDED_RECOMPOSER_PROMPT.md")
     beats_text = format_beats_list(beats) if beats else "(No beats extracted for this script.)"
-    prompt = raw_prompt.format(beats_list=beats_text)
+    center = target_minutes * _NARRATION_WPM
+    prompt = raw_prompt.format(
+        beats_list=beats_text,
+        recompose_min=int(center * 0.90),
+        recompose_max=int(center * 1.00),
+        source_words_min=int(center * 1.05),
+        source_words_max=int(center * 1.20),
+    )
 
     section_lines = "\n".join(
         f"- {s.name}: Script {s.winner} is stronger ({s.reason})"
