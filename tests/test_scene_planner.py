@@ -17,7 +17,6 @@ import json
 import pytest
 
 from ytfactory.agents.nodes.scene_planner import (
-    _enforce_closing_scene_primary,
     _enforce_primary_kai_spec,
     _enforce_style_footer,
     _has_character_staging,
@@ -234,19 +233,21 @@ class TestParsePreservesAnchorRole:
 
 
 class TestEnforcementGuards:
-    def test_closing_scene_is_always_primary(self):
-        """Last non-asset scene is forced to primary even when LLM returned spectator."""
+    def test_closing_scene_anchor_role_respects_character_presence(self):
+        """Closing scene anchor_role is no longer forced to primary by the pipeline.
+        It reflects what the LLM assigned (or what character_presence implies).
+        """
         mock_scenes = [
-            {"index": 1, "anchor_role": "primary",
+            {"index": 1, "anchor_role": "primary", "character_presence": ["KAI"],
              "visual_prompt": "Lean young man, short dark hair at a desk",
              "scene_type": "generated_image"},
-            {"index": 2, "anchor_role": "spectator",
+            {"index": 2, "anchor_role": "absent", "character_presence": [],
              "visual_prompt": "A crowd cheers in a stadium",
              "scene_type": "generated_image"},
         ]
-        result = _enforce_closing_scene_primary(mock_scenes)
-        assert result[-1]["anchor_role"] == "primary"
-        assert _has_kai_markers(result[-1]["visual_prompt"])
+        result = _enforce_primary_kai_spec(mock_scenes)
+        # The last scene with character_presence=[] stays absent — no auto-promotion
+        assert result[-1]["anchor_role"] == "absent"
 
     def test_primary_spec_prepended_when_missing(self):
         """Primary scenes with character staging but no Kai spec get the spec prepended."""
@@ -268,20 +269,19 @@ class TestEnforcementGuards:
         assert result[0]["visual_prompt"] == original
 
     def test_absent_scenes_unaffected_by_guards(self):
-        """Guards must not modify absent scenes that are not the closing scene."""
+        """Guards must not modify absent scenes."""
         mock_scenes = [
-            {"index": 1, "anchor_role": "absent",
+            {"index": 1, "anchor_role": "absent", "character_presence": [],
              "visual_prompt": "A cracked hourglass on stone floor.",
              "scene_type": "generated_image"},
-            {"index": 2, "anchor_role": "primary",
+            {"index": 2, "anchor_role": "primary", "character_presence": ["KAI"],
              "visual_prompt": "Lean young man, late 20s, short dark hair — at a window.",
              "scene_type": "generated_image"},
-            {"index": 3, "anchor_role": "absent",
+            {"index": 3, "anchor_role": "absent", "character_presence": [],
              "visual_prompt": "Atma Theory brand card.",
              "scene_type": "brand_card"},
         ]
         result = _enforce_primary_kai_spec(mock_scenes)
-        result = _enforce_closing_scene_primary(result)
         assert result[0]["anchor_role"] == "absent"
         assert "dark hair" not in result[0]["visual_prompt"]
 

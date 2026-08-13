@@ -127,9 +127,22 @@ class Scene(BaseModel):
     faithfulness_qa: dict | None = Field(default=None, description="QA result from faithfulness validation pass")
     narrative_phase: str = Field(default="", description="Narrative pipeline phase (HOOK, STORY, TENSION, REVELATION, …). Drives SSML emotion targeting.")
     scene_analysis: SceneAnalysis | None = Field(default=None, description="Structured scene analysis for story-first prompt generation")
+    character_presence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Authoritative list of character IDs present in this scene "
+            "(e.g. ['KAI', 'YOUNG_HUSBAND']). Empty list = environment-only. "
+            "When non-empty this takes precedence over anchor_role for character "
+            "spec injection. KAI must be explicitly listed — never auto-injected."
+        ),
+    )
     anchor_role: Literal["primary", "spectator", "absent"] = Field(
         default="absent",
-        description="Kai anchor character role: primary (Kai is subject), spectator (Kai observes real figure), absent (symbolic, no Kai)",
+        description=(
+            "Kai anchor character role: primary (Kai is subject), spectator (Kai observes "
+            "real figure), absent (symbolic, no Kai). Derived from character_presence when "
+            "that field is non-empty; kept for backward compatibility with old scene plans."
+        ),
     )
     scene_group_id: str | None = Field(
         default=None,

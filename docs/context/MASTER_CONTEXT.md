@@ -11,7 +11,73 @@ metadata:
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** 3552 passing, 3 skipped, 13 pre-existing failures (as of 2026-08-11)
+**Test count:** ~3711 passing, 3 skipped, 11 pre-existing failures (as of 2026-08-13)
+
+## 2026-08-13 — character_presence: remove automatic Kai injection; authoritative character presence field
+
+### Problem Fixed
+The pipeline had two functions (`_enforce_kai_distribution`, `_enforce_closing_scene_primary`) that automatically injected Kai into scenes based on hardcoded rules — a 30%-distribution guarantee and a forced closing-scene rule — overriding the LLM's correct "absent" classifications for literal story scenes (Young Husband, Wife, Socrates, Xanthippe). The result: Kai appeared in scenes where he didn't belong, creating visual confusion since both Kai and Young Husband are young men.
+
+**Root architecture problem:** "Character continuity" was being treated as "character presence" — the post-processor was promoting scenes to ensure Kai appeared enough times, regardless of story context.
+
+### Architecture Change
+
+**New field:** `character_presence: list[str]` on `Scene` model — the authoritative list of Character Bible IDs present in this scene. Empty = environment-only. Takes precedence over `anchor_role` for character spec injection.
+
+**Removed:**
+- `_enforce_kai_distribution()` — no longer auto-promotes scenes to hit 30% Kai threshold
+- `_enforce_closing_scene_primary()` — no longer forces Kai into the last non-asset scene
+
+**Rewritten** `_enforce_primary_kai_spec()`:
+- `character_presence` non-empty → read it as authority: if KAI absent → strip any stray Kai markers; if KAI present → apply original injection rules
+- `character_presence` empty → backward-compat: use `anchor_role` (old scene plans without the new field)
+
+**Updated** `_enforce_style_footer()`: uses `character_presence` to determine illustrated vs. symbolic footer (rather than solely relying on `anchor_role`).
+
+**Updated** LLM prompt: added "CHARACTER PRESENCE — REQUIRED FIELD FOR EVERY SCENE" section instructing the LLM to emit `character_presence` (JSON list) for every scene, with explicit rules that KAI must not be listed for literal story scenes; updated output format to include the field.
+
+**Updated** `_refine_prompt_from_score()` in `images/pipeline.py`: Kai fidelity clause now gates on `character_presence` — only added when KAI is explicitly in the list; falls back to `anchor_role` for old scene plans.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/scenes/models.py` | Added `character_presence: list[str]` field to `Scene` |
+| `src/ytfactory/agents/nodes/scene_planner.py` | Removed `_enforce_kai_distribution` + `_enforce_closing_scene_primary`; rewrote `_enforce_primary_kai_spec` to gate on `character_presence`; updated `_enforce_style_footer` |
+| `src/ytfactory/agents/prompts/scene_planner.py` | Added CHARACTER PRESENCE section; updated output format + closing scene rule |
+| `src/ytfactory/images/pipeline.py` | Updated `_refine_prompt_from_score` to use `character_presence` for Kai clause |
+| `tests/test_character_presence.py` | **NEW** — 32 regression tests covering all behavioral requirements |
+| `tests/test_scene_planner.py` | Removed import of deleted function; updated tests for new behavior |
+
+### Key Invariants
+- `character_presence` is authoritative when non-empty; `anchor_role` is backward-compat fallback for old scene plans that predate this field.
+- KAI may only appear in `character_presence` when the narration is universal/viewer-proxy — never for literal story characters (YOUNG_HUSBAND, WIFE, SOCRATES, XANTHIPPE).
+- `anchor_role` is now *derived from* `character_presence`, not the driver of it. Setting `anchor_role="primary"` on a scene with `character_presence=["YOUNG_HUSBAND"]` strips Kai and sets `anchor_role="absent"`.
+- Empty `character_presence` + `anchor_role="absent"` = environment-only scene; no character injection of any kind.
+- Previous-scene characters cannot leak: each scene is resolved independently from its own `character_presence`.
+
+### Test Results
+- `tests/test_character_presence.py`: 32 passed (new)
+- All directly-affected tests: 209 passed
+- Full suite: 0 new failures introduced; 11 pre-existing failures unchanged
+
+## 2026-08-13 — Emotion/SSML policy: centralized emotional progression + Speechify SSML injection
+
+### Files Changed (all in commit 0c3d30c)
+
+| File | Change |
+|---|---|
+| `src/ytfactory/emotion/policy.py` | **NEW** — `NarrativePhase` enum (10 phases + UNKNOWN), `CORE_EMOTIONS`/`RARE_EMOTIONS`/`ALL_EMOTIONS`, `EMOTION_FAMILIES` (synonym→family), `EmotionPolicy` dataclass with phase→primary/fallback/secondary mappings, `emotion_policy()` singleton, `check_script_diversity()`, `check_phase_coverage()` |
+| `src/ytfactory/emotion/__init__.py` | Export `NarrativePhase`, `EmotionPolicy`, `emotion_policy` |
+| `src/ytfactory/voice/pipeline.py` | Wired `SsmlEnhancer` — when `ssml_enhancement_enabled=True`: enhancer reads `narrative_phase` from scene dict, outputs Speechify-compatible SSML; pacing bypassed (SSML encodes pauses); `strip_ssml()` used for subtitle text |
+| `src/ytfactory/source_refiner/pipeline.py` | (changes as committed) |
+| `tests/test_emotion_policy.py` | **NEW** — 260+ tests for emotion policy, diversity checks, phase coverage |
+
+### Key Invariants
+- `NarrativePhase` is the single source of truth — composer prompts, SSML enhancer, and scene validator all read from `emotion/policy.py`.
+- SSML enhancement and contemplative pacing are mutually exclusive — `use_pacing = False` when `use_ssml = True`.
+- `strip_ssml()` is always applied before subtitle generation — subtitles never contain SSML markup.
+- Rare emotions (`terrified`, `furious`, etc.) require explicit narrative evidence; the diversity check uses `EMOTION_FAMILIES` to prevent synonym gaming.
 
 ## 2026-08-11 — Scene-state continuity: five localized bug fixes + 14 regression tests
 

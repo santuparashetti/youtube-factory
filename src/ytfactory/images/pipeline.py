@@ -213,6 +213,7 @@ class ImagePipeline:
             refined_prompt = self._refine_prompt_from_score(
                 current_prompt, current_score, current_failure_reason,
                 anchor_role=scene.get("anchor_role", "absent"),
+                character_presence=scene.get("character_presence") or [],
             )
             tier1 = self._settings.image_model_registry.for_tier(1)
             retry_request = ImageRequest(
@@ -290,6 +291,7 @@ class ImagePipeline:
         score: float,
         failed_constraint: str = "",
         anchor_role: str = "absent",
+        character_presence: list[str] | None = None,
     ) -> str:
         # Audience anchor: scene planner already embeds Western/symbolic preference;
         # this phrase reinforces it through refinement without overriding scene-specific
@@ -312,13 +314,16 @@ class ImagePipeline:
             if score < 8.5:
                 adaptations.append("cinematic lighting, strong atmosphere")
             adaptations.append("photorealistic, high detail, correct anatomy, sharp focus")
-        # Anchor character: keep Kai's presence and role stable across refinement.
-        # The original prompt is preserved in full (deterministic append), so the
-        # Kai spec already at the start of a primary prompt is never dropped; these
-        # clauses reinforce role fidelity for the image model on the retry pass.
-        anchor_clause = _KAI_ROLE_REFINEMENT.get(anchor_role)
-        if anchor_clause:
-            adaptations.append(anchor_clause)
+        # Kai fidelity clause: only added when KAI is explicitly in character_presence.
+        # character_presence is authoritative; fall back to anchor_role for old scene plans
+        # that predate the character_presence field.
+        presence_upper = {c.upper() for c in (character_presence or [])}
+        if presence_upper:
+            kai_clause = _KAI_ROLE_REFINEMENT["primary"] if "KAI" in presence_upper else ""
+        else:
+            kai_clause = _KAI_ROLE_REFINEMENT.get(anchor_role, "")
+        if kai_clause:
+            adaptations.append(kai_clause)
         return f"{prompt}, {', '.join(adaptations)}"
 
     def _create_single_shot_reviewer(self) -> ImageReviewEngine | None:

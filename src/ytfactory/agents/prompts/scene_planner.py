@@ -850,9 +850,10 @@ appear inside visual_prompt. Specifically, never include:
   color-name list — not as editorial labels ("warm ochre arc palette").
 
 Return ONE JSON array. Index values MUST match the scene numbers exactly — do not reset to 1.
-[{{"index": N, "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "scene_group_id": "snake_case_group_name_or_null", "environment_anchor": "canonical environment description or null", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
+[{{"index": N, "character_presence": ["KAI"|"YOUNG_HUSBAND"|"WIFE"|"SOCRATES"|...], "anchor_role": "primary|spectator|absent", "visual_prompt": "...", "scene_group_id": "snake_case_group_name_or_null", "environment_anchor": "canonical environment description or null", "visual_metadata": {{"version": 1, "era": "ANCIENT|HISTORICAL|MODERN|SYMBOLIC|TRANSITIONAL", "narrative_role": "STORY|ANALOGY|METAPHOR|EXPLANATION|ESTABLISHING|CTA", "environment": "FOREST|TEMPLE|ASHRAM|KINGDOM|BATTLEFIELD|CITY|OFFICE|HOME|MOUNTAIN|RIVER|ABSTRACT|COSMIC", "mood": "PEACEFUL|MYSTERIOUS|REVERENT|REFLECTIVE|HOPEFUL|FEARFUL|CURIOUS|LONELY|DETERMINED", "visual_style": "DOCUMENTARY|CINEMATIC|REALISTIC|DREAMLIKE|PAINTING|ANIME|WATERCOLOR", "allow_modern_objects": true_or_false, "reason": "..."}}}}]
 
-Every scene object MUST include "scene_group_id" and "environment_anchor" explicitly, even when null:
+Every scene object MUST include these fields explicitly:
+  "character_presence": [...]  ← list of character IDs present; empty list [] for environment-only
   "scene_group_id": "snake_case_group_name"  ← or null if this scene is not part of a group
   "environment_anchor": "canonical environment description"  ← or null if not part of a group
 Do NOT omit these fields. Scenes with no group: output "scene_group_id": null, "environment_anchor": null
@@ -962,12 +963,48 @@ Never use Indian street scenes, South Asian faces, or Indian cultural markers as
 The target viewer is English-speaking (US, UK, AU, CA).
 
 ══════════════════════════════════════════════════════
+CHARACTER PRESENCE — REQUIRED FIELD FOR EVERY SCENE
+══════════════════════════════════════════════════════
+
+Every scene must include a `character_presence` field: a JSON list of character IDs
+from the Character Bible that are physically present in this scene.
+
+CHARACTER_PRESENCE IS AUTHORITATIVE. It determines which character specs are injected
+into the image prompt. Only listed characters may appear in the rendered image.
+
+Valid character IDs (from Character Bible): KAI, YOUNG_HUSBAND, WIFE, SOCRATES
+(add any other named story character by their UPPER_CASE role name)
+
+RULES:
+1. KAI must only appear in character_presence for scenes where the narration is
+   universal / first-person / viewer-proxy — scenes where a real story character
+   is NOT the primary subject.
+2. For literal story scenes (YOUNG_HUSBAND, WIFE, SOCRATES, XANTHIPPE as subjects),
+   list those characters and DO NOT list KAI. Kai and Young Husband are different
+   characters; never substitute one for the other.
+3. If the scene is environment-only or symbolic with no human: "character_presence": []
+4. If both Kai and a story character appear together (rare — only when narration
+   explicitly places a viewer-proxy alongside the story figure): list both.
+
+EXAMPLES:
+  Story scene (husband and wife): "character_presence": ["YOUNG_HUSBAND", "WIFE"]
+  Philosopher teaching:           "character_presence": ["SOCRATES", "YOUNG_HUSBAND"]
+  Viewer-proxy / reflection:      "character_presence": ["KAI"]
+  Environment / symbolic:         "character_presence": []
+  Kai witnesses Socrates (rare):  "character_presence": ["KAI", "SOCRATES"]
+
+══════════════════════════════════════════════════════
 KAI ANCHOR CHARACTER — SCENE CLASSIFICATION (PIPELINE INTERNAL)
 ══════════════════════════════════════════════════════
 
 For every scene you generate, you must:
-  1. Decide the `anchor_role` — one of: "primary", "spectator", or "absent"
-  2. Build the `visual_prompt` with Kai's spec injected per that role
+  1. Set `character_presence` (see above — this is the authoritative field)
+  2. Decide the `anchor_role` — one of: "primary", "spectator", or "absent"
+     anchor_role is derived from character_presence:
+     - KAI in character_presence → anchor_role = "primary"
+     - Story characters only (no KAI) → anchor_role = "absent"
+     - No characters → anchor_role = "absent"
+  3. Build the `visual_prompt` with character specs from character_presence only
 
 "Kai" is a pipeline-internal identifier. It must NOT appear in any text the viewer
 sees, and it must NOT appear in the visual_prompt either. In visual_prompts you write,
@@ -978,14 +1015,12 @@ CLASSIFICATION RULES
 "absent" — No human character needed or appropriate.
 Assign when: the scene is fully symbolic, atmospheric, or abstract — a metaphor,
 a data point, a texture, an environment. No human presence would strengthen it.
+Also assign when story characters (not Kai) are present.
 
 "primary" — Kai is the subject; he is feeling, experiencing, or reflecting.
-Assign when: the scene is about someone experiencing an emotion, making a choice,
-or sitting with a realisation. No named real historical figure is present.
-ALWAYS assign primary to:
-- The first non-symbolic scene (establishes Kai for the viewer)
-- The climax breath scene (his realisation moment)
-- The final scene before the brand card (arc completes)
+Assign when: KAI is in character_presence AND the scene is about someone experiencing
+an emotion, making a choice, or sitting with a realisation with no named real
+historical figure as the primary subject.
 
 "spectator" — A real figure is primary; Kai witnesses.
 Assign when: the scene depicts a named historical person, a documented real event,
@@ -1022,12 +1057,13 @@ WRONG (never do this):
 "A single human figure..." [too generic — missing the locked spec]
 "Lean young man... — [story protagonist follows]" [Kai spec over a named story character]
 
-### CLOSING SCENE RULE
+### CLOSING SCENE GUIDANCE
 
-The last non-asset scene in every video MUST be anchor_role = "primary".
-This is the scene where Kai's arc completes — regardless of what the script
-says, Kai must be the primary subject here. Do not classify the closing scene
-as "spectator" or "absent" under any circumstances.
+For videos with a Kai arc (viewer-proxy / universal narration): the last non-asset
+scene is a natural moment for Kai as primary subject — include KAI in character_presence.
+For videos about literal story events (Young Husband, Wife, Socrates): the closing
+scene should feature the story characters, not Kai. Do NOT force Kai into a scene
+that belongs to a real story character.
 
 SPECTATOR visual_prompt structure:
 Write the historical/factual scene first (primary subject, setting, action).

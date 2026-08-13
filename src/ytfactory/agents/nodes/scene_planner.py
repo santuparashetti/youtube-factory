@@ -258,24 +258,77 @@ def _has_story_specific_character(scene: dict, prompt: str) -> bool:
 
 
 def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
-    """For primary scenes:
-    - Aerial/overhead shots: reclassify to 'absent' — Kai cannot stand in a
-      bird's-eye or straight-down drone shot. Also strips any previously
-      injected Kai spec so the prompt is clean.
-    - Kai markers present AND action verb present: leave unchanged (correct).
-    - Kai markers present but NO action verb: reclassify to 'absent' — the spec
-      was prepended by the LLM but the staging is atmospheric, creating a
-      contradiction (Kai spec with no character action).
-    - No Kai markers, has character staging, already has a story protagonist:
-      leave unchanged — do NOT inject Kai over a story-specific character.
-    - No Kai markers, has character staging (generic): prepend Kai spec.
-    - No Kai markers, no character staging (atmospheric/symbolic): reclassify
-      to 'absent' to prevent Kai spec + empty-scene contradiction.
+    """Enforce Kai character spec injection using character_presence as the authority.
+
+    character_presence takes precedence when set:
+    - KAI in character_presence → Kai may be injected (original role-based rules apply)
+    - Non-Kai characters in character_presence but KAI absent → strip any stray Kai markers,
+      set anchor_role='absent' so style footer knows no Kai is present
+    - character_presence empty → backward-compat path: use anchor_role (old scene plans)
+
+    For backward-compat primary scenes (no character_presence):
+    - Aerial shots → reclassify absent
+    - Kai markers + action → keep
+    - Kai markers, no action → reclassify absent (atmospheric contradiction)
+    - No Kai markers + story protagonist already present → keep (story character takes priority)
+    - No Kai markers + generic character staging → prepend Kai spec
+    - No Kai markers, no character staging → reclassify absent
     """
     for scene in scenes:
+        char_presence = scene.get("character_presence") or []
+        char_presence_upper = {c.upper() for c in char_presence}
+        kai_in_presence = "KAI" in char_presence_upper
+        has_non_kai_chars = bool(char_presence_upper - {"KAI"})
+        prompt = scene.get("visual_prompt", "")
+
+        # ── character_presence is authoritative when set (non-empty) ──────────
+        if char_presence:
+            if not kai_in_presence:
+                # KAI explicitly absent — strip any stray Kai markers from the prompt
+                for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
+                    prompt = prompt.replace(marker, "").strip()
+                scene["visual_prompt"] = prompt
+                # anchor_role: story characters are present but Kai is not
+                # Use 'spectator' only if anchor_role was already 'primary' (old prompts);
+                # otherwise 'absent' is the right label (no Kai perspective at all).
+                if scene.get("anchor_role") == "primary":
+                    scene["anchor_role"] = "absent"
+                continue
+
+            # KAI is in character_presence — apply the original injection rules
+            # Aerial/overhead shots: Kai cannot be placed meaningfully
+            if _is_aerial_shot(prompt):
+                for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
+                    prompt = prompt.replace(marker, "").strip()
+                scene["visual_prompt"] = prompt
+                scene["anchor_role"] = "absent"
+                # Remove KAI from character_presence since aerial can't support him
+                scene["character_presence"] = [c for c in char_presence if c.upper() != "KAI"]
+                continue
+
+            scene["anchor_role"] = "primary"
+            if _has_kai_markers(prompt):
+                if _has_action_staging(prompt):
+                    continue
+                if scene.get("structured_prompt"):
+                    continue
+                # Spec present but no staging — remove Kai (spec without staging is a contradiction)
+                for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
+                    prompt = prompt.replace(marker, "").strip()
+                scene["visual_prompt"] = prompt
+                scene["anchor_role"] = "absent"
+                scene["character_presence"] = [c for c in char_presence if c.upper() != "KAI"]
+            elif _has_character_staging(prompt):
+                if not _has_story_specific_character(scene, prompt):
+                    scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
+            else:
+                scene["anchor_role"] = "absent"
+                scene["character_presence"] = [c for c in char_presence if c.upper() != "KAI"]
+            continue
+
+        # ── character_presence is empty — backward compat: use anchor_role ────
         if scene.get("anchor_role") != "primary":
             continue
-        prompt = scene.get("visual_prompt", "")
 
         # Aerial/overhead shots: Kai cannot be placed meaningfully — drop to absent.
         if _is_aerial_shot(prompt):
@@ -291,14 +344,13 @@ def _enforce_primary_kai_spec(scenes: list[dict]) -> list[dict]:
             if scene.get("structured_prompt"):
                 continue  # V2 generated Kai staging — trust it
             # Spec present but staging is atmospheric — reclassify to absent.
-            # Strip any prepended Kai spec so the prompt is clean.
             for marker in [KAI_COMPRESSED_SPEC + " —", KAI_COMPRESSED_SPEC]:
                 prompt = prompt.replace(marker, "").strip()
             scene["visual_prompt"] = prompt
             scene["anchor_role"] = "absent"
         elif _has_character_staging(prompt):
-            # Guard: if the prompt already describes a story-specific character
-            # (e.g. Traveler, Shivaji), injecting Kai would contradict the story.
+            # Guard: if the prompt already describes a story-specific character,
+            # injecting Kai would contradict the story.
             if _has_story_specific_character(scene, prompt):
                 pass  # leave prompt unchanged — story protagonist is already described
             else:
@@ -395,22 +447,24 @@ def _propagate_environment_anchors(scenes: list[dict]) -> list[dict]:
 
 
 def _enforce_style_footer(scenes: list[dict], hybrid: bool = False) -> list[dict]:
-    """
-    Ensures every visual_prompt ends with the correct style/quality footer.
-    primary / spectator + hybrid  → illustrated character footer (ink outlines, cel shading)
-    primary / spectator + non-hybrid → photorealistic human quality footer
-    absent                         → symbolic footer (no human quality instructions)
+    """Ensure every visual_prompt ends with the correct style/quality footer.
+
+    Character presence detection priority:
+    1. character_presence non-empty → characters are present → illustrated footer
+    2. anchor_role in (primary, spectator) → characters present (backward compat) → illustrated footer
+    3. Otherwise → symbolic/atmospheric → symbolic footer
 
     Partial footer phrases are stripped before the full footer is appended so
     phrases never appear twice.
     """
     for scene in scenes:
+        char_presence = scene.get("character_presence") or []
         role = scene.get("anchor_role", "absent")
+        has_characters = bool(char_presence) or role in ("primary", "spectator")
         prompt = scene.get("visual_prompt", "").rstrip()
 
-        if role in ("primary", "spectator"):
+        if has_characters:
             footer = _STYLE_FOOTER_ILLUSTRATED if hybrid else _STYLE_FOOTER_HUMAN
-            # Marker phrase that signals the correct footer is already present.
             char_marker = "ink outlines" if hybrid else "highly detailed human face"
         else:
             footer = _STYLE_FOOTER_SYMBOLIC
@@ -422,142 +476,12 @@ def _enforce_style_footer(scenes: list[dict], hybrid: bool = False) -> list[dict
         if has_full_footer and not needs_upgrade:
             continue  # already complete and correct
 
-        # Strip any partial indicator phrases before appending the full footer.
         stripped = _strip_partial_footer(prompt)
         scene["visual_prompt"] = f"{stripped} {footer}"
 
     return scenes
 
 
-def _enforce_closing_scene_primary(scenes: list[dict]) -> list[dict]:
-    """The last non-asset scene must be anchor_role='primary'. Override + prepend spec if not."""
-    closing_idx: int | None = None
-    for i in reversed(range(len(scenes))):
-        if scenes[i].get("scene_type") not in ("asset", "brand_card"):
-            closing_idx = i
-            break
-    if closing_idx is None:
-        return scenes
-    closing = scenes[closing_idx]
-    if closing.get("anchor_role") != "primary":
-        closing["anchor_role"] = "primary"
-        prompt = closing.get("visual_prompt", "")
-        if not _has_kai_markers(prompt):
-            if _has_character_staging(prompt):
-                closing["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
-            else:
-                closing["visual_prompt"] = (
-                    f"{KAI_COMPRESSED_SPEC} — standing still, facing forward, "
-                    f"looking outward with quiet resolve. "
-                    f"{prompt}"
-                )
-    return scenes
-
-
-def _enforce_kai_distribution(
-    scenes: list[dict],
-    entity_map: dict[int, "SceneEntities"],
-) -> list[dict]:
-    """Ensure Kai appears in at least 30% of non-asset scenes, spread across arc phases.
-
-    Runs AFTER _enforce_primary_kai_spec and _enforce_closing_scene_primary so it
-    accounts for scenes that were downgraded to absent by those guards.  Newly
-    promoted scenes get the Kai spec prepended via a follow-up
-    _enforce_primary_kai_spec call in the main pipeline.
-    """
-    gen_scenes = [
-        s for s in scenes if s.get("scene_type") not in ("asset", "brand_card")
-    ]
-    total = len(gen_scenes)
-    if total < 4:
-        return scenes
-
-    kai_count = sum(
-        1 for s in gen_scenes if s.get("anchor_role") in ("primary", "spectator")
-    )
-    target = max(3, int(total * 0.30))
-    if kai_count >= target:
-        return scenes
-
-    needed = target - kai_count
-
-    candidates: list[tuple[dict, int]] = []
-    for s in gen_scenes:
-        if s.get("anchor_role") in ("primary", "spectator"):
-            continue
-        if _is_aerial_shot(s.get("visual_prompt", "")):
-            continue
-        idx = s.get("index", 0)
-        ents = entity_map.get(idx)
-        if ents and ents.human_classification == HumanClassification.NO_HUMAN_ALLOWED:
-            continue
-        priority = (
-            2
-            if (
-                ents
-                and ents.human_classification
-                in (
-                    HumanClassification.HUMAN_REQUIRED,
-                    HumanClassification.HUMAN_OPTIONAL,
-                    HumanClassification.HUMAN_SYMBOLIC,
-                )
-            )
-            else 1
-        )
-        candidates.append((s, priority))
-
-    if not candidates:
-        return scenes
-
-    # Spread evenly across arc phases so Kai isn't clustered in one section.
-    phase_buckets: dict[str, list[tuple[dict, int]]] = {
-        "opening": [],
-        "build": [],
-        "climax": [],
-        "resolution": [],
-    }
-    for s, prio in candidates:
-        phase = _get_arc_phase(s.get("index", 1), total)
-        phase_buckets[phase].append((s, prio))
-
-    # Sort each bucket: higher priority first, then by scene index for stability.
-    for bucket in phase_buckets.values():
-        bucket.sort(key=lambda x: (-x[1], x[0].get("index", 0)))
-
-    promoted = 0
-    # Round-robin across phases to distribute evenly.
-    phase_order = ["opening", "build", "climax", "resolution"]
-    while promoted < needed:
-        advanced = False
-        for phase in phase_order:
-            if promoted >= needed:
-                break
-            bucket = phase_buckets[phase]
-            if bucket:
-                scene, _ = bucket.pop(0)
-                scene["anchor_role"] = "primary"
-                prompt = scene.get("visual_prompt", "")
-                if not _has_kai_markers(prompt):
-                    if _has_character_staging(prompt):
-                        scene["visual_prompt"] = f"{KAI_COMPRESSED_SPEC} — {prompt}"
-                    else:
-                        scene["visual_prompt"] = (
-                            f"{KAI_COMPRESSED_SPEC} — standing still, facing forward, "
-                            f"looking outward with quiet resolve. {prompt}"
-                        )
-                promoted += 1
-                advanced = True
-        if not advanced:
-            break
-
-    if promoted > 0:
-        logger.info(
-            "Kai distribution: promoted {} scenes to primary (total {}/{})",
-            promoted,
-            kai_count + promoted,
-            total,
-        )
-    return scenes
 
 
 def _enforce_era_consistency(scenes: list[dict]) -> list[dict]:
@@ -4533,11 +4457,11 @@ def scene_planner_node(state: VideoState) -> dict:
                 "llm_reason": "",
             }
 
-    # ── Kai enforcement guards ────────────────────────────────────────────
+    # ── Character presence enforcement ────────────────────────────────────
+    # character_presence is authoritative: strips stray Kai from non-Kai scenes
+    # and sets anchor_role from character_presence when that field is set.
+    # No automatic Kai injection (no distribution/closing-scene override).
     scenes = _enforce_primary_kai_spec(scenes)
-    scenes = _enforce_closing_scene_primary(scenes)
-    scenes = _enforce_kai_distribution(scenes, entity_map)
-    scenes = _enforce_primary_kai_spec(scenes)  # re-run for newly promoted scenes
     scenes = _propagate_environment_anchors(scenes)
     scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
     scenes = _enforce_era_consistency(scenes)
