@@ -119,7 +119,7 @@ class TwoPhasePipeline:
         project_id: str,
         *,
         style: str | None = None,
-        target_minutes: int = 7,
+        target_minutes: int = 5,
         auto: bool = False,
     ) -> None:
         """Run Phase 1: all stages except image generation, then halt.

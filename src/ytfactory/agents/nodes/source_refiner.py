@@ -58,7 +58,7 @@ def source_refiner_node(state: VideoState) -> dict:
         )
 
     beats = state.get("beats") or []
-    target_minutes = state.get("target_minutes", 7)
+    target_minutes = state.get("target_minutes", 5)
     settings = Settings()
     pipeline = SourceRefinerPipeline(settings)
     refined = pipeline.run(project_id, beats=beats, target_minutes=target_minutes)

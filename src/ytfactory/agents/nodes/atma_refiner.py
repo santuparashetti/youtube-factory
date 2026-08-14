@@ -325,7 +325,7 @@ def human_review_atma_script_node(state: VideoState) -> dict:
                 f"[bold]Atma Theory Script Review[/bold] {rev_label}\n"
                 f"Words: {word_count} (~{word_count / 130:.1f} min)\n"
                 f"Validation: {validation_dict.get('status', 'UNKNOWN')}\n"
-                f"Beats covered: "
+                f"Beat coverage (green=covered, red=missing): "
                 + ", ".join(
                     f"[green]{b}[/green]" if v else f"[red]{b}[/red]"
                     for b, v in (validation_dict.get("beat_coverage") or {}).items()

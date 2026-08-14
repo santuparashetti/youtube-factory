@@ -995,6 +995,357 @@ class TestEngagementLayer:
         assert data["scene_planning_hints"]["journey_invitation"]["scene_role"] == "journey_invitation"
 
 
+# ── Prompt-level regression: retention and integrity rules ────────────────────
+
+
+class TestRetentionAndIntegrityRules:
+    """Verify the three source-level rule mechanisms are present in the system
+    prompt and would be seen by the LLM on every refinement call.
+
+    These tests act as regression guards — they will fail if a rule is
+    accidentally removed or its key mechanism language is changed.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _prompt(self):
+        from ytfactory.atma_refiner.prompts import build_7beat_system_prompt
+        self.prompt = build_7beat_system_prompt()
+
+    # ── 0. Engagement marker contract ─────────────────────────────────────────
+
+    def test_marker_contract_block_present(self):
+        """System prompt must contain the MARKER CONTRACT heading."""
+        assert "MARKER CONTRACT" in self.prompt, (
+            "Expected 'MARKER CONTRACT' block in engagement layer spec"
+        )
+
+    def test_all_five_markers_listed_in_contract(self):
+        """All five [ENGAGEMENT: ...] markers must appear in the system prompt."""
+        for marker in (
+            "[ENGAGEMENT: value_promise]",
+            "[ENGAGEMENT: journey_invitation]",
+            "[ENGAGEMENT: comment_prompt]",
+            "[ENGAGEMENT: subscribe_promise]",
+            "[ENGAGEMENT: branding_end]",
+        ):
+            assert marker in self.prompt, (
+                f"Required engagement marker '{marker}' missing from system prompt"
+            )
+
+    def test_marker_contract_mandatory_language(self):
+        """System prompt must state that markers are mandatory pipeline metadata."""
+        low = self.prompt.lower()
+        assert "pipeline metadata" in low, (
+            "Expected 'pipeline metadata' in marker contract"
+        )
+
+    def test_marker_contract_prohibits_omit_rename(self):
+        """System prompt must explicitly prohibit omitting or renaming markers."""
+        low = self.prompt.lower()
+        assert "omit" in low or "rename" in low, (
+            "Expected 'omit'/'rename' prohibition in marker contract"
+        )
+
+    def test_marker_immediately_before_content_rule(self):
+        """System prompt must require the marker to appear immediately before content."""
+        low = self.prompt.lower()
+        assert "immediately before" in low, (
+            "Expected 'immediately before' positioning rule in marker contract"
+        )
+
+    # ── 1. Comment-prompt placement ───────────────────────────────────────────
+
+    def test_comment_prompt_placement_rule_present(self):
+        """The system prompt must instruct placement after a fully explained concept."""
+        assert "fully explained" in self.prompt.lower() or "fully explain" in self.prompt.lower(), (
+            "Expected comment_prompt placement rule ('fully explained concept') in system prompt"
+        )
+
+    def test_comment_prompt_not_mid_explanation_rule_present(self):
+        """The system prompt must explicitly forbid mid-explanation placement."""
+        assert "mid" in self.prompt.lower() and "explanation" in self.prompt.lower(), (
+            "Expected 'mid-explanation' prohibition in comment_prompt placement rule"
+        )
+
+    # ── 2. Theme coherence hierarchy ─────────────────────────────────────────
+
+    def test_theme_coherence_connect_condense_remove_hierarchy(self):
+        """The system prompt must contain the connect→condense→remove fix hierarchy."""
+        low = self.prompt.lower()
+        assert "connect" in low, "Expected 'connect' step in theme-coherence rule"
+        assert "condense" in low, "Expected 'condense' step in theme-coherence rule"
+        assert "remove" in low,   "Expected 'remove' step in theme-coherence rule"
+
+    def test_theme_coherence_competing_thesis_warning(self):
+        """The system prompt must warn against secondary ideas developing into a competing thesis."""
+        assert "competing" in self.prompt.lower() or "stand alone" in self.prompt.lower(), (
+            "Expected competing-thesis or stand-alone warning in theme-coherence rule"
+        )
+
+    def test_theme_coherence_connect_must_add_meaning(self):
+        """The system prompt must specify that merely restating the thesis is insufficient."""
+        assert "restating" in self.prompt.lower() or "restat" in self.prompt.lower(), (
+            "Expected 'restating' caveat in theme-coherence connect rule"
+        )
+
+    # ── 3. Attribution ────────────────────────────────────────────────────────
+
+    def test_attribution_rule_prohibits_vague_sources(self):
+        """The system prompt must prohibit vague attribution patterns."""
+        low = self.prompt.lower()
+        assert "ancient wisdom" in low or "studies show" in low, (
+            "Expected vague-attribution examples in attribution rule"
+        )
+
+    def test_attribution_rule_requires_rewrite_not_removal(self):
+        """The system prompt must offer rewrite alternatives, not just prohibit."""
+        assert "rewrite" in self.prompt.lower(), (
+            "Expected 'rewrite' instruction in attribution rule (not just prohibition)"
+        )
+
+    def test_attribution_rule_forbids_fabricated_sources(self):
+        """The system prompt must explicitly forbid fabricated citations."""
+        low = self.prompt.lower()
+        assert "fabricat" in low, (
+            "Expected 'fabricat' (fabricate/fabricated) in attribution rule"
+        )
+
+    # ── 4. Spoken register strengthening ─────────────────────────────────────
+
+    def test_spoken_register_formal_transitions_mentioned(self):
+        """System prompt must flag unnecessarily formal transitions."""
+        low = self.prompt.lower()
+        assert "formal transition" in low or "furthermore" in low or "consequently" in low, (
+            "Expected formal-transition examples in spoken-register rule"
+        )
+
+    def test_spoken_register_concrete_human_language(self):
+        """System prompt must instruct use of concrete human language."""
+        assert "concrete human language" in self.prompt.lower(), (
+            "Expected 'concrete human language' in spoken-register rule"
+        )
+
+    def test_spoken_register_not_every_sentence_casual(self):
+        """System prompt must guard against over-casualising every sentence."""
+        low = self.prompt.lower()
+        assert "every sentence" in low or "not make every" in low, (
+            "Expected guard against over-casualising in spoken-register rule"
+        )
+
+    # ── 5. Abrupt transitions strengthening ──────────────────────────────────
+
+    def test_transitions_no_filler_on_natural_flows(self):
+        """System prompt must forbid adding filler to already-natural transitions."""
+        low = self.prompt.lower()
+        assert "explanatory filler" in low or "already flow" in low, (
+            "Expected 'no filler on natural transitions' in abrupt-transitions rule"
+        )
+
+    # ── 6. Visual directions strengthening ───────────────────────────────────
+
+    def test_visual_directions_prefer_contrasts_and_actions(self):
+        """System prompt must mention preferred visual types (contrasts, actions, etc.)."""
+        low = self.prompt.lower()
+        assert "visual contrasts" in low or "contrasts, actions" in low or (
+            "contrasts" in low and "actions" in low
+        ), "Expected preferred visual types in visual-clarity rule"
+
+    def test_visual_directions_not_for_decoration(self):
+        """System prompt must forbid visual directions added purely for decoration."""
+        assert "decoration" in self.prompt.lower(), (
+            "Expected 'decoration' prohibition in visual-clarity rule"
+        )
+
+    # ── 7. Narrative closure (new rule) ──────────────────────────────────────
+
+    def test_narrative_closure_rule_present(self):
+        """System prompt must contain a NARRATIVE CLOSURE rule."""
+        assert "narrative closure" in self.prompt.lower() or "NARRATIVE CLOSURE" in self.prompt, (
+            "Expected NARRATIVE CLOSURE rule in system prompt"
+        )
+
+    def test_narrative_closure_opening_device_concept(self):
+        """Narrative closure rule must reference the opening device."""
+        low = self.prompt.lower()
+        assert "opening device" in low or ("opening" in low and "device" in low), (
+            "Expected 'opening device' concept in narrative-closure rule"
+        )
+
+    def test_narrative_closure_no_forced_callback(self):
+        """Narrative closure rule must forbid inventing a callback just to satisfy the rule."""
+        assert "solely to satisfy" in self.prompt.lower() or "invent" in self.prompt.lower(), (
+            "Expected guard against invented callbacks in narrative-closure rule"
+        )
+
+    # ── 8. Narrative ending vs branding ending (new rule) ────────────────────
+
+    def test_narrative_ending_vs_branding_ending_rule_present(self):
+        """System prompt must distinguish NARRATIVE_ENDING from BRANDING_END."""
+        assert "NARRATIVE_ENDING" in self.prompt, (
+            "Expected 'NARRATIVE_ENDING' label in narrative-vs-branding rule"
+        )
+
+    def test_narrative_ending_not_substituted_by_cta(self):
+        """System prompt must forbid CTA → BRANDING_END substituting for narrative ending."""
+        low = self.prompt.lower()
+        assert "substitute" in low or "missing narrative" in low, (
+            "Expected anti-substitution rule in narrative-vs-branding section"
+        )
+
+    # ── 9. No over-editing (expanded rule) ───────────────────────────────────
+
+    def test_no_over_editing_rule_present(self):
+        """System prompt must have an explicit no-over-editing mechanism."""
+        low = self.prompt.lower()
+        assert "formulaic" in low or "conditional editorial" in low, (
+            "Expected 'formulaic' or 'conditional editorial' in no-over-editing rule"
+        )
+
+    # ── Existing behaviour preserved ─────────────────────────────────────────
+
+    def test_word_count_rule_still_present(self):
+        """600–750 word-count rule must survive these additions."""
+        assert "600" in self.prompt and "750" in self.prompt
+
+    def test_engagement_layer_still_present(self):
+        """All five engagement element names must remain in the system prompt."""
+        for element in ("value_promise", "journey_invitation", "comment_prompt",
+                        "subscribe_promise", "branding_end"):
+            assert element in self.prompt.lower(), (
+                f"Engagement element '{element}' missing from system prompt"
+            )
+
+    def test_factual_integrity_core_still_present(self):
+        """Original factual-integrity prohibitions must not have been removed."""
+        assert "never invent" in self.prompt.lower()
+        assert "fabricat" in self.prompt.lower()
+
+
+# ── 7-Beat self-check instruction regression tests ───────────────────────────
+
+
+class TestBeatSelfCheckInstruction:
+    """Verify that the 7-Beat self-check instruction is present in the user
+    prompt returned by both prompt builders and does not disturb existing rules.
+
+    The self-check fires inside the same refinement call — no new LLM call.
+    These tests act as regression guards so the instruction cannot be silently
+    removed or truncated.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _prompts(self):
+        from ytfactory.atma_refiner.prompts import (
+            build_initial_refinement_prompt,
+            build_targeted_refinement_prompt,
+        )
+        identity = ScriptIdentity(
+            core_topic="Focus",
+            core_thesis="Depth of attention determines quality of output.",
+        )
+        self.initial = build_initial_refinement_prompt(
+            script_text="A man sat down to work.",
+            identity=identity,
+        )
+        self.targeted = build_targeted_refinement_prompt(
+            current_refined_script="A man sat down to work.",
+            base_script="A man sat down to work.",
+            identity=identity,
+            reviewer_feedback="Beat 6 APPLY is weak.",
+        )
+
+    # ── Initial refinement prompt ─────────────────────────────────────────────
+
+    def test_initial_prompt_contains_self_check_header(self):
+        """'BEFORE RETURNING' self-check instruction must appear in the initial prompt."""
+        assert "BEFORE RETURNING" in self.initial, (
+            "Expected 'BEFORE RETURNING' self-check instruction in initial refinement prompt"
+        )
+
+    def test_initial_prompt_lists_all_seven_beats(self):
+        """All seven beat names must appear in the self-check instruction."""
+        for beat in ("DISRUPT", "CHALLENGE", "PROVE", "REVEAL", "FRAME", "APPLY", "TRANSFORM"):
+            assert beat in self.initial, (
+                f"Beat '{beat}' missing from self-check instruction in initial prompt"
+            )
+
+    def test_initial_prompt_repair_priority_mentioned(self):
+        """Repair priority (preserve → strengthen → ...) must appear in the prompt."""
+        low = self.initial.lower()
+        assert "strengthen" in low and "preserve" in low, (
+            "Expected repair-priority language ('preserve', 'strengthen') in initial prompt"
+        )
+
+    def test_initial_prompt_apply_specific_instruction(self):
+        """APPLY beat must have a specific 'viewer situation/action' requirement."""
+        low = self.initial.lower()
+        assert "apply" in low and ("situation" in low or "action" in low or "decision" in low), (
+            "Expected APPLY-specific viewer-situation instruction in initial prompt"
+        )
+
+    def test_initial_prompt_no_filler_rule_in_self_check(self):
+        """'Never add filler' must appear in the self-check section."""
+        assert "filler" in self.initial.lower(), (
+            "Expected 'filler' prohibition in self-check instruction"
+        )
+
+    def test_initial_prompt_markers_preserved(self):
+        """All six structural markers must still appear in the initial prompt."""
+        for marker in (
+            "[ENGAGEMENT: value_promise]",
+            "[ENGAGEMENT: journey_invitation]",
+            "[ENGAGEMENT: comment_prompt]",
+            "[ENGAGEMENT: subscribe_promise]",
+            "[ENGAGEMENT: branding_end]",
+            "[NARRATIVE_ENDING]",
+        ):
+            assert marker in self.initial, (
+                f"Structural marker '{marker}' missing from initial refinement prompt"
+            )
+
+    def test_initial_prompt_has_beat_evidence_output_format(self):
+        """Prompt must include the beat evidence output format block."""
+        assert "---BEAT-EVIDENCE---" in self.initial
+        assert "OUTPUT FORMAT" in self.initial
+
+    # ── Targeted refinement prompt ────────────────────────────────────────────
+
+    def test_targeted_prompt_contains_verify_instruction(self):
+        """Targeted prompt must instruct verification of narrative function after fix."""
+        low = self.targeted.lower()
+        assert "narrative function" in low or "fulfills its narrative" in low, (
+            "Expected narrative-function verification in targeted refinement prompt"
+        )
+
+    def test_targeted_prompt_beat_names_present(self):
+        """Beat sequence must appear in the targeted prompt's verify instruction."""
+        assert "APPLY" in self.targeted and "TRANSFORM" in self.targeted, (
+            "Expected beat names in targeted refinement prompt's verify step"
+        )
+
+    def test_targeted_prompt_other_beats_untouched_rule(self):
+        """Targeted prompt must instruct leaving unflagged beats untouched."""
+        assert "untouched" in self.targeted.lower(), (
+            "Expected 'untouched' rule for unflagged beats in targeted prompt"
+        )
+
+    # ── System prompt unchanged ───────────────────────────────────────────────
+
+    def test_system_prompt_seven_beat_reference_intact(self):
+        """The system prompt's 7-Beat framework reference must be unchanged."""
+        from ytfactory.atma_refiner.prompts import build_7beat_system_prompt
+        sys_prompt = build_7beat_system_prompt()
+        for beat_label in ("BEAT 1", "BEAT 2", "BEAT 3", "BEAT 4", "BEAT 5", "BEAT 6", "BEAT 7"):
+            assert beat_label in sys_prompt, (
+                f"'{beat_label}' missing from system prompt 7-Beat framework"
+            )
+
+    def test_system_prompt_word_count_intact(self):
+        from ytfactory.atma_refiner.prompts import build_7beat_system_prompt
+        sys_prompt = build_7beat_system_prompt()
+        assert "600" in sys_prompt and "750" in sys_prompt
+
+
 # ── Backward-compatibility: existing A/B tests must still pass ────────────────
 # (These are tested via their own test files: test_composer.py,
 #  test_script_selector_polisher.py. We just verify nothing was broken.)

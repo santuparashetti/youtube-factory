@@ -33,13 +33,65 @@ from ytfactory.atma_refiner.prompts import (
 )
 from ytfactory.atma_refiner.validator import ScriptValidator
 from ytfactory.config.settings import Settings
-from ytfactory.domain.script_revision import ScriptIdentity, ScriptValidationResult
+from ytfactory.domain.script_revision import BeatEvidence, ScriptIdentity, ScriptValidationResult
 from ytfactory.shared.constants import WORKSPACE_DIR
 
 console = Console()
 
 _NARRATION_WPM = 130
 _SYSTEM_PROMPT = build_7beat_system_prompt()
+_EVIDENCE_DELIMITER = "---BEAT-EVIDENCE---"
+_BEAT_NAMES = ("DISRUPT", "CHALLENGE", "PROVE", "REVEAL", "FRAME", "APPLY", "TRANSFORM")
+
+
+def _parse_llm_response(text: str) -> tuple[str, dict]:
+    """Split LLM output into (script, beat_evidence_dict).
+
+    When the delimiter is absent (old scripts, fallback), returns (text, {}).
+    Strips optional markdown code fence around the JSON block.
+    """
+    if _EVIDENCE_DELIMITER not in text:
+        return text, {}
+    script_part, _, evidence_part = text.partition(_EVIDENCE_DELIMITER)
+    script = script_part.strip()
+    evidence_text = evidence_part.strip()
+    evidence_text = re.sub(r"^```(?:json)?\s*\n?", "", evidence_text)
+    evidence_text = re.sub(r"\n?```\s*$", "", evidence_text).strip()
+    try:
+        raw = json.loads(evidence_text)
+        if not isinstance(raw, dict):
+            raise ValueError("Expected JSON object")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("AtmaRefinerPipeline: beat evidence parse failed ({})", exc)
+        return script, {}
+    evidence: dict = {}
+    for beat in _BEAT_NAMES:
+        if beat in raw and isinstance(raw[beat], dict):
+            try:
+                evidence[beat] = BeatEvidence.from_dict(raw[beat])
+            except Exception:
+                pass
+    return script, evidence
+
+
+def _load_beat_evidence(script_dir: Path) -> dict:
+    """Load cached beat evidence from atma-beat-evidence.json; returns {} if absent."""
+    evidence_file = script_dir / "atma-beat-evidence.json"
+    if not evidence_file.exists():
+        return {}
+    try:
+        raw = json.loads(evidence_file.read_text(encoding="utf-8"))
+        evidence: dict = {}
+        for beat in _BEAT_NAMES:
+            if beat in raw and isinstance(raw[beat], dict):
+                try:
+                    evidence[beat] = BeatEvidence.from_dict(raw[beat])
+                except Exception:
+                    pass
+        return evidence
+    except Exception as exc:
+        logger.warning("AtmaRefinerPipeline: failed to load beat evidence cache ({})", exc)
+        return {}
 
 
 class AtmaRefinerPipeline:
@@ -95,7 +147,10 @@ class AtmaRefinerPipeline:
                     f"\n[dim]Atma Refiner: cached atma-refined.md exists — "
                     f"delete it to re-run (project: {project_id})[/dim]"
                 )
-                validation = self._validator.validate(cached, identity, base_script)
+                cached_evidence = _load_beat_evidence(script_dir)
+                validation = self._validator.validate(
+                    cached, identity, base_script, beat_evidence=cached_evidence or None
+                )
                 return cached, validation
 
         if is_targeted:
@@ -127,23 +182,37 @@ class AtmaRefinerPipeline:
             system_prompt=_SYSTEM_PROMPT,
             temperature=0.45,
         )
-        refined = response.text.strip()
+        raw_response = response.text.strip()
+        refined, beat_evidence = _parse_llm_response(raw_response)
 
         if not refined:
             logger.error(
                 "AtmaRefinerPipeline: LLM returned empty output — using base script"
             )
             refined = base_script
+            beat_evidence = {}
 
         words = len(refined.split())
         estimated_min = words / _NARRATION_WPM
         console.print(f"  [dim]Refined:[/dim] {words} words (~{estimated_min:.1f} min)")
 
         # Validate before returning to human review
-        validation = self._validator.validate(refined, identity, base_script)
+        validation = self._validator.validate(
+            refined, identity, base_script, beat_evidence=beat_evidence or None
+        )
 
         # Write outputs
         refined_file.write_text(refined, encoding="utf-8")
+        if beat_evidence:
+            evidence_file = script_dir / "atma-beat-evidence.json"
+            evidence_file.write_text(
+                json.dumps(
+                    {k: v.to_dict() for k, v in beat_evidence.items()},
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
         report_path = script_dir / "atma-refinement-report.json"
         report_path.write_text(
             json.dumps(

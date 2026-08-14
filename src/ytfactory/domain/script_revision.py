@@ -190,6 +190,32 @@ class ScriptRevision:
 
 
 @dataclass(slots=True)
+class BeatEvidence:
+    """LLM-provided semantic evidence for one narrative beat.
+
+    present:  True only when the beat's narrative function is genuinely fulfilled.
+    evidence: Exact short excerpt copied verbatim from the refined script.
+    reason:   Optional brief explanation (≤20 words) of how the evidence
+              demonstrates the beat function.
+    """
+
+    present: bool
+    evidence: str
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"present": self.present, "evidence": self.evidence, "reason": self.reason}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "BeatEvidence":
+        return cls(
+            present=bool(data.get("present", False)),
+            evidence=str(data.get("evidence", "")),
+            reason=str(data.get("reason", "")),
+        )
+
+
+@dataclass(slots=True)
 class ValidationFlag:
     """A single validation issue found by ScriptValidator."""
 
@@ -218,6 +244,8 @@ class ScriptValidationResult:
     beat_coverage: dict  # {beat_name: bool}
     flags: list[ValidationFlag] = field(default_factory=list)
     engagement_elements: list[EngagementElement] = field(default_factory=list)
+    # Semantic evidence from the LLM (empty dict when falling back to regex)
+    beat_evidence: dict = field(default_factory=dict)  # {beat_name: BeatEvidence}
 
     @property
     def has_errors(self) -> bool:
@@ -230,4 +258,5 @@ class ScriptValidationResult:
             "beat_coverage": self.beat_coverage,
             "flags": [f.to_dict() for f in self.flags],
             "engagement_elements": [e.to_dict() for e in self.engagement_elements],
+            "beat_evidence": {k: v.to_dict() for k, v in self.beat_evidence.items()},
         }

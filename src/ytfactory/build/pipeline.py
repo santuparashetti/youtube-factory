@@ -80,7 +80,7 @@ class BuildPipeline:
         remediation_threshold: float = 70.0,
         remediation_max_retries: int = 3,
         style: str | None = None,
-        target_minutes: int = 7,
+        target_minutes: int = 5,
     ) -> None:
         project_dir = safe_project_dir(project_id, WORKSPACE_DIR)
         writer = PipelineStatusWriter(project_id, project_dir / "pipeline-status.json")
@@ -412,7 +412,7 @@ class BuildPipeline:
         self,
         project_id: str,
         style: str | None = None,
-        target_minutes: int = 7,
+        target_minutes: int = 5,
         auto: bool = False,
     ) -> None:
         """Run Phase 1 of the two-phase pipeline (prep only, no image generation)."""

@@ -49,7 +49,7 @@ def composer_node(state: VideoState) -> dict:
     pipeline = ComposerPipeline(settings)
     base_script = state.get("script_md", "")
     beats = state.get("beats") or []
-    target_minutes = state.get("target_minutes", 7)
+    target_minutes = state.get("target_minutes", 5)
 
     if state.get("ab_script_selection", False):
         composed = run_composer_with_ab_selection(

@@ -24,6 +24,7 @@ import re
 
 from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA
 from ytfactory.domain.script_revision import (
+    BeatEvidence,
     EngagementElement,
     EngagementType,
     ScriptIdentity,
@@ -46,6 +47,23 @@ _BEAT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
                 r"\b(imagine|picture this|consider|what if|there (?:is|was|were)|"
                 r"have you ever|the moment|once there was|it was|"
                 r"in \d{4}|standing alone|alone at|at the edge)\b",
+                re.IGNORECASE,
+            ),
+            # Action-first / scene-first openings (preferred by the current refiner)
+            re.compile(
+                r"\b(?:he|she|they|the (?:man|woman|person|craftsman|warrior|leader|"
+                r"teacher|student|monk|soldier|artist|master))\s+"
+                r"(?:had|was|were|stood|sat|walked|looked|knew|carried|held|built|"
+                r"faced|spent|worked|woke|opened|entered|left|returned|watched|waited)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:for (?:years|decades|months|generations)|"
+                r"every (?:morning|day|night|week)|"
+                r"day after day|year after year|"
+                r"one (?:morning|day|evening|night)|"
+                r"it (?:started|began)|"
+                r"a (?:man|woman|person|craftsman|warrior|teacher|student|child) (?:who|whose|that))\b",
                 re.IGNORECASE,
             ),
         ],
@@ -121,6 +139,26 @@ _BEAT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
                 r"the next time|when you|every time you|"
                 r"at (?:work|home|the office)|with your (?:family|team|colleagues)|"
                 r"in your (?:career|marriage|parenting)|apply this)\b",
+                re.IGNORECASE,
+            ),
+            # Documentary-style and broader application language
+            re.compile(
+                r"\b(?:in (?:daily )?(?:life|practice)|"
+                r"for (?:anyone|most people|someone) (?:who|that|in)|"
+                r"for (?:anyone|most people)|"
+                r"this (?:applies|translates|shows up)|"
+                r"bring this|take this into|"
+                r"we (?:often|tend to)|"
+                r"in (?:a meeting|a (?:relationship|conversation|team)|an office)|"
+                r"anyone (?:who|in)|most people (?:who|in|face)|"
+                r"this (?:changes|shifts) how)\b",
+                re.IGNORECASE,
+            ),
+            # Conditional instructional APPLY ("If you are...", "If your goal...", "becomes practical")
+            re.compile(
+                r"\b(?:if you (?:are|want|have|need|feel)|"
+                r"if your (?:goal|aim|dream|purpose|practice)|"
+                r"becomes practical)\b",
                 re.IGNORECASE,
             ),
         ],
@@ -302,17 +340,103 @@ def _strip_visual_directions(text: str) -> str:
     return re.sub(r"\[[^\]]*\]", "", text)
 
 
+def _strip_engagement_blocks(text: str) -> str:
+    """Remove [ENGAGEMENT: ...] paragraphs and their content from text.
+
+    Handles both formats produced by the LLM:
+
+      Format A — marker in its own paragraph, content in the next:
+          [ENGAGEMENT: value_promise]
+
+          Content paragraph here.
+
+      Format B — marker and content share a paragraph (no blank line):
+          [ENGAGEMENT: value_promise]
+          Content text here.
+
+    In Format A the marker paragraph AND the immediately following content
+    paragraph are both excluded. In Format B the combined paragraph is excluded
+    and no additional paragraph is consumed.
+
+    [NARRATIVE_ENDING] and the content that follows it are preserved.
+    Adjacent engagement markers are each handled independently — a lone marker
+    never consumes another marker as its content paragraph.
+    """
+    paragraphs = re.split(r"\n\n+", text)
+    result: list[str] = []
+    skip_next_para = False
+
+    for para in paragraphs:
+        lines = [ln for ln in para.splitlines() if ln.strip()]
+        is_engagement = bool(lines) and bool(_ENGAGEMENT_MARKER_RE.match(lines[0].strip()))
+
+        if is_engagement:
+            # Skip this paragraph regardless of format.
+            # Format A (marker only, len==1) → also skip the next content paragraph.
+            # Format B (marker + content, len>1) → nothing extra to skip.
+            skip_next_para = len(lines) == 1
+            continue
+
+        if skip_next_para:
+            # Content paragraph following a lone Format-A marker.
+            skip_next_para = False
+            continue
+
+        result.append(para)
+
+    return "\n\n".join(result)
+
+
 def _count_spoken_words(script_text: str) -> int:
     spoken = _strip_visual_directions(script_text)
     return len(spoken.split())
 
 
 def _check_beat_coverage(script_text: str) -> dict[str, bool]:
-    spoken_lower = _strip_visual_directions(script_text).lower()
+    """Regex-based beat coverage check (fallback when no semantic evidence)."""
+    narrative_only = _strip_engagement_blocks(script_text)
+    spoken_lower = _strip_visual_directions(narrative_only).lower()
     coverage: dict[str, bool] = {}
     for beat_name, patterns in _BEAT_PATTERNS:
         found = any(p.search(spoken_lower) for p in patterns)
         coverage[beat_name] = found
+    return coverage
+
+
+def _check_beat_coverage_with_evidence(
+    refined_script: str,
+    beat_evidence: dict,  # dict[str, BeatEvidence]
+) -> dict[str, bool]:
+    """Beat coverage check using LLM semantic evidence where available.
+
+    For each beat:
+      Semantic path (evidence present for that beat):
+        1. evidence.present must be True
+        2. evidence.evidence must be non-empty
+        3. The exact evidence text must appear in the narrative-only script
+           (engagement blocks stripped so CTA text cannot satisfy any beat)
+      Regex fallback (no evidence entry for that beat):
+        Falls back to _check_beat_coverage patterns for that beat only.
+    """
+    # For evidence verification: engagement stripped, visual directions kept
+    # (LLM may quote text near visual cue markers; that is acceptable)
+    narrative_only = _strip_engagement_blocks(refined_script)
+    # For regex fallback on partial-evidence dicts
+    spoken_lower = _strip_visual_directions(narrative_only).lower()
+
+    coverage: dict[str, bool] = {}
+    for beat_name, patterns in _BEAT_PATTERNS:
+        ev: BeatEvidence | None = beat_evidence.get(beat_name)
+        if ev is not None:
+            # Semantic path
+            if ev.present and ev.evidence.strip():
+                coverage[beat_name] = ev.evidence in narrative_only
+            else:
+                coverage[beat_name] = False
+        else:
+            # Regex fallback for this beat
+            coverage[beat_name] = any(p.search(spoken_lower) for p in patterns)
+
     return coverage
 
 
@@ -396,7 +520,20 @@ class ScriptValidator:
         refined_script: str,
         identity: ScriptIdentity,
         base_script: str = "",
+        beat_evidence: dict | None = None,  # dict[str, BeatEvidence] | None
     ) -> ScriptValidationResult:
+        """Validate a 7-Beat refined script.
+
+        Args:
+            refined_script: The refined narration script.
+            identity: ScriptIdentity extracted before refinement.
+            base_script: Original source script for factual-risk comparison.
+            beat_evidence: LLM-provided semantic evidence dict
+                (``{beat_name: BeatEvidence}``).  When non-empty, semantic
+                verification is the primary path; regex is used as fallback
+                for any beat missing from the dict.  When None or empty, the
+                regex-only path is used (backward-compatible with old scripts).
+        """
         flags: list[ValidationFlag] = []
 
         # ── Word count ────────────────────────────────────────────────────────
@@ -425,7 +562,13 @@ class ScriptValidator:
             )
 
         # ── Beat coverage ─────────────────────────────────────────────────────
-        beat_coverage = _check_beat_coverage(refined_script)
+        # Primary: semantic evidence from the LLM (engagement content excluded).
+        # Fallback: regex patterns when no evidence is provided.
+        if beat_evidence:
+            beat_coverage = _check_beat_coverage_with_evidence(refined_script, beat_evidence)
+        else:
+            beat_coverage = _check_beat_coverage(refined_script)
+
         missing_beats = [name for name, found in beat_coverage.items() if not found]
         for beat_name in missing_beats:
             flags.append(
@@ -493,4 +636,5 @@ class ScriptValidator:
             beat_coverage=beat_coverage,
             flags=flags,
             engagement_elements=engagement_elements,
+            beat_evidence=beat_evidence or {},
         )

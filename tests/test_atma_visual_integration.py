@@ -624,3 +624,482 @@ def test_story_bible_legacy_format_loads_without_invalidation(tmp_path):
     )
     mock_llm.generate.assert_not_called()
     assert result is not None
+
+
+# ── _extract_narrative_ending unit tests ──────────────────────────────────────
+
+
+class TestExtractNarrativeEnding:
+    """Tests for the narrative-ending extraction function used by the quality gate.
+
+    Covers all four extraction priorities and the key failure-mode scenarios
+    that caused genuine narrative closure to be misidentified as missing.
+    """
+
+    def setup_method(self):
+        from ytfactory.agents.nodes.scene_planner import _extract_narrative_ending
+        self.extract = _extract_narrative_ending
+
+    # ── Priority 1: explicit [NARRATIVE_ENDING] marker ────────────────────────
+
+    def test_marker_extraction_returns_paragraph_after_marker(self):
+        script = (
+            "He had climbed for forty days.\n\n"
+            "[NARRATIVE_ENDING]\n"
+            "He reached the summit. Not because it was there — because he had stopped\n"
+            "asking whether he could.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "If this landed for you, subscribe.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert "reached the summit" in result
+        assert "subscribe" not in result.lower()
+
+    def test_marker_extraction_excludes_engagement_content(self):
+        """Content after [ENGAGEMENT: ...] must not bleed into narrative ending."""
+        script = (
+            "Opening tension.\n\n"
+            "[NARRATIVE_ENDING]\n"
+            "The tension resolved here.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "Subscribe for more.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert "tension resolved" in result
+        assert "Subscribe" not in result
+
+    def test_marker_extraction_supports_multi_sentence_resolution(self):
+        """[NARRATIVE_ENDING] should return the full paragraph, not one line."""
+        script = (
+            "Opening.\n\n"
+            "[NARRATIVE_ENDING]\n"
+            "He stopped running. He sat down.\n"
+            "The mountain did not move. But he did.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert "stopped running" in result
+        assert "mountain did not move" in result
+
+    # ── Priority 2: closing engagement marker boundary ────────────────────────
+
+    def test_engagement_boundary_extracts_last_narrative_para(self):
+        """When no [NARRATIVE_ENDING] marker, use subscribe_promise as boundary."""
+        script = (
+            "Opening image: an ant on Everest.\n\n"
+            "The ant did not know it was climbing Everest.\n\n"
+            "[ENGAGEMENT: comment_prompt]\n"
+            "Which principle resonates most?\n\n"
+            "That is the lesson of the ant.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "If this resonated, subscribe.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert "lesson of the ant" in result
+        assert "subscribe" not in result.lower()
+
+    def test_engagement_boundary_skips_engagement_para_before_closing(self):
+        """comment_prompt paragraph must not be returned as narrative ending."""
+        script = (
+            "She walked into the room.\n\n"
+            "[ENGAGEMENT: comment_prompt]\n"
+            "Which struggle resonates most?\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "Subscribe for more.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        # The last narrative para before subscribe_promise is "She walked into the room."
+        assert "walked into the room" in result
+        assert "Which struggle" not in result
+
+    def test_cta_only_ending_does_not_become_narrative_ending(self):
+        """A script ending purely in CTA+branding must not return a CTA line."""
+        script = (
+            "A craftsman worked for thirty years.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "Subscribe so the next idea finds you.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        # Should return the narrative paragraph, not the CTA
+        assert "craftsman" in result or "thirty years" in result
+        assert "Subscribe so the next" not in result
+
+    # ── Priority 3: legacy brand marker detection ─────────────────────────────
+
+    def test_legacy_script_with_brand_marker_extracts_full_paragraph(self):
+        """Old-style scripts without engagement markers use legacy brand detection."""
+        script = (
+            "He stood at the edge of the canyon.\n"
+            "The wind did not stop. Neither did he.\n\n"
+            "This is Atma Theory. Clear mind. Meaningful life."
+        )
+        result = self.extract(script)
+        assert "canyon" in result or "wind" in result
+        # Must not include the brand phrase itself
+        assert "Atma Theory" not in result
+
+    def test_legacy_fallback_does_not_return_empty(self):
+        """Legacy path must always return non-empty text for a non-empty script."""
+        script = (
+            "The river keeps moving.\n\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert result.strip()
+
+    # ── Priority 4: final fallback ────────────────────────────────────────────
+
+    def test_no_markers_returns_last_paragraph(self):
+        """Unmarked script with no brand phrases returns the last paragraph."""
+        script = (
+            "He began at sunrise.\n\n"
+            "He finished at dusk.\n\n"
+            "The work was done."
+        )
+        result = self.extract(script)
+        assert "work was done" in result
+
+    def test_empty_script_returns_empty(self):
+        result = self.extract("")
+        assert result == ""
+
+    # ── Narrative vs CTA separation ───────────────────────────────────────────
+
+    def test_subscribe_message_never_returned_as_narrative_ending(self):
+        """Marker-based path must never return subscribe content."""
+        script = (
+            "The question remained open.\n\n"
+            "[NARRATIVE_ENDING]\n"
+            "The question resolved here — quietly.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "Subscribe so the next one finds you.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        result = self.extract(script)
+        assert "Subscribe" not in result
+        assert "resolved here" in result
+
+    def test_branding_end_never_returned_as_narrative_ending(self):
+        """branding_end content must never bleed into narrative ending."""
+        script = (
+            "The candle burned down.\n\n"
+            "[NARRATIVE_ENDING]\n"
+            "And in the dark, she finally saw clearly.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory. Clear mind. Meaningful life."
+        )
+        result = self.extract(script)
+        assert "finally saw clearly" in result
+        assert "Clear mind" not in result
+        assert "Atma Theory" not in result
+
+
+# ── Beat coverage calibration ─────────────────────────────────────────────────
+
+
+class TestBeatCoverageCalibration:
+    """Regression tests for beat pattern calibration.
+
+    Ensures:
+    - Action-first / documentary-style openings are not false-positively flagged.
+    - Existing valid patterns still fire.
+    - CTA / engagement text cannot satisfy TRANSFORM.
+    - UI uses "Beat coverage:" not "Beats covered:".
+    """
+
+    def setup_method(self):
+        from ytfactory.atma_refiner.validator import _check_beat_coverage
+        self._check = _check_beat_coverage
+
+    # ── DISRUPT: action-first openings accepted ───────────────────────────────
+
+    def test_disrupt_action_first_he_had(self):
+        """'He had done it ten thousand times.' must match DISRUPT."""
+        coverage = self._check("He had done it ten thousand times. The blade was perfect.")
+        assert coverage["DISRUPT"] is True
+
+    def test_disrupt_action_first_she_stood(self):
+        """'She stood at the edge of the platform.' must match DISRUPT."""
+        coverage = self._check("She stood at the edge of the platform, not knowing what came next.")
+        assert coverage["DISRUPT"] is True
+
+    def test_disrupt_for_years(self):
+        """'For years he had searched.' must match DISRUPT."""
+        coverage = self._check("For years he had searched the archives.")
+        assert coverage["DISRUPT"] is True
+
+    def test_disrupt_day_after_day(self):
+        """'Day after day, the craftsman returned.' must match DISRUPT."""
+        coverage = self._check("Day after day, the craftsman returned to the same stone.")
+        assert coverage["DISRUPT"] is True
+
+    def test_disrupt_one_morning(self):
+        """'One morning, the answer came.' must match DISRUPT."""
+        coverage = self._check("One morning, the answer came not as a thought but as a feeling.")
+        assert coverage["DISRUPT"] is True
+
+    # ── DISRUPT: existing patterns still fire ─────────────────────────────────
+
+    def test_disrupt_imagine_still_works(self):
+        """Legacy 'Imagine...' opener must still match DISRUPT."""
+        coverage = self._check("Imagine standing at the top of a mountain.")
+        assert coverage["DISRUPT"] is True
+
+    def test_disrupt_what_if_still_works(self):
+        """Legacy 'What if' opener must still match DISRUPT."""
+        coverage = self._check("What if everything you believed was wrong?")
+        assert coverage["DISRUPT"] is True
+
+    # ── APPLY: documentary-style application accepted ─────────────────────────
+
+    def test_apply_in_daily_practice(self):
+        """'In daily practice, this shows up as...' must match APPLY."""
+        coverage = self._check("In daily practice, this shows up as a moment of hesitation.")
+        assert coverage["APPLY"] is True
+
+    def test_apply_for_anyone(self):
+        """'For anyone who faces this...' must match APPLY."""
+        coverage = self._check("For anyone who faces this kind of choice, the principle is the same.")
+        assert coverage["APPLY"] is True
+
+    def test_apply_this_applies(self):
+        """'This applies whenever...' must match APPLY."""
+        coverage = self._check("This applies whenever the stakes feel too high to act clearly.")
+        assert coverage["APPLY"] is True
+
+    def test_apply_this_changes_how(self):
+        """'This changes how we approach...' must match APPLY."""
+        coverage = self._check("This changes how we approach every creative decision.")
+        assert coverage["APPLY"] is True
+
+    # ── APPLY: existing patterns still fire ──────────────────────────────────
+
+    def test_apply_in_your_life_still_works(self):
+        """Legacy 'in your life' must still match APPLY."""
+        coverage = self._check("In your life, this principle shows up as a small daily choice.")
+        assert coverage["APPLY"] is True
+
+    def test_apply_when_you_still_works(self):
+        """Legacy 'when you' must still match APPLY."""
+        coverage = self._check("When you face a difficult decision, remember this.")
+        assert coverage["APPLY"] is True
+
+    # ── TRANSFORM: engagement/CTA text cannot satisfy beat ───────────────────
+
+    def test_transform_subscribe_cta_does_not_count(self):
+        """Subscribe CTA alone must not satisfy TRANSFORM."""
+        script = (
+            "A narrative paragraph here.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "If this resonated, subscribe so the next one finds you.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory. Clear mind. Meaningful life."
+        )
+        coverage = self._check(script)
+        assert coverage["TRANSFORM"] is False
+
+    def test_transform_this_is_atma_theory_in_branding_does_not_count(self):
+        """'This is Atma Theory' inside branding_end must not satisfy TRANSFORM."""
+        script = (
+            "He walked forward.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory. Clear mind. Meaningful life."
+        )
+        coverage = self._check(script)
+        assert coverage["TRANSFORM"] is False
+
+    def test_transform_real_narrative_content_is_accepted(self):
+        """Genuine TRANSFORM narrative content must still match."""
+        script = (
+            "A narrative opening.\n\n"
+            "The real measure of success is not what you achieve but what you become.\n\n"
+            "Stop chasing the outcome. Start building the practice.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n"
+            "If this resonated, subscribe.\n\n"
+            "[ENGAGEMENT: branding_end]\n"
+            "This is Atma Theory."
+        )
+        coverage = self._check(script)
+        assert coverage["TRANSFORM"] is True
+
+    # ── UI wording ────────────────────────────────────────────────────────────
+
+    def test_ui_uses_beat_coverage_label(self):
+        """Review panel must say 'Beat coverage:' — not 'Beats covered:'."""
+        import inspect
+        from ytfactory.agents.nodes import atma_refiner as _mod
+        source = inspect.getsource(_mod)
+        assert "Beat coverage" in source
+        assert "Beats covered:" not in source
+
+
+# ── Semantic Beat Evidence ────────────────────────────────────────────────────
+
+class TestSemanticBeatEvidence:
+    """Validator uses LLM semantic evidence as primary check with regex fallback."""
+
+    from ytfactory.atma_refiner.validator import ScriptValidator, _check_beat_coverage_with_evidence
+    from ytfactory.domain.script_revision import BeatEvidence, ScriptIdentity
+
+    def _make_evidence(self, beat: str, evidence_text: str, present: bool = True) -> dict:
+        from ytfactory.domain.script_revision import BeatEvidence
+        return {beat: BeatEvidence(present=present, evidence=evidence_text, reason="test")}
+
+    def _check_with_evidence(self, script: str, evidence: dict) -> dict:
+        from ytfactory.atma_refiner.validator import _check_beat_coverage_with_evidence
+        return _check_beat_coverage_with_evidence(script, evidence)
+
+    def _validate(self, script: str, evidence: dict | None = None) -> object:
+        from ytfactory.atma_refiner.validator import ScriptValidator
+        from ytfactory.domain.script_revision import ScriptIdentity
+        validator = ScriptValidator()
+        identity = ScriptIdentity(core_topic="test", core_thesis="test")
+        return validator.validate(script, identity, beat_evidence=evidence)
+
+    # ── Evidence → beat covered ───────────────────────────────────────────────
+
+    def test_valid_evidence_covers_beat_without_regex_match(self):
+        """LLM evidence present=True with excerpt in script covers the beat."""
+        script = "The craftsman refined his practice day after day."
+        evidence = self._make_evidence("DISRUPT", "The craftsman refined his practice day after day.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is True
+
+    def test_apply_covered_via_evidence_when_regex_would_fail(self):
+        """Conditional instructional APPLY form covered via evidence even if regex misses it."""
+        script = (
+            "This is where the philosophy becomes practical. "
+            "If your goal is to learn a language, give it twenty focused minutes today."
+        )
+        evidence = self._make_evidence(
+            "APPLY",
+            "If your goal is to learn a language, give it twenty focused minutes today.",
+        )
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["APPLY"] is True
+
+    # ── Engagement content cannot satisfy a beat ──────────────────────────────
+
+    def test_evidence_from_engagement_block_does_not_cover_beat(self):
+        """Evidence text that appears only in an engagement block must not cover the beat."""
+        script = (
+            "A narrative paragraph.\n\n"
+            "[ENGAGEMENT: value_promise]\n\n"
+            "Stay with this, and you'll see the secret.\n\n"
+            "More narrative here."
+        )
+        # The evidence excerpt lives only in the engagement block
+        evidence = self._make_evidence("DISRUPT", "Stay with this, and you'll see the secret.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is False
+
+    def test_evidence_from_subscribe_promise_does_not_cover_transform(self):
+        """Subscribe CTA used as TRANSFORM evidence must not cover the beat."""
+        script = (
+            "A narrative ending.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\n\n"
+            "If this resonated, subscribe to Atma Theory.\n\n"
+            "[ENGAGEMENT: branding_end]\n\n"
+            "This is Atma Theory."
+        )
+        evidence = self._make_evidence("TRANSFORM", "If this resonated, subscribe to Atma Theory.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["TRANSFORM"] is False
+
+    # ── Evidence not in script → beat not covered ─────────────────────────────
+
+    def test_evidence_not_in_script_does_not_cover_beat(self):
+        """If evidence text doesn't appear verbatim in the script, beat is not covered."""
+        script = "He walked forward without hesitation."
+        evidence = self._make_evidence("DISRUPT", "He ran backward in fear.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is False
+
+    # ── present=False → beat not covered ─────────────────────────────────────
+
+    def test_present_false_does_not_cover_beat(self):
+        """present=False means beat is not covered regardless of evidence text."""
+        script = "He had done it ten thousand times."
+        evidence = self._make_evidence("DISRUPT", "He had done it ten thousand times.", present=False)
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is False
+
+    # ── Empty evidence → beat not covered ────────────────────────────────────
+
+    def test_empty_evidence_text_does_not_cover_beat(self):
+        """present=True but empty evidence text must not cover the beat."""
+        from ytfactory.domain.script_revision import BeatEvidence
+        script = "He had done it ten thousand times."
+        evidence = {"DISRUPT": BeatEvidence(present=True, evidence="", reason="")}
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is False
+
+    # ── Missing beat in dict → regex fallback ────────────────────────────────
+
+    def test_missing_beat_in_evidence_falls_back_to_regex(self):
+        """When a beat is absent from evidence dict, regex is used as fallback."""
+        # "When you face a difficult decision" matches the legacy 'when you' APPLY pattern
+        script = "When you face a difficult decision, remember this principle."
+        evidence = {}  # No APPLY in evidence → regex fallback
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["APPLY"] is True
+
+    # ── Old script (no evidence delimiter) → full regex fallback ─────────────
+
+    def test_old_script_without_evidence_uses_regex_fallback(self):
+        """Validate() with no evidence dict falls back to pure regex for all beats."""
+        script = "When you face a hard choice, this principle applies in your life."
+        result = self._validate(script, evidence=None)
+        assert result.beat_coverage["APPLY"] is True
+        assert result.beat_evidence == {}
+
+    # ── Engagement Format A excluded ─────────────────────────────────────────
+
+    def test_engagement_format_a_excluded_from_beat_check(self):
+        """Format A engagement (marker alone, content in next para) excluded from beats."""
+        script = (
+            "Narrative opening line.\n\n"
+            "[ENGAGEMENT: value_promise]\n\n"
+            "Stop wondering about consistency — subscribe to find out.\n\n"
+            "More narrative content here."
+        )
+        # subscribe-style language only in engagement block
+        evidence = self._make_evidence("DISRUPT", "Stop wondering about consistency — subscribe to find out.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["DISRUPT"] is False
+
+    # ── Engagement Format B excluded ─────────────────────────────────────────
+
+    def test_engagement_format_b_excluded_from_beat_check(self):
+        """Format B engagement (marker + content same paragraph) excluded from beats."""
+        script = (
+            "Narrative opening.\n\n"
+            "[ENGAGEMENT: subscribe_promise]\nIf this resonated, subscribe to Atma Theory.\n\n"
+            "Closing narrative."
+        )
+        evidence = self._make_evidence("TRANSFORM", "If this resonated, subscribe to Atma Theory.")
+        coverage = self._check_with_evidence(script, evidence)
+        assert coverage["TRANSFORM"] is False
+
+    # ── beat_evidence propagates through validate() ───────────────────────────
+
+    def test_validate_propagates_beat_evidence_to_result(self):
+        """ScriptValidationResult.beat_evidence must carry the passed evidence."""
+        script = "He had done it ten thousand times. When you begin, this principle applies in your life."
+        from ytfactory.domain.script_revision import BeatEvidence
+        evidence = {"DISRUPT": BeatEvidence(present=True, evidence="He had done it ten thousand times.", reason="action-first opening")}
+        result = self._validate(script, evidence=evidence)
+        assert "DISRUPT" in result.beat_evidence
+        assert result.beat_evidence["DISRUPT"].present is True

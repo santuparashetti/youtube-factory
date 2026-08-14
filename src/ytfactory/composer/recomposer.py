@@ -21,7 +21,7 @@ def guided_recompose(
     provider: LLMProvider,
     settings: object,
     beats: list[dict] | None = None,
-    target_minutes: int = 7,
+    target_minutes: int = 5,
 ) -> Optional[str]:
     """Write a new whole-cloth script guided by the judge's section map.
     Returns the recomposed text, or None on failure.

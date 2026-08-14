@@ -3685,22 +3685,80 @@ def _apply_director_pass(
     return pacing
 
 
+_NARRATIVE_ENDING_MARKER = "[NARRATIVE_ENDING]"
+_CLOSING_ENGAGEMENT_MARKERS = ("[ENGAGEMENT: subscribe_promise]", "[ENGAGEMENT: branding_end]")
+_LEGACY_BRAND_MARKERS = (
+    "This is Atma Theory",
+    "If this reflection resonated",
+    "Clear mind",
+    "Meaningful life",
+    "stay with us on the journey",
+)
+
+
 def _extract_narrative_ending(script: str) -> str:
-    """Strip brand wrap and return the last narrative sentence."""
-    brand_markers = [
-        "This is Atma Theory",
-        "If this reflection resonated",
-        "Clear mind",
-        "Meaningful life",
-        "stay with us on the journey",
-    ]
+    """Return the narrative-resolution text for the hook-to-ending quality check.
+
+    Extraction priority (highest to lowest):
+    1. Explicit [NARRATIVE_ENDING] marker — paragraph(s) following it, up to
+       the next [ENGAGEMENT: ...] marker.  New scripts always use this path.
+    2. [ENGAGEMENT: subscribe_promise] / [ENGAGEMENT: branding_end] boundary —
+       last non-engagement paragraph before the first closing marker.  Handles
+       new scripts where the LLM placed content but omitted the marker.
+    3. Legacy hardcoded brand-phrase detection — backward compat for old scripts.
+       Extracts the full paragraph containing the last narrative sentence before
+       the brand phrase, not just a single line.
+    4. Last non-empty paragraph of the script (final fallback).
+
+    Never returns content that starts with an engagement or brand marker.
+    """
+    paras = [p.strip() for p in script.strip().split("\n\n") if p.strip()]
+
+    # ── Priority 1: explicit [NARRATIVE_ENDING] marker ────────────────────────
+    ne_idx = script.find(_NARRATIVE_ENDING_MARKER)
+    if ne_idx != -1:
+        after = script[ne_idx + len(_NARRATIVE_ENDING_MARKER):].strip()
+        # Content up to the next [ENGAGEMENT: ...] marker
+        eng_idx = after.find("[ENGAGEMENT:")
+        chunk = after[:eng_idx].strip() if eng_idx != -1 else after.strip()
+        chunk_paras = [p.strip() for p in chunk.split("\n\n") if p.strip()]
+        if chunk_paras:
+            return "\n\n".join(chunk_paras[:3])
+
+    # ── Priority 2: closing engagement marker boundary ────────────────────────
+    # Find the position of the first subscribe_promise or branding_end marker
+    closing_pos = len(script)
+    for marker in _CLOSING_ENGAGEMENT_MARKERS:
+        idx = script.find(marker)
+        if idx != -1:
+            closing_pos = min(closing_pos, idx)
+
+    if closing_pos < len(script):
+        before = script[:closing_pos].strip()
+        before_paras = [p.strip() for p in before.split("\n\n") if p.strip()]
+        # Walk backwards, skip trailing engagement-marked paragraphs
+        for para in reversed(before_paras):
+            if not para.startswith("[ENGAGEMENT:") and para:
+                return para
+
+    # ── Priority 3: legacy hardcoded brand markers (old scripts) ─────────────
     lines = script.strip().split("\n")
     for i, line in enumerate(lines):
-        if any(marker in line for marker in brand_markers):
+        if any(marker in line for marker in _LEGACY_BRAND_MARKERS):
+            # Collect the full paragraph ending just before this brand line
+            collected: list[str] = []
             for j in range(i - 1, -1, -1):
-                if lines[j].strip():
-                    return lines[j].strip()
-    return lines[-1].strip()
+                stripped = lines[j].strip()
+                if not stripped:
+                    if collected:
+                        break  # blank line = paragraph boundary
+                    continue
+                collected.insert(0, stripped)
+            if collected:
+                return " ".join(collected)
+
+    # ── Priority 4: last non-empty paragraph ─────────────────────────────────
+    return paras[-1] if paras else ""
 
 
 _QUALITY_GATE_PROMPT = """\
@@ -3711,8 +3769,12 @@ CRITICAL GATE INSTRUCTIONS — you must follow these exactly, they override your
 
 - For the hook-to-ending loop check: you will be given a NARRATIVE_ENDING field.
   Evaluate ONLY that field. Do not read the script's final lines. Do not consider
-  anything after the narrative ending. If NARRATIVE_ENDING echoes the opening image,
-  this check PASSES. Full stop.
+  anything after the narrative ending.
+  The opening narrative device may be an image, metaphor, question, conflict,
+  promise, situation, or contrast. A callback that echoes, resolves, transforms,
+  or conceptually returns to that device PASSES — literal repetition is not
+  required. If NARRATIVE_ENDING is a CTA, subscribe request, or branding phrase
+  with no narrative content, FAIL. If NARRATIVE_ENDING is empty, FAIL.
 
 - For the no repeated beats check: the following progressions are ALWAYS allowed and
   must NEVER be flagged as repeated beats:
@@ -3745,9 +3807,13 @@ CHECKS:
    (both in story, or both in human parallel) with nothing new between them.
    A story beat followed by its human-parallel equivalent is the pipeline formula — NEVER a repeated beat.
    FAIL only if the identical idea appears twice within the same section with no development.
-3. HOOK_ENDING_LOOP — Does NARRATIVE_ENDING echo or resolve the opening image?
+3. HOOK_ENDING_LOOP — Does NARRATIVE_ENDING echo or resolve the opening narrative device?
    Evaluate ONLY the NARRATIVE_ENDING field provided below. Ignore the script's final lines entirely.
-   FAIL only if NARRATIVE_ENDING does not echo or resolve the opening image or tension.
+   The opening device may be an image, metaphor, question, conflict, promise, situation, or contrast.
+   A conceptual or transformed callback counts as a valid echo — literal repetition is not required.
+   FAIL if: NARRATIVE_ENDING is empty, is a CTA/subscribe/brand phrase, or has no meaningful
+   connection to the opening narrative device.
+   PASS if: NARRATIVE_ENDING resolves, echoes, transforms, or returns to any element from the opening.
 4. NO_DISCLAIMER_PARAGRAPHS — Is all hardship or limitation shown through story or character?
    FAIL only if a paragraph makes factual claims about the real world (statistics, medical claims,
    financial advice) with no story grounding, OR directly tells the viewer what to do in their real

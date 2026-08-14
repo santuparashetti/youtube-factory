@@ -28,7 +28,7 @@ def run_pipeline(
     source_url: str | None = None,
     style: str | None = None,
     no_images: bool = False,
-    target_minutes: int = 8,
+    target_minutes: int = 5,
     incremental: bool = False,
     force_stages: set[str] | None = None,
     scene_filter: int | None = None,

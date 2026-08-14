@@ -72,7 +72,7 @@ class SourceRefinerPipeline:
         self._settings = settings
         self._llm = get_llm_for_role(settings, "source_refiner")
 
-    def run(self, project_id: str, beats: list[dict] | None = None, target_minutes: int = 7) -> str:
+    def run(self, project_id: str, beats: list[dict] | None = None, target_minutes: int = 5) -> str:
         script_dir = Path(WORKSPACE_DIR) / project_id / "script"
         script_file = script_dir / "script.md"
 

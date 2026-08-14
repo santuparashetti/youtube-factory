@@ -41,7 +41,7 @@ def _recompose_trim_threshold(target_minutes: int) -> int:
     return int(target_minutes * _NARRATION_WPM * 1.05)
 
 
-def _apply_recompose_trim(text: str, composer: "ComposerPipeline", target_minutes: int = 7) -> str:
+def _apply_recompose_trim(text: str, composer: "ComposerPipeline", target_minutes: int = 5) -> str:
     """Run the trim pass on recomposed output if it exceeds the word threshold."""
     words = len(text.split())
     threshold = _recompose_trim_threshold(target_minutes)
@@ -66,7 +66,7 @@ def run_composer_with_ab_selection(
     project_id: str,
     base_script_text: str | None = None,
     beats: list[dict] | None = None,
-    target_minutes: int = 7,
+    target_minutes: int = 5,
 ) -> str:
     """Run the composer twice, judge the results, optionally recompose, write script.md.
 

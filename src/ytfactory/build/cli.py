@@ -17,7 +17,7 @@ def build(
     skip_images: bool = typer.Option(False, "--skip-images", help="Skip image generation (use existing images)"),
     no_remediate: bool = typer.Option(False, "--no-remediate", help="Skip auto-remediation even if review fails"),
     style: Optional[str] = typer.Option(None, "--style", help=f"Narrative style hint for script enhancement ({', '.join(_STYLE_CHOICES)})"),
-    target_minutes: int = typer.Option(7, "--target-minutes", help="Target narration duration in minutes (5-10)"),
+    target_minutes: int = typer.Option(5, "--target-minutes", help="Target narration duration in minutes (1-10)"),
     remediation_threshold: float = typer.Option(70.0, "--remediation-threshold", help="Quality score threshold for auto-remediation (0-100)"),
     remediation_retries: int = typer.Option(3, "--remediation-retries", help="Max auto-remediation retry cycles"),
     # ── Incremental / resume flags ─────────────────────────────────────────

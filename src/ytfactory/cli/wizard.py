@@ -172,11 +172,11 @@ def _ask_profile(default: str = "Cinematic") -> str:
 
 
 def _ask_target_minutes() -> int:
-    answer = questionary.text("Target duration in minutes (1–10):", default="7").ask()
+    answer = questionary.text("Target duration in minutes (1–10):", default="5").ask()
     try:
-        return max(1, min(10, int(answer or "8")))
+        return max(1, min(10, int(answer or "5")))
     except ValueError:
-        return 8
+        return 5
 
 
 def _confirm_launch(params: dict) -> bool:
@@ -259,7 +259,7 @@ def _flow_new_project(defaults: dict) -> None:
     lang_label, language = _ask_language()
     profile = _ask_profile()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -303,7 +303,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
     lang_label, language = _ask_language()
     profile = _ask_profile()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -355,7 +355,7 @@ def _flow_existing_script(defaults: dict) -> None:
     lang_label, language = _ask_language()
     profile = _ask_profile()
     auto = questionary.confirm(
-        "Run fully automatically (skip review gates)?", default=True
+        "Run fully automatically (skip review gates)?", default=False
     ).ask()
 
     if not _confirm_launch(
@@ -592,7 +592,7 @@ def _flow_resume() -> None:
     if not title:
         return
 
-    auto = questionary.confirm("Run fully automatically?", default=True).ask()
+    auto = questionary.confirm("Run fully automatically?", default=False).ask()
 
     if not _confirm_launch(
         {
