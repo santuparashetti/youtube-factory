@@ -495,6 +495,23 @@ def _flow_replan_scenes() -> None:
         console.print("[dim]Run 'New Project (Phase 1)' first to generate a script.[/dim]")
         return
 
+    # ── Sub-option: re-export prompts from cached plan (no LLM re-planning) ──
+    if scene_plan_path.exists():
+        action = questionary.select(
+            "Scene plan exists. What would you like to do?",
+            choices=[
+                "Re-export image prompts from existing plan (re-applies latest prompt assembly rules, no LLM)",
+                "Re-plan from scratch (full LLM scene planning)",
+            ],
+        ).ask()
+        if action is None:
+            return
+
+        if "Re-export" in action:
+            _flow_reexport_prompts(project_id, project_dir, scene_plan_path)
+            return
+
+    # ── Full re-plan path ─────────────────────────────────────────────────────
     existing_images = sorted((project_dir / "images").glob("scene-*.png")) if (project_dir / "images").exists() else []
 
     if existing_images:
@@ -511,10 +528,6 @@ def _flow_replan_scenes() -> None:
             return
 
     if scene_plan_path.exists():
-        console.print("[yellow]Existing scene plan found.[/yellow] It will be deleted so a fresh plan is generated.")
-        delete = questionary.confirm("Delete existing scene-plan.json and re-plan?", default=True).ask()
-        if not delete:
-            return
         scene_plan_path.unlink()
         console.print("[dim]Deleted scene-plan.json[/dim]")
 
@@ -546,6 +559,29 @@ def _flow_replan_scenes() -> None:
         "\n[dim]Phase 1 complete. Generate images externally, place them in "
         f"workspace/jobs/{project_id}/images/, then run 'Resume Project (Phase 2)'.[/dim]"
     )
+
+
+def _flow_reexport_prompts(project_id: str, project_dir: Path, scene_plan_path: Path) -> None:
+    """Re-export IMAGE_PROMPTS.md from a cached scene-plan.json without re-running the LLM.
+
+    Calls _write_prompts_file() which runs _assemble_export_prompt() on all cached scenes,
+    applying the latest prompt assembly rules (typography, character classification, etc.).
+    """
+    import json as _json
+
+    if not _confirm_launch({"Project": project_id, "Stage": "Re-export image prompts (no LLM)"}):
+        return
+
+    scene_plan = _json.loads(scene_plan_path.read_text(encoding="utf-8"))
+    scenes = scene_plan.get("scenes", [])
+    style = scene_plan.get("style")
+
+    from ytfactory.agents.nodes.scene_planner import _write_prompts_file
+    from ytfactory.config.settings import Settings
+
+    settings = Settings()
+    prompts_path = _write_prompts_file(project_id, scenes, style, settings)
+    console.print(f"\n[green]✓[/green] Image prompts re-exported: [dim]{prompts_path}[/dim]")
 
 
 def _flow_resume_project() -> None:

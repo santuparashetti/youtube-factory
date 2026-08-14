@@ -316,7 +316,7 @@ class SharedSettings(BaseSettings):
     # Anchor character — pipeline-internal identifier.
     # ANCHOR_CHARACTER_ID is used in system prompts and internal artifacts ONLY.
     # It must NEVER appear in viewer-facing output. KaiFirewallViolation enforces this.
-    ANCHOR_CHARACTER_ENABLED: bool = True
+    ANCHOR_CHARACTER_ENABLED: bool = False
     ANCHOR_CHARACTER_ID: str = "Kai"
 
     # Scene Planner V2

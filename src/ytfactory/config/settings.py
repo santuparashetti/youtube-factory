@@ -141,6 +141,19 @@ class Settings(SharedSettings):
     image_prompt_debug: bool = False
 
     # ------------------------------------------------------------------
+    # Image Prompt QA/Fix Pass
+    # ------------------------------------------------------------------
+
+    # Run one LLM semantic QA + targeted repair pass after all prompts are
+    # generated and before scene-plan.json is written.  The LLM checks
+    # narration fidelity, character presence, visual-world coherence, and
+    # text-rendering instructions, then repairs only the violating portions.
+    image_prompt_qa_enabled: bool = True
+
+    # Model used for the QA/fix pass — lightweight flash model is sufficient.
+    image_prompt_qa_model: str = "google/gemini-2.5-flash-lite"
+
+    # ------------------------------------------------------------------
     # Human Quality Validation
     # ------------------------------------------------------------------
 

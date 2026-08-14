@@ -65,7 +65,7 @@ class TestConfigValidation:
 
     def test_anchor_character_settings_defaults(self):
         s = SharedSettings()
-        assert s.ANCHOR_CHARACTER_ENABLED is True
+        assert s.ANCHOR_CHARACTER_ENABLED is False
         assert s.ANCHOR_CHARACTER_ID == "Kai"
 
     @pytest.mark.parametrize("bad", [0, -1, 101, 200])

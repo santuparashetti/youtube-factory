@@ -2724,12 +2724,6 @@ def _write_prompts_file(
     total_scenes = len(scenes)
     style_label = style or "documentary"
 
-    primary_scene_ids = [
-        s["index"] for s in scenes if s.get("anchor_role") in ("primary", "spectator")
-    ]
-    first_primary = primary_scene_ids[0] if primary_scene_ids else 1
-    primary_scenes_str = ", ".join(str(i) for i in primary_scene_ids)
-
     lines: list[str] = [
         f"# Image Prompts — {project_id}",
         f"**Style:** {style_label} | **Scenes:** {total_scenes} | **Size:** {w}×{h} px (16:9)",
@@ -2737,48 +2731,6 @@ def _write_prompts_file(
         "---",
         "",
     ]
-
-    if getattr(settings, "ANCHOR_CHARACTER_ENABLED", False):
-        lines += [
-            "## Step 0 — Before You Start (Image Generator Setup)",
-            "",
-            "**ChatGPT / DALL-E 3:** Paste this message ONCE at the start of a new conversation,",
-            "before pasting any scene prompt:",
-            "",
-            "```",
-            f"I am generating a {total_scenes}-scene philosophical documentary storyboard in a MANDATORY hybrid",
-            "visual style. You MUST follow this style for every single image without exception.",
-            "",
-            "⚠️ CRITICAL RULE — TWO-LAYER STYLE (never ignore this):",
-            "LAYER 1 — ENVIRONMENT: 100% photorealistic. Architecture, nature, interiors, soil,",
-            "trees, props, lighting, and shadows must look like real cinema photography.",
-            "LAYER 2 — CHARACTERS: 100% illustrated cartoon. Every human, eagle, bird, or animal",
-            "MUST be rendered as a hand-painted storybook illustration — visible ink outlines, flat",
-            "cel shading, painterly texture, graphic novel quality. Characters must NEVER look like",
-            "real photos. They should look like 2D cartoon characters placed inside a real photograph.",
-            "",
-            "DO NOT make characters photorealistic. DO NOT make the environment cartoon.",
-            "Think of it as: real-world photo background + animated cartoon characters composited on top.",
-            "",
-            f"ANCHOR CHARACTER (KAI): Appears in scenes {primary_scenes_str}. Kai is a young man,",
-            "late 20s, lean build, short dark hair, simple clothing. Render Kai as an illustrated",
-            "storybook character (NOT photorealistic) — ink outlines, cel shading, painterly texture.",
-            "Kai is almost always shown from behind, in silhouette, or in profile — almost never",
-            "full front-facing.",
-            "",
-            "Keep Kai's illustrated appearance identical across all his scenes. I will paste each",
-            "scene prompt one by one now.",
-            "```",
-            "",
-            f"Keep all {total_scenes} generations in ONE conversation window. If style drifts, paste",
-            'scene 1 back and say "same hybrid style — continue with scene [X]".',
-            "",
-            f"**Midjourney / Leonardo:** Generate scene {first_primary} first. Use that as your style",
-            "reference (--sref) for all subsequent scenes. For Kai-primary scenes, also use --cref.",
-            "",
-            "---",
-            "",
-        ]
 
     lines += [
         "## Global Instructions (apply to ALL prompts below)",
@@ -5038,6 +4990,152 @@ def scene_planner_node(state: VideoState) -> dict:
     if settings.image_prompt_debug:
         debug_dir = _v4_engine.write_debug_output(project_id, scenes, v4_report)
         console.print(f"  [green]✓[/green] V4 debug output: [dim]{debug_dir}[/dim]")
+
+    # ── Prompt QA/Fix pass — semantic narration-fidelity check ────────────
+    if settings.image_prompt_qa_enabled:
+        from ytfactory.images.prompt_qa import run_prompt_qa_pass
+        _qa_llm = get_llm_for_role(settings, "validator", model_override=settings.image_prompt_qa_model)
+        _qa_report = run_prompt_qa_pass(
+            scenes,
+            _qa_llm,
+            visual_bible=visual_bible.model_dump(),
+            scene_analysis_map=scene_analysis_map,
+        )
+        if _qa_report is not None:
+            _qa_tag = "[green]✓[/green]" if _qa_report.status == "PASS" else "[yellow]⚠[/yellow]"
+            console.print(
+                f"  {_qa_tag} Prompt QA: {_qa_report.status} — "
+                f"{_qa_report.scenes_checked} checked, "
+                f"{_qa_report.issues_found} found, "
+                f"{_qa_report.issues_fixed} fixed"
+                + (f", {len(_qa_report.unresolved)} unresolved" if _qa_report.unresolved else "")
+            )
+            if _qa_report.status == "REVIEW_REQUIRED":
+                logger.warning(
+                    "Prompt QA REVIEW_REQUIRED: {} unresolved issue(s)",
+                    len(_qa_report.unresolved),
+                )
+                artifact_repo.write_json(
+                    project_id, "scenes", "prompt-qa-report.json", _qa_report.to_dict()
+                )
+                console.print(
+                    "  [yellow]⚠[/yellow] Prompt QA report: [dim]scenes/prompt-qa-report.json[/dim]"
+                )
+
+            # Re-run enforcement + validation against repaired prompts so that
+            # scene-plan.json always reflects fully enforced, final-validated prompts.
+            if _qa_report.repairs_applied > 0:
+                # ── 1. Re-run deterministic enforcement passes ─────────────────
+                scenes = _enforce_primary_kai_spec(scenes)
+                scenes = _propagate_environment_anchors(scenes)
+                scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
+                scenes = _enforce_era_consistency(scenes)
+
+                # ── 2. Re-sync structured_prompt.compiled_prompt from visual_prompt ─
+                for _s in scenes:
+                    _sp = _s.get("structured_prompt")
+                    if isinstance(_sp, dict) and _sp.get("compiled_prompt") is not None:
+                        _sp["compiled_prompt"] = _s.get("visual_prompt", "")
+
+                # ── 3. Re-run V4 against final enforced prompts ────────────────
+                v4_report = _v4_engine.build_diagnostics(scenes)
+                v4_issues = _v4_engine.validate(scenes, v4_report)
+                if v4_issues:
+                    for _issue in v4_issues:
+                        logger.warning("V4 image prompt (post-QA): {}", _issue)
+                    console.print(
+                        f"  [yellow]⚠[/yellow] Post-QA V4: {len(v4_issues)} issue(s) — "
+                        f"diversity score {v4_report.diversity_score:.2f}"
+                    )
+                else:
+                    console.print(
+                        f"  [green]✓[/green] Post-QA V4 passed — "
+                        f"diversity score {v4_report.diversity_score:.2f}"
+                    )
+                if settings.image_prompt_debug:
+                    debug_dir = _v4_engine.write_debug_output(project_id, scenes, v4_report)
+                    console.print(
+                        f"  [green]✓[/green] Post-QA V4 debug: [dim]{debug_dir}[/dim]"
+                    )
+
+                # ── 4. Refresh continuity report against final prompts ─────────
+                if settings.scene_continuity_enabled and settings.scene_continuity_prompt_validation:
+                    _continuity_report = ContinuityReport()
+                    for _s in scenes:
+                        if _s.get("scene_type", "generated_image") != "generated_image":
+                            continue
+                        _idx = _s["index"]
+                        _prompt = _s.get("visual_prompt", "")
+                        if not _prompt:
+                            continue
+                        from ytfactory.scene_continuity.models import scene_mode_from_narrative_role
+                        _vm = _s.get("visual_metadata") or {}
+                        _narrative_role = (
+                            _vm.get("narrative_role", "STORY") if isinstance(_vm, dict)
+                            else getattr(_vm, "narrative_role", "STORY")
+                        ) or "STORY"
+                        _mode = scene_mode_from_narrative_role(_narrative_role)
+                        _sa = scene_analysis_map.get(_idx)
+                        _findings = validate_prompt_against_state(
+                            _prompt, story_state, _idx, _mode, _sa
+                        )
+                        _errors = [f for f in _findings if f.is_error()]
+                        if _errors:
+                            _last_err = _errors[-1]
+                            for _f in _errors:
+                                logger.info(
+                                    "Post-QA continuity scene {}: {}", _idx, str(_f)
+                                )
+                            _scene_status = SceneContinuityStatus(
+                                scene_index=_idx,
+                                status="REPAIRED" if _last_err.suggested_fix else "FAILED",
+                                prompt_violations=_errors,
+                            )
+                        else:
+                            _scene_status = SceneContinuityStatus(
+                                scene_index=_idx, status="PASS"
+                            )
+                        _continuity_report.record_scene(_scene_status)
+                    _continuity_report.write_report(_project_dir)
+                    logger.info("Prompt QA: continuity report refreshed after repairs")
+
+                # ── 5. Promote FAILED faithfulness scenes now passing deterministically
+                for _s in scenes:
+                    if _s.get("scene_type", "generated_image") != "generated_image":
+                        continue
+                    _fqa = _s.get("faithfulness_qa") or {}
+                    if _fqa.get("status") != FaithfulnessStatus.FAILED.value:
+                        continue
+                    _idx = _s["index"]
+                    _entities = entity_map.get(_idx)
+                    if not _entities:
+                        continue
+                    _sa_raw = _s.get("scene_analysis", {})
+                    _sa_clean, _ents_clean = _sanitize_scene_analysis(
+                        _sa_raw, _entities, _s.get("narration", "")
+                    )
+                    _post_qa_fidelity = run_validators(
+                        scene_analysis=_sa_clean,
+                        prompt=_s["visual_prompt"],
+                        narration=_s.get("narration", ""),
+                        human_classification=_ents_clean.human_classification,
+                        scene_category=_ents_clean.scene_category,
+                        visual_anchor=_s.get("visual_anchor", ""),
+                        story_characters=_story_characters,
+                    )
+                    if not _post_qa_fidelity.critical_errors:
+                        _s["faithfulness_qa"] = {
+                            "status": FaithfulnessStatus.PASS.value,
+                            "violation": "",
+                            "attempts": _fqa.get("attempts", 0),
+                            "critical_errors": [],
+                            "llm_validated": _fqa.get("llm_validated", False),
+                            "llm_reason": _fqa.get("llm_reason", ""),
+                        }
+                        logger.info(
+                            "Prompt QA: scene {} faithfulness upgraded to PASS after repair",
+                            _idx,
+                        )
 
     # ── Persist artifacts ─────────────────────────────────────────────────
     scene_plan = {
