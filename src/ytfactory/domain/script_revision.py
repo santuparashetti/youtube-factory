@@ -36,6 +36,53 @@ class ValidationFlagType(str, Enum):
     THESIS_DRIFT = "thesis_drift"
     NARRATIVE_COHERENCE = "narrative_coherence"
     IDENTITY_DRIFT = "identity_drift"
+    ENGAGEMENT_MISSING = "engagement_missing"
+
+
+class EngagementType(str, Enum):
+    VALUE_PROMISE = "value_promise"
+    JOURNEY_INVITATION = "journey_invitation"
+    COMMENT_PROMPT = "comment_prompt"
+    SUBSCRIBE_PROMISE = "subscribe_promise"
+    BRANDING_END = "branding_end"
+
+
+@dataclass(slots=True)
+class EngagementElement:
+    """One detected engagement element in the refined script.
+
+    is_dedicated_scene: JOURNEY_INVITATION must be its own scene, not
+      blended into an unrelated narrative scene.
+    is_final_scene: BRANDING_END must be the very last scene.
+    fallback_derived: True when detected via content-pattern fallback rather
+      than an explicit [ENGAGEMENT: <type>] marker. Signals the reviewer that
+      the LLM may have omitted the formal marker.
+    """
+
+    engagement_type: EngagementType
+    text_snippet: str
+    is_dedicated_scene: bool = False
+    is_final_scene: bool = False
+    fallback_derived: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.engagement_type.value,
+            "text_snippet": self.text_snippet[:300],
+            "is_dedicated_scene": self.is_dedicated_scene,
+            "is_final_scene": self.is_final_scene,
+            "fallback_derived": self.fallback_derived,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EngagementElement":
+        return cls(
+            engagement_type=EngagementType(data["type"]),
+            text_snippet=data.get("text_snippet", ""),
+            is_dedicated_scene=data.get("is_dedicated_scene", False),
+            is_final_scene=data.get("is_final_scene", False),
+            fallback_derived=data.get("fallback_derived", False),
+        )
 
 
 @dataclass(slots=True)
@@ -170,6 +217,7 @@ class ScriptValidationResult:
     spoken_word_count: int
     beat_coverage: dict  # {beat_name: bool}
     flags: list[ValidationFlag] = field(default_factory=list)
+    engagement_elements: list[EngagementElement] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -181,4 +229,5 @@ class ScriptValidationResult:
             "spoken_word_count": self.spoken_word_count,
             "beat_coverage": self.beat_coverage,
             "flags": [f.to_dict() for f in self.flags],
+            "engagement_elements": [e.to_dict() for e in self.engagement_elements],
         }

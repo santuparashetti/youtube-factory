@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import re
 
+from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS, SOFT_CTA
 from ytfactory.domain.script_revision import (
+    EngagementElement,
+    EngagementType,
     ScriptIdentity,
     ScriptValidationResult,
     ValidationFlag,
@@ -136,6 +139,163 @@ _BEAT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
         ],
     ),
 ]
+
+
+# ── Engagement element detection ──────────────────────────────────────────────
+
+# Marker injected by the LLM for dedicated-scene identification
+_ENGAGEMENT_MARKER_RE = re.compile(
+    r"\[ENGAGEMENT:\s*(value_promise|journey_invitation|comment_prompt|"
+    r"subscribe_promise|branding_end)\]",
+    re.IGNORECASE,
+)
+
+# Deterministic BRANDING_END: brand config closing phrases (same source as
+# scene_planner._CLOSING_TRIGGERS — no regex heuristics needed here).
+_BRAND_CLOSING_PHRASES: frozenset[str] = frozenset(
+    phrase.lower().strip().rstrip(".")
+    for phrase in CLOSING_VARIATIONS + [SOFT_CTA]
+    if phrase
+)
+
+# Fallback content patterns — only used when the LLM omits the [ENGAGEMENT:] marker.
+_VALUE_PROMISE_RE = re.compile(
+    r"\b(by the end of this|by the time (?:we|you)|"
+    r"you'?ll (?:understand|discover|see|know|learn|realize)|"
+    r"in (?:the )?next (?:few )?minutes|what you'?ll (?:take away|gain|walk away))\b",
+    re.IGNORECASE,
+)
+_JOURNEY_INVITATION_RE = re.compile(
+    r"\b(every week|one ancient idea|join us on this journey|"
+    r"atma theory (?:is|brings|offers)|(?:this is |this becomes )?our journey|"
+    r"(?:join|walk with) us)\b",
+    re.IGNORECASE,
+)
+_COMMENT_PROMPT_RE = re.compile(
+    r"\b(tell me (?:below|in the comments?)|"
+    r"leave (?:your|a) (?:answer|response|thought) (?:below|in the comments?)|"
+    r"(?:which|what) (?:of these|do you)|"
+    r"(?:let me know|share) (?:below|in the comments?))\b",
+    re.IGNORECASE,
+)
+_SUBSCRIBE_PROMISE_RE = re.compile(
+    r"\b(subscribe (?:so|and|to)|"
+    r"if this (?:resonated?|landed|spoke|moved)|"
+    r"(?:hit|press|click) (?:subscribe|the subscribe))\b",
+    re.IGNORECASE,
+)
+# BRANDING_END regex fallback — fires only when neither the marker nor the brand
+# config phrase matches (e.g. a legacy script with custom closing language).
+_BRANDING_END_FALLBACK_RE = re.compile(
+    r"\b(this is atma theory|until (?:next time|we meet again))\b",
+    re.IGNORECASE,
+)
+
+
+def _closing_paragraph_matches_brand(script_text: str) -> str:
+    """Return the closing paragraph text if it contains a brand closing phrase."""
+    paras = [p.strip() for p in re.split(r"\n\n+", script_text) if p.strip()]
+    if not paras:
+        return ""
+    closing = _strip_visual_directions(paras[-1]).lower().strip().rstrip(".")
+    for phrase in _BRAND_CLOSING_PHRASES:
+        if phrase in closing:
+            return paras[-1]
+    return ""
+
+
+def _detect_engagement_elements(script_text: str) -> list[EngagementElement]:
+    """Detect engagement elements in the refined script.
+
+    Primary path: explicit [ENGAGEMENT: <type>] marker (fallback_derived=False).
+    Fallback path: content-pattern matching for elements the LLM left unmarked
+    (fallback_derived=True). ENGAGEMENT_MISSING is only emitted when neither
+    path finds the element.
+
+    BRANDING_END uses the brand config closing phrases as the deterministic
+    fallback before the regex pattern, matching scene_planner._CLOSING_TRIGGERS.
+    """
+    elements: list[EngagementElement] = []
+    found_types: set[EngagementType] = set()
+
+    # ── Marker-based detection (primary, fallback_derived=False) ─────────────
+    for m in _ENGAGEMENT_MARKER_RE.finditer(script_text):
+        raw_type = m.group(1).lower()
+        try:
+            etype = EngagementType(raw_type)
+        except ValueError:
+            continue
+        if etype in found_types:
+            continue
+        start = max(0, m.start() - 20)
+        snippet = script_text[start : m.end() + 300].strip()[:300]
+        elements.append(
+            EngagementElement(
+                engagement_type=etype,
+                text_snippet=snippet,
+                is_dedicated_scene=(etype == EngagementType.JOURNEY_INVITATION),
+                is_final_scene=(etype == EngagementType.BRANDING_END),
+                fallback_derived=False,
+            )
+        )
+        found_types.add(etype)
+
+    # ── Fallback detection for unmarked elements (fallback_derived=True) ─────
+    spoken = _strip_visual_directions(script_text)
+
+    # BRANDING_END: deterministic brand-config check first, regex only if needed
+    if EngagementType.BRANDING_END not in found_types:
+        closing_para = _closing_paragraph_matches_brand(script_text)
+        if closing_para:
+            elements.append(
+                EngagementElement(
+                    engagement_type=EngagementType.BRANDING_END,
+                    text_snippet=closing_para[:300],
+                    is_dedicated_scene=False,
+                    is_final_scene=True,
+                    fallback_derived=True,
+                )
+            )
+            found_types.add(EngagementType.BRANDING_END)
+        else:
+            match = _BRANDING_END_FALLBACK_RE.search(spoken)
+            if match:
+                snippet = spoken[max(0, match.start() - 20) : match.end() + 200].strip()[:300]
+                elements.append(
+                    EngagementElement(
+                        engagement_type=EngagementType.BRANDING_END,
+                        text_snippet=snippet,
+                        is_dedicated_scene=False,
+                        is_final_scene=True,
+                        fallback_derived=True,
+                    )
+                )
+                found_types.add(EngagementType.BRANDING_END)
+
+    fallback_checks = [
+        (EngagementType.VALUE_PROMISE, _VALUE_PROMISE_RE),
+        (EngagementType.JOURNEY_INVITATION, _JOURNEY_INVITATION_RE),
+        (EngagementType.COMMENT_PROMPT, _COMMENT_PROMPT_RE),
+        (EngagementType.SUBSCRIBE_PROMISE, _SUBSCRIBE_PROMISE_RE),
+    ]
+    for etype, pattern in fallback_checks:
+        if etype in found_types:
+            continue
+        match = pattern.search(spoken)
+        if match:
+            snippet = spoken[max(0, match.start() - 20) : match.end() + 200].strip()[:300]
+            elements.append(
+                EngagementElement(
+                    engagement_type=etype,
+                    text_snippet=snippet,
+                    is_dedicated_scene=(etype == EngagementType.JOURNEY_INVITATION),
+                    is_final_scene=False,
+                    fallback_derived=True,
+                )
+            )
+            found_types.add(etype)
+
+    return elements
 
 
 def _strip_visual_directions(text: str) -> str:
@@ -299,10 +459,38 @@ class ScriptValidator:
                 )
             )
 
+        # ── Engagement layer detection ────────────────────────────────────────
+        engagement_elements = _detect_engagement_elements(refined_script)
+        found_types = {e.engagement_type for e in engagement_elements}
+        required = [
+            EngagementType.VALUE_PROMISE,
+            EngagementType.JOURNEY_INVITATION,
+            EngagementType.COMMENT_PROMPT,
+            EngagementType.SUBSCRIBE_PROMISE,
+            EngagementType.BRANDING_END,
+        ]
+        for etype in required:
+            if etype not in found_types:
+                flags.append(
+                    ValidationFlag(
+                        flag_type=ValidationFlagType.ENGAGEMENT_MISSING,
+                        location=etype.value,
+                        message=(
+                            f"Engagement element {etype.value!r} not detected. "
+                            "Add the [ENGAGEMENT: "
+                            + etype.value
+                            + "] marker or matching content."
+                        ),
+                        severity="warning",
+                        auto_fixable=False,
+                    )
+                )
+
         status = "REVIEW_REQUIRED" if flags else "PASS"
         return ScriptValidationResult(
             status=status,
             spoken_word_count=spoken_wc,
             beat_coverage=beat_coverage,
             flags=flags,
+            engagement_elements=engagement_elements,
         )

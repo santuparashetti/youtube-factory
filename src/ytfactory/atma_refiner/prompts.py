@@ -134,6 +134,98 @@ Protected content may ONLY be changed or removed when it is:
 """
 
 
+_ENGAGEMENT_LAYER_SPEC = """\
+ENGAGEMENT LAYER (integrated, not separate beats)
+==================================================
+
+These four elements are NOT additional beats. Weave them naturally around the
+7-Beat framework. All engagement narration counts toward the 600–750 word limit.
+Do NOT simply append CTA text. The video must still feel like a philosophical
+documentary, not a collection of CTAs.
+
+VOICE for all engagement elements:
+  Cinematic, intelligent, understated, non-salesy.
+  Never use: "smash that subscribe button", "don't forget to subscribe",
+  generic engagement bait, exaggerated promises, repetitive CTA language.
+
+──────────────────────────────────────────────────────────
+1. VALUE_PROMISE  (placement: after DISRUPT/CHALLENGE)
+──────────────────────────────────────────────────────────
+Tell the viewer what they will understand, discover, or be able to apply by
+staying. Must be:
+  - Specific to this video's thesis (not generic "watch until the end")
+  - Truthful to the actual payoff
+  - Curiosity-building
+  - No subscription request
+Example: "By the end of this, you'll understand why your mind keeps
+comparing — and the simple shift that can finally break the cycle."
+
+──────────────────────────────────────────────────────────
+2. JOURNEY_INVITATION  (placement: mid-video, after trust/value established)
+──────────────────────────────────────────────────────────
+A short, standalone paragraph inviting the viewer into the recurring Atma
+Theory journey. It MUST be its own dedicated paragraph — do not attach it
+to an unrelated narrative scene. Wording adapts to the video's topic.
+Mark it with [ENGAGEMENT: journey_invitation] as a visual direction at the
+start of the paragraph.
+Example:
+  [ENGAGEMENT: journey_invitation]
+  Every week, one ancient idea that explains something your mind already does —
+  and how to use it. Join us on this journey.
+
+Requirements:
+  - Short (2–4 sentences)
+  - Understated, not aggressive marketing
+  - Communicates the recurring Atma Theory promise
+
+──────────────────────────────────────────────────────────
+3. COMMENT_PROMPT  (placement: after a framework or key insight)
+──────────────────────────────────────────────────────────
+Exactly one question tied directly to this video's content. The question must:
+  - Be derived from concepts actually present in the script
+  - Offer 2–3 concrete answer choices when appropriate
+  - Be easy to answer
+  - NOT introduce a new topic
+  - NOT be generic ("Let me know what you think")
+Mark it with [ENGAGEMENT: comment_prompt] as a visual direction at the start.
+Example:
+  [ENGAGEMENT: comment_prompt]
+  Which of these three do you struggle with most — chasing the outcome,
+  cutting corners, or losing faith in the process? Tell me below.
+
+──────────────────────────────────────────────────────────
+4. SUBSCRIBE_PROMISE  (placement: after the main philosophical payoff)
+──────────────────────────────────────────────────────────
+Connect the subscription to the recurring Atma Theory value. Must:
+  - Come AFTER the main payoff
+  - Be understated and natural
+  - Not repeat the JOURNEY_INVITATION verbatim
+  - Not use generic YouTube CTA language
+Mark it with [ENGAGEMENT: subscribe_promise] as a visual direction at the start.
+Example:
+  [ENGAGEMENT: subscribe_promise]
+  If this landed for you, here's what happens next — one ancient idea like
+  this, every single week. Subscribe so the next one finds you.
+
+──────────────────────────────────────────────────────────
+5. BRANDING_END  (final scene — preserve existing branding)
+──────────────────────────────────────────────────────────
+The final scene must remain the existing Atma Theory branding/end-card scene.
+Do not redesign or replace it. Mark it with [ENGAGEMENT: branding_end] as a
+visual direction at the start of that final paragraph.
+
+──────────────────────────────────────────────────────────
+INTENDED FLOW:
+DISRUPT → CHALLENGE → VALUE_PROMISE → PROVE → JOURNEY_INVITATION
+→ REVEAL → FRAME → APPLY → TRANSFORM → COMMENT_PROMPT
+→ SUBSCRIBE_PROMISE → BRANDING_END
+
+Small placement adjustments are allowed when required by the actual story.
+The result must feel like: story first → value → reflection → relationship.
+Not: story + several inserted CTAs.
+"""
+
+
 def _format_identity(identity: ScriptIdentity) -> str:
     lines = ["SCRIPT IDENTITY (protected — do not remove these elements):"]
     if identity.core_topic:
@@ -177,6 +269,7 @@ def build_7beat_system_prompt() -> str:
         [
             _EDITOR_RULES,
             _SEVEN_BEAT_REFERENCE,
+            _ENGAGEMENT_LAYER_SPEC,
             _FACTUAL_INTEGRITY_RULES,
             _VOICE_RULES,
         ]
@@ -231,6 +324,11 @@ def build_initial_refinement_prompt(
         "Edit the script above so it satisfies all 7 beats of the Atma Theory "
         "7-Beat Narrative Framework while preserving every protected element listed "
         "in SCRIPT IDENTITY and PROTECTED NARRATIVE BEATS above.\n\n"
+        "Also weave in the four ENGAGEMENT LAYER elements described in the system "
+        "prompt (VALUE_PROMISE, JOURNEY_INVITATION, COMMENT_PROMPT, SUBSCRIBE_PROMISE). "
+        "Mark each with its [ENGAGEMENT: <type>] visual direction. "
+        "Mark the final branding scene with [ENGAGEMENT: branding_end]. "
+        "All engagement narration counts toward the 600–750 word limit.\n\n"
         "Return ONLY the edited script — no preamble, no explanation, no beat labels, "
         "no JSON. The output is the complete narration script, ready for voice recording."
     )

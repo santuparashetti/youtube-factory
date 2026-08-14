@@ -161,6 +161,32 @@ class AtmaRefinerPipeline:
             encoding="utf-8",
         )
 
+        # Write engagement elements metadata for downstream scene planning.
+        # JOURNEY_INVITATION is marked is_dedicated_scene=True; BRANDING_END
+        # is marked is_final_scene=True. Scene planners can read this to apply
+        # the correct scene_type (journey_invitation / brand_card) to each scene.
+        engagement_path = script_dir / "engagement-elements.json"
+        engagement_path.write_text(
+            json.dumps(
+                {
+                    "elements": [e.to_dict() for e in validation.engagement_elements],
+                    "scene_planning_hints": {
+                        "journey_invitation": {
+                            "scene_role": "journey_invitation",
+                            "note": "Identify by [ENGAGEMENT: journey_invitation] marker or content.",
+                        },
+                        "branding_end": {
+                            "scene_role": "brand_card",
+                            "note": "Final scene — already handled by scene planner brand_card logic.",
+                        },
+                    },
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
         status_color = "green" if validation.status == "PASS" else "yellow"
         console.print(
             Panel(

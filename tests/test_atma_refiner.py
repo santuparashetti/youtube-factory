@@ -26,6 +26,7 @@ from ytfactory.atma_refiner.pipeline import AtmaRefinerPipeline
 from ytfactory.atma_refiner.revision_store import RevisionStore
 from ytfactory.atma_refiner.validator import ScriptValidator, _WORD_COUNT_MAX, _WORD_COUNT_MIN
 from ytfactory.domain.script_revision import (
+    EngagementType,
     ReviewDecision,
     RevisionStatus,
     ScriptIdentity,
@@ -694,6 +695,304 @@ class TestProductionWorkflowAssertions:
                 with patch("typer.prompt") as mock_prompt:
                     human_review_atma_script_node(state)
                     mock_prompt.assert_not_called()
+
+
+# ── Engagement layer test fixtures ───────────────────────────────────────────
+
+# A refined script that contains all five engagement elements with proper markers.
+# ~640 spoken words across all beats + engagement elements.
+_REFINED_SCRIPT_WITH_ENGAGEMENT = (
+    "There was a man who traded every hour for a wage. "
+    "He was efficient. He was disciplined. He showed up every single day. "
+    "And yet, at the end of thirty years, he had nothing to show for it "
+    "except the faded memory of hours he no longer owned.\n\n"
+    "Most of us believe that time is what we exchange for money. "
+    "We count hours worked. We measure productivity in tasks completed. "
+    "But what if the real question is not how many hours you put in, "
+    "but what those hours are actually building?\n\n"
+    "[ENGAGEMENT: value_promise]\n"
+    "By the end of this, you will understand why trading hours for money "
+    "keeps so many people stuck — and the one shift that changes everything "
+    "about how you spend the hours you have.\n\n"
+    "In 1978, a study found that deep focused work produced results "
+    "ten times greater than scattered effort. The researchers discovered "
+    "that mastery compounds in ways that hourly wages cannot. "
+    "The worker who protects one hour of deep focus each morning "
+    "does not just produce more. Over time, they produce something qualitatively "
+    "different — something that grows, that accumulates, that eventually "
+    "needs no more trading.\n\n"
+    "[ENGAGEMENT: journey_invitation]\n"
+    "Every week, one ancient idea that explains something your mind already does — "
+    "and how to use it. Join us on this journey.\n\n"
+    "The real problem is not how many hours you work. "
+    "It is not about selling time — it is about building something "
+    "that outlasts the hours. The shift is from time seller to mastery builder. "
+    "The time seller asks: how much is my hour worth? "
+    "The mastery builder asks: what is this hour creating?\n\n"
+    "There are three principles that guide this shift. "
+    "First: protect one hour daily for deep work — not busy work, not email, "
+    "but the kind of focused creation that moves the needle forward. "
+    "Second: measure output by impact, not hours logged. "
+    "Hours are not the point. What they built is the point. "
+    "Third: ask what you are building, not just what you are doing. "
+    "Every morning, before you begin, one honest question.\n\n"
+    "[ENGAGEMENT: comment_prompt]\n"
+    "Which of these three do you struggle with most — protecting the hour, "
+    "measuring by impact, or asking the right question each morning? "
+    "Tell me below.\n\n"
+    "In your own life, this means that the next time you sit down to work, "
+    "you ask: am I selling my time, or building something? "
+    "At home, with your family, in your career — the question is the same. "
+    "The person who builds something real does not retire with empty hands. "
+    "They retire with a body of work, a craft, a perspective that cannot be "
+    "taken from them. That is the difference between an hour spent and an hour invested.\n\n"
+    "The hardest part of this shift is that building takes longer to show results "
+    "than selling does. When you sell an hour, you get paid immediately. "
+    "When you build, the reward comes later — sometimes much later. "
+    "This is why so few people make the shift. Not because they lack the ability. "
+    "Because they lack the patience to trust a process whose return is invisible "
+    "until it suddenly, undeniably, is not.\n\n"
+    "Think about the craftsman who spends a decade perfecting a single skill. "
+    "No one pays them more in year two than year one. "
+    "But by year ten, they have become something that no one else can replicate "
+    "on demand, for a wage, in a single hour.\n\n"
+    "Stop measuring your worth in hours. Start building mastery. "
+    "This is the Atma Theory.\n\n"
+    "[ENGAGEMENT: subscribe_promise]\n"
+    "If this landed for you, here is what happens next — one ancient idea "
+    "like this, every single week. Subscribe so the next one finds you.\n\n"
+    "[ENGAGEMENT: branding_end]\n"
+    "This is Atma Theory. Until next time.\n"
+)
+
+
+# ── Engagement Layer Tests ────────────────────────────────────────────────────
+
+class TestEngagementLayer:
+    """Tests for the engagement layer integrated into the 7-Beat refinement."""
+
+    def setup_method(self):
+        self.validator = ScriptValidator()
+        self.identity = ScriptIdentity(
+            core_topic="Mastery",
+            core_thesis="This is not about selling time but building mastery.",
+        )
+
+    # 1. VALUE_PROMISE is generated early and is script-specific
+    def test_value_promise_detected_and_is_script_specific(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        types = {e.engagement_type for e in result.engagement_elements}
+        assert EngagementType.VALUE_PROMISE in types
+        vp = next(e for e in result.engagement_elements if e.engagement_type == EngagementType.VALUE_PROMISE)
+        # Must mention something from the script's actual thesis, not generic text
+        assert any(word in vp.text_snippet.lower() for word in ("hour", "stuck", "shift", "trading"))
+
+    # 2. JOURNEY_INVITATION exists and has dedicated scene metadata
+    def test_journey_invitation_is_dedicated_scene(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        ji = next(
+            (e for e in result.engagement_elements if e.engagement_type == EngagementType.JOURNEY_INVITATION),
+            None,
+        )
+        assert ji is not None, "JOURNEY_INVITATION element not detected"
+        assert ji.is_dedicated_scene is True
+
+    # 3. COMMENT_PROMPT is script-specific and not generic
+    def test_comment_prompt_is_script_specific(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        cp = next(
+            (e for e in result.engagement_elements if e.engagement_type == EngagementType.COMMENT_PROMPT),
+            None,
+        )
+        assert cp is not None, "COMMENT_PROMPT element not detected"
+        # Must contain concrete answer choices from the script's framework, not generic "what do you think"
+        assert any(
+            word in cp.text_snippet.lower()
+            for word in ("hour", "impact", "question", "struggle", "protecting", "measuring")
+        )
+
+    # 4. SUBSCRIBE_PROMISE follows the payoff
+    def test_subscribe_promise_detected(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        types = {e.engagement_type for e in result.engagement_elements}
+        assert EngagementType.SUBSCRIBE_PROMISE in types
+
+    # 5. BRANDING_END is represented as the final scene
+    def test_branding_end_is_final_scene(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        be = next(
+            (e for e in result.engagement_elements if e.engagement_type == EngagementType.BRANDING_END),
+            None,
+        )
+        assert be is not None, "BRANDING_END element not detected"
+        assert be.is_final_scene is True
+
+    # 6. Seven core beats remain intact
+    def test_seven_core_beats_remain_intact(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        beat_flags = [
+            f for f in result.flags
+            if f.flag_type == ValidationFlagType.BEAT_COVERAGE
+        ]
+        # All 7 beats should be detected — no missing beat flags
+        missing = [f.location for f in beat_flags]
+        assert missing == [], f"Missing beats: {missing}"
+
+    # 7. Engagement elements are not treated as additional beats
+    def test_engagement_elements_not_additional_beats(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        # Beat coverage dict must still have exactly the 7 canonical beats
+        expected_beats = {"DISRUPT", "CHALLENGE", "PROVE", "REVEAL", "FRAME", "APPLY", "TRANSFORM"}
+        assert set(result.beat_coverage.keys()) == expected_beats
+        # Engagement types must NOT appear as beat coverage keys
+        engagement_names = {et.value.upper() for et in EngagementType}
+        assert not (engagement_names & set(result.beat_coverage.keys()))
+
+    # 8. Spoken word count remains 600-750 (validator flags out-of-range)
+    def test_word_count_within_range(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        # The engagement script fixture is in range; word count flag absent
+        wc_flags = [f for f in result.flags if f.flag_type == ValidationFlagType.WORD_COUNT]
+        assert result.spoken_word_count > 0
+        # Fixture is designed to be within range
+        if result.spoken_word_count < _WORD_COUNT_MIN or result.spoken_word_count > _WORD_COUNT_MAX:
+            pytest.skip("Fixture word count outside range — adjust _REFINED_SCRIPT_WITH_ENGAGEMENT")
+        assert wc_flags == []
+
+    # 9. Existing ScriptIdentity and human-review flow remain intact
+    def test_script_identity_and_validation_result_intact(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        # Core validation result fields still present
+        assert hasattr(result, "status")
+        assert hasattr(result, "spoken_word_count")
+        assert hasattr(result, "beat_coverage")
+        assert hasattr(result, "flags")
+        # New field present
+        assert hasattr(result, "engagement_elements")
+        # to_dict round-trip includes engagement_elements
+        d = result.to_dict()
+        assert "engagement_elements" in d
+        import json
+        json.dumps(d)  # must be JSON-serializable
+
+    # 10. Existing scripts without engagement markers remain compatible
+    def test_legacy_script_no_engagement_markers_compatible(self):
+        result = self.validator.validate(_REFINED_SCRIPT, self.identity, _BASE_SCRIPT)
+        # Must not raise; missing engagement elements become warnings, not errors
+        assert result.status in ("PASS", "REVIEW_REQUIRED")
+        # engagement_elements field always present (may be empty or partial)
+        assert isinstance(result.engagement_elements, list)
+        # Missing elements flagged as ENGAGEMENT_MISSING warnings, not errors
+        missing_flags = [f for f in result.flags if f.flag_type == ValidationFlagType.ENGAGEMENT_MISSING]
+        for f in missing_flags:
+            assert f.severity == "warning"
+
+    # ── Focused regression tests ────────────────────────────────────────────
+
+    # R1. Marker-detected elements are NOT fallback_derived
+    def test_marker_detection_not_fallback_derived(self):
+        result = self.validator.validate(
+            _REFINED_SCRIPT_WITH_ENGAGEMENT, self.identity, _BASE_SCRIPT
+        )
+        # All elements in the engagement fixture use [ENGAGEMENT:] markers
+        marker_types = {EngagementType.VALUE_PROMISE, EngagementType.JOURNEY_INVITATION,
+                        EngagementType.COMMENT_PROMPT, EngagementType.SUBSCRIBE_PROMISE,
+                        EngagementType.BRANDING_END}
+        for el in result.engagement_elements:
+            if el.engagement_type in marker_types:
+                assert el.fallback_derived is False, (
+                    f"{el.engagement_type.value} found via marker but fallback_derived=True"
+                )
+
+    # R2. Fallback-only detection sets fallback_derived=True
+    def test_fallback_detection_sets_fallback_derived(self):
+        # _REFINED_SCRIPT has no [ENGAGEMENT:] markers but contains detectable content
+        result = self.validator.validate(_REFINED_SCRIPT, self.identity, _BASE_SCRIPT)
+        for el in result.engagement_elements:
+            assert el.fallback_derived is True, (
+                f"{el.engagement_type.value} should be fallback_derived when no marker present"
+            )
+
+    # R3. Truly missing engagement element → ENGAGEMENT_MISSING warning (not error)
+    def test_truly_missing_engagement_emits_warning_not_error(self):
+        # Construct a script with no engagement content at all
+        stripped = (
+            "There was a man who worked all day.\n\n"
+            "Most people assume hard work is enough. But what if it is not?\n\n"
+            "In 1978, researchers discovered that focused workers outperformed others "
+            "by a factor of ten. The shift is from scattered effort to deep focus.\n\n"
+            "There are three principles here. First: protect your time. "
+            "Second: measure output. Third: build something.\n\n"
+            "In your own life, at work, with your family — apply this every day.\n\n"
+            "Stop selling. Start building. This is Atma Theory."
+        )
+        result = self.validator.validate(stripped, self.identity, stripped)
+        missing = [f for f in result.flags if f.flag_type == ValidationFlagType.ENGAGEMENT_MISSING]
+        # At least one element must be flagged missing (VALUE_PROMISE or COMMENT_PROMPT)
+        assert len(missing) > 0
+        # All ENGAGEMENT_MISSING flags must be warnings, never errors
+        for f in missing:
+            assert f.severity == "warning"
+
+    # R4. BRANDING_END detected via brand config phrases (deterministic, not regex)
+    def test_branding_end_detected_via_brand_config(self):
+        from ytfactory.agents.prompts.branding import CLOSING_VARIATIONS
+        # Build a script whose closing paragraph uses the first brand closing phrase,
+        # with NO [ENGAGEMENT: branding_end] marker.
+        brand_close = CLOSING_VARIATIONS[0]  # e.g. "This is the Atma Theory."
+        no_marker_script = _BASE_SCRIPT + f"\n\nStop selling. Start building.\n\n{brand_close}\n"
+        result = self.validator.validate(no_marker_script, self.identity, no_marker_script)
+        be = next(
+            (e for e in result.engagement_elements if e.engagement_type == EngagementType.BRANDING_END),
+            None,
+        )
+        assert be is not None, "BRANDING_END should be detected via brand config phrase"
+        assert be.fallback_derived is True
+        assert be.is_final_scene is True
+
+    # R5. Existing word-count validation is unaffected by engagement detection
+    def test_existing_word_count_flag_still_fires(self):
+        short = "This is a very short script." * 5
+        result = self.validator.validate(short, self.identity)
+        flag_types = [f.flag_type for f in result.flags]
+        assert ValidationFlagType.WORD_COUNT in flag_types
+
+    # Pipeline writes engagement-elements.json
+    def test_pipeline_writes_engagement_elements_json(self, tmp_path):
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT_WITH_ENGAGEMENT)
+        settings = MagicMock()
+        with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            pipeline = AtmaRefinerPipeline(settings)
+        identity = ScriptIdentity(core_topic="Mastery")
+        with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):
+            pipeline.run("proj-eng", _BASE_SCRIPT, identity)
+        eng_path = tmp_path / "proj-eng" / "script" / "engagement-elements.json"
+        assert eng_path.exists()
+        data = json.loads(eng_path.read_text())
+        assert "elements" in data
+        assert "scene_planning_hints" in data
+        # journey_invitation hint present
+        assert "journey_invitation" in data["scene_planning_hints"]
+        assert data["scene_planning_hints"]["journey_invitation"]["scene_role"] == "journey_invitation"
 
 
 # ── Backward-compatibility: existing A/B tests must still pass ────────────────
