@@ -237,6 +237,21 @@ class Settings(SharedSettings):
     reflection_beats_enabled: bool = False
 
     # ------------------------------------------------------------------
+    # TTS Pronunciation Preparation
+    # ------------------------------------------------------------------
+
+    # Enable the TTS pronunciation preparation layer. When True, Sanskrit and
+    # other non-English terms detected in the scene narration receive structured
+    # pronunciation hints. In SSML mode (ssml_enhancement_enabled=True with the
+    # speechify provider) hints are injected as <sub alias="..."> SSML tags.
+    # Canonical script text is NEVER modified regardless of this setting.
+    tts_pronunciation_enabled: bool = True
+
+    # Path to the pronunciation dictionary YAML (relative to CWD).
+    # Defaults to config/pronunciations.yaml.
+    tts_pronunciation_config: str = "config/pronunciations.yaml"
+
+    # ------------------------------------------------------------------
     # TTS Debug & Quality Control
     # ------------------------------------------------------------------
     # Reviewed 2026-07-12: intentionally factory-side — ytfactory's VoicePipeline

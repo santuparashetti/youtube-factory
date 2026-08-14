@@ -372,6 +372,33 @@ def export_scene_manifest(
     )
 
 
+@app.command(name="export-image-prompts")
+def export_image_prompts_cmd(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory (default: workspace/jobs/<id>/publish/)"),
+    chunk: int = typer.Option(9, "--chunk", "-n", help="Scenes per output file (default: 9)"),
+) -> None:
+    """Export per-scene image prompts as chunked markdown files for manual image generation.
+
+    Reads scene-plan.json and writes one markdown file per chunk of scenes to
+    workspace/jobs/<project-id>/publish/ (or --output). Each file contains the
+    ChatGPT/DALL-E setup preamble, global style instructions, and fully formatted
+    per-scene prompts with CHARACTER PRESENCE labels.
+    """
+    from ytfactory.images.export import export_image_prompts
+
+    out_dir = Path(output) if output else None
+    try:
+        written = export_image_prompts(project_id, output_dir=out_dir, chunk_size=chunk)
+    except FileNotFoundError as exc:
+        _console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    for path in written:
+        _console.print(f"[green]✓[/green] {path}")
+    _console.print(f"[bold]{len(written)} file(s) written.[/bold]")
+
+
 @app.command(name="verify-images")
 def verify_images_cmd(
     project: str = typer.Option(..., "--project", help="Project ID"),

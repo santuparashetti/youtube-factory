@@ -1,34 +1,30 @@
 """
 LangGraph agentic pipeline graph definition.
 
-Entry routing (see _route_entry):
+PRODUCTION PATH (default):
   YouTube URL source  → acquire_audio → transcribe → translate
-                          → [human_review_base_script] → source_refiner → composer
-  Script / project    → source_refiner → composer (script_md loaded from state or workspace)
+                          → [human_review_base_script] → beats_extractor
+                          → script_identity → atma_7beat_refiner
+                          → script_validator → [human_review_atma_script]
+                          → scene_planner
 
-composer flow:
-  composer
-    → script_selector_polisher  ← picks stronger of 2 variants + polishes ≤10%
-      → [human_review_final_script]  ← hash-guarded review checkpoint
-        → scene_planner
-  (composer with ab_script_selection=True skips the polisher — the human
-   already picked — and goes straight to human_review_final_script)
-    → [human_review_scenes]
-      → generate_scene_assets (parallel fan-out, one per scene)
-        → video_renderer → quality_review (pre-stitch, scene clips only)
-              PASS → video_concatenator → cta → publish
-              FAIL → remediation
-                PASS → video_concatenator → cta → publish
-                FAIL → END
+  Script / project    → beats_extractor → script_identity → atma_7beat_refiner
+                          → script_validator → [human_review_atma_script]
+                          → scene_planner
 
-Review runs BEFORE video_concatenator so failing scenes are repaired before
-the expensive final stitch.  REND_003/REND_004 are disabled in the pre-stitch
-review (final.mp4 doesn't exist yet); BGM validator auto-skips.
+The 7-Beat path is the default production route. It generates exactly one
+refined script, validates it, and gates on human review (Accept/Reject).
+A rejected script triggers targeted refinement (inside human_review_atma_script_node)
+without re-running the full graph loop.
 
-Research and script-writer stages have been removed — a script is always
-provided (pre-written or imported from YouTube).  The nodes are still on
-disk (research.py, script_writer.py) but are no longer registered in this
-graph.
+ARCHIVED (code kept, not wired):
+  source_refiner, composer, script_selector_polisher, beat_verifier,
+  human_review_final_script — the old A/B composition path. All nodes
+  remain importable so their tests continue to pass.
+
+  editorial_qa — retired before the A/B era; also archived.
+
+scene_planner and everything after remains unchanged.
 """
 
 from __future__ import annotations
@@ -36,27 +32,24 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from ytfactory.agents.nodes.atma_refiner import (
+    atma_7beat_refiner_node,
+    human_review_atma_script_node,
+    script_identity_node,
+    script_validator_node,
+)
 from ytfactory.agents.nodes.beats_extractor import beats_extractor_node
-from ytfactory.agents.nodes.beat_verifier import beat_verifier_node
-from ytfactory.agents.nodes.composer import composer_node
-from ytfactory.agents.nodes.source_refiner import source_refiner_node
 from ytfactory.agents.nodes.cta import cta_node
-
-# editorial_qa retired — replaced by script_selector_polisher. The node and its
-# pipeline remain importable (not deleted); it is simply no longer wired into
-# this graph. See agents/nodes/editorial_qa.py.
-from ytfactory.agents.nodes.script_selector_polisher import script_selector_polisher_node
 from ytfactory.agents.nodes.human_review import (
     human_review_base_script_node,
-    human_review_final_script_node,
     human_review_scenes_node,
 )
 from ytfactory.agents.nodes.pre_render_gate import pre_render_gate_node
-from ytfactory.agents.nodes.scene_assets import generate_scene_assets
-from ytfactory.agents.nodes.scene_planner import scene_planner_node
 from ytfactory.agents.nodes.publish import publish_node
 from ytfactory.agents.nodes.quality_review import quality_review_node
 from ytfactory.agents.nodes.remediation import remediation_node
+from ytfactory.agents.nodes.scene_assets import generate_scene_assets
+from ytfactory.agents.nodes.scene_planner import scene_planner_node
 from ytfactory.agents.nodes.video_concatenator import video_concatenator_node
 from ytfactory.agents.nodes.video_renderer import video_renderer_node
 from ytfactory.agents.nodes.youtube_ingest import (
@@ -80,35 +73,6 @@ def _route_entry(state: VideoState) -> str:
     if state.get("source_url"):
         return "acquire_audio"
     return "beats_extractor"
-
-
-def _route_after_composer(state: VideoState) -> str:
-    """Route the composer's output to the right selection mechanism.
-
-    Skip the polisher (go directly to human_review_final_script) when:
-    - A/B pick was done interactively by the human (script already chosen).
-    - script-rejected.md exists on disk → user already made a selection in a
-      previous run; no need to run the polisher again.
-    - Composer was idempotency-skipped (script.md already existed) and produced
-      no variants — safety net to prevent the polisher writing empty content.
-
-    Otherwise → two variants (script_a/script_b) are in state → polisher picks
-    the stronger one and lightly polishes it.
-    """
-    if state.get("ab_script_selection", False):
-        return "human_review_final_script"
-
-    from pathlib import Path
-    from ytfactory.shared.constants import WORKSPACE_DIR
-    project_id = state.get("project_id", "")
-    rejected = Path(WORKSPACE_DIR) / project_id / "script" / "script-rejected.md"
-    if rejected.exists():
-        return "human_review_final_script"
-
-    if not state.get("script_a") and not state.get("script_b"):
-        return "human_review_final_script"
-
-    return "script_selector_polisher"
 
 
 def _route_after_assets(state: VideoState) -> str:
@@ -137,17 +101,16 @@ def _route_after_remediation(state: VideoState) -> str:
 def build_graph() -> StateGraph:
     workflow = StateGraph(VideoState)
 
-    # ── Register nodes ────────────────────────────────────────────────────
+    # ── Production path nodes ─────────────────────────────────────────────
     workflow.add_node("acquire_audio", acquire_audio_node)
     workflow.add_node("transcribe", transcribe_node)
     workflow.add_node("translate", translate_node)
     workflow.add_node("human_review_base_script", human_review_base_script_node)
     workflow.add_node("beats_extractor", beats_extractor_node)
-    workflow.add_node("source_refiner", source_refiner_node)
-    workflow.add_node("composer", composer_node)
-    workflow.add_node("beat_verifier", beat_verifier_node)
-    workflow.add_node("script_selector_polisher", script_selector_polisher_node)
-    workflow.add_node("human_review_final_script", human_review_final_script_node)
+    workflow.add_node("script_identity", script_identity_node)
+    workflow.add_node("atma_7beat_refiner", atma_7beat_refiner_node)
+    workflow.add_node("script_validator", script_validator_node)
+    workflow.add_node("human_review_atma_script", human_review_atma_script_node)
     workflow.add_node("scene_planner", scene_planner_node)
     workflow.add_node("pre_render_gate", pre_render_gate_node)
     workflow.add_node("human_review_scenes", human_review_scenes_node)
@@ -160,8 +123,6 @@ def build_graph() -> StateGraph:
     workflow.add_node("publish", publish_node)
 
     # ── Entry ─────────────────────────────────────────────────────────────
-    # YouTube URL → ingestion chain → base script review → compose → plan scenes
-    # Script (pre-written or loaded from workspace) → compose → plan scenes
     workflow.add_conditional_edges(
         START,
         _route_entry,
@@ -170,26 +131,28 @@ def build_graph() -> StateGraph:
             "beats_extractor": "beats_extractor",
         },
     )
+
+    # ── YouTube ingestion path ────────────────────────────────────────────
     workflow.add_edge("acquire_audio", "transcribe")
     workflow.add_edge("transcribe", "translate")
     workflow.add_edge("translate", "human_review_base_script")
-    # YT path: after human review the base script is ready → extract beats → refine
     workflow.add_edge("human_review_base_script", "beats_extractor")
-    workflow.add_edge("beats_extractor", "source_refiner")
-    workflow.add_edge("source_refiner", "composer")
-    # composer → (human A/B pick already done) beat_verifier
-    #          → (default) script_selector_polisher → beat_verifier → human_review_final_script
-    workflow.add_conditional_edges(
-        "composer",
-        _route_after_composer,
-        {
-            "script_selector_polisher": "script_selector_polisher",
-            "human_review_final_script": "beat_verifier",
-        },
-    )
-    workflow.add_edge("script_selector_polisher", "beat_verifier")
-    workflow.add_edge("beat_verifier", "human_review_final_script")
-    workflow.add_edge("human_review_final_script", "scene_planner")
+
+    # ── 7-Beat production path ────────────────────────────────────────────
+    # beats_extractor extracts protected story beats (6-10) for the refiner.
+    # script_identity extracts ScriptIdentity deterministically (no LLM).
+    # atma_7beat_refiner runs one editor pass using the 7-Beat framework.
+    # script_validator validates word count, beat coverage, factual risks.
+    # human_review_atma_script gates on human Accept/Reject (with inline
+    #   targeted-refinement loop on rejection — no graph-level cycle needed).
+    # Only the accepted canonical script reaches scene_planner.
+    workflow.add_edge("beats_extractor", "script_identity")
+    workflow.add_edge("script_identity", "atma_7beat_refiner")
+    workflow.add_edge("atma_7beat_refiner", "script_validator")
+    workflow.add_edge("script_validator", "human_review_atma_script")
+    workflow.add_edge("human_review_atma_script", "scene_planner")
+
+    # ── Scene planning and rendering (unchanged) ──────────────────────────
     workflow.add_edge("scene_planner", "pre_render_gate")
     workflow.add_edge("pre_render_gate", "human_review_scenes")
 

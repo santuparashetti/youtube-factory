@@ -258,7 +258,6 @@ def _flow_new_project(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
-    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
         "Run fully automatically (skip review gates)?", default=True
     ).ask()
@@ -272,7 +271,7 @@ def _flow_new_project(defaults: dict) -> None:
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
-            "Script variants": "2 (A/B pick)" if ab_selection else "1",
+            "Script path": "Atma 7-Beat refinement",
             "Phase": "1 (prep)",
         }
     ):
@@ -290,7 +289,7 @@ def _flow_new_project(defaults: dict) -> None:
         style=style,
         target_minutes=target_mins,
         pipeline_mode="prep_only",
-        ab_script_selection=ab_selection,
+        ab_script_selection=False,
     )
 
 
@@ -303,7 +302,6 @@ def _flow_full_ai_video(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
-    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
         "Run fully automatically (skip review gates)?", default=True
     ).ask()
@@ -315,7 +313,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
             "Duration": f"{target_mins} min  (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
-            "Script variants": "2 (A/B pick)" if ab_selection else "1",
+            "Script path": "Atma 7-Beat refinement",
             "Images": defaults.get("image_provider", "?"),
             "TTS": defaults.get("tts_provider", "?"),
             "Mode": "fully automatic" if auto else "with review gates",
@@ -332,7 +330,7 @@ def _flow_full_ai_video(defaults: dict) -> None:
         auto=bool(auto),
         style=style,
         target_minutes=target_mins,
-        ab_script_selection=ab_selection,
+        ab_script_selection=False,
     )
 
 
@@ -356,7 +354,6 @@ def _flow_existing_script(defaults: dict) -> None:
     target_mins = _ask_target_minutes()
     lang_label, language = _ask_language()
     profile = _ask_profile()
-    ab_selection = _ask_ab_selection()
     auto = questionary.confirm(
         "Run fully automatically (skip review gates)?", default=True
     ).ask()
@@ -369,7 +366,7 @@ def _flow_existing_script(defaults: dict) -> None:
             "Duration": f"{target_mins} min (~{target_mins * 130} words)",
             "Language": lang_label,
             "Profile": profile,
-            "Script variants": "2 (A/B pick)" if ab_selection else "1",
+            "Script path": "Atma 7-Beat refinement",
             "Images": defaults.get("image_provider", "?"),
             "TTS": defaults.get("tts_provider", "?"),
             "Mode": "fully automatic" if auto else "with review gates",
@@ -387,7 +384,7 @@ def _flow_existing_script(defaults: dict) -> None:
         auto=bool(auto),
         style=style,
         target_minutes=target_mins,
-        ab_script_selection=ab_selection,
+        ab_script_selection=False,
     )
 
 

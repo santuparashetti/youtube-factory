@@ -1,0 +1,217 @@
+# Atma Theory Pronunciation Dictionary
+#
+# Used by the TTS preparation layer to guide US English narrators through
+# Sanskrit, Indian, and other non-English terms without altering the
+# canonical script.
+#
+# Format:
+#   CanonicalSpelling:
+#     pronunciation: "RESPELLING"   # CAPS = stressed syllable, hyphens = syllable breaks
+#     language: "Sanskrit"          # source language
+#
+# Pronunciation style: English-speaker-friendly respelling (not IPA).
+# Example: "pah-TAN-jah-lee" — capital syllable carries primary stress.
+#
+# To add a term: append an entry below. The canonical spelling must match
+# exactly what appears in the script (case-sensitive).
+
+pronunciations:
+  # ── Core Atma Theory / Yoga Sutra terms ─────────────────────────────────
+
+  Patanjali:
+    pronunciation: "pah-TAN-jah-lee"
+    language: Sanskrit
+
+  Dirghakala:
+    pronunciation: "DEER-gha KAA-la"
+    language: Sanskrit
+
+  Nairantarya:
+    pronunciation: "nai-ran-TAR-ya"
+    language: Sanskrit
+
+  Satkara:
+    pronunciation: "SAT-kaa-ra"
+    language: Sanskrit
+
+  Dridhabhumih:
+    pronunciation: "DRID-ha BHOO-mih"
+    language: Sanskrit
+
+  Asevito:
+    pronunciation: "ah-SAY-vi-toh"
+    language: Sanskrit
+
+  # ── Yoga practice terms ──────────────────────────────────────────────────
+
+  Abhyasa:
+    pronunciation: "ah-BYAH-sa"
+    language: Sanskrit
+
+  Vairagya:
+    pronunciation: "vai-RAH-gya"
+    language: Sanskrit
+
+  Samadhi:
+    pronunciation: "sah-MAH-dhee"
+    language: Sanskrit
+
+  Dharana:
+    pronunciation: "dha-RAH-na"
+    language: Sanskrit
+
+  Dhyana:
+    pronunciation: "dhyah-NA"
+    language: Sanskrit
+
+  Pratyahara:
+    pronunciation: "prat-yah-HAH-ra"
+    language: Sanskrit
+
+  Pranayama:
+    pronunciation: "prah-nah-YAH-ma"
+    language: Sanskrit
+
+  Asana:
+    pronunciation: "AH-sa-na"
+    language: Sanskrit
+
+  # ── Eight-Limbed Path (Ashtanga) ─────────────────────────────────────────
+
+  Yama:
+    pronunciation: "YAH-ma"
+    language: Sanskrit
+
+  Niyama:
+    pronunciation: "NEE-ya-ma"
+    language: Sanskrit
+
+  Svadhyaya:
+    pronunciation: "svahd-YAH-ya"
+    language: Sanskrit
+
+  Tapas:
+    pronunciation: "TAH-pas"
+    language: Sanskrit
+
+  Ishvarapranidhana:
+    pronunciation: "eesh-VAH-ra pra-nee-DHA-na"
+    language: Sanskrit
+
+  Satya:
+    pronunciation: "SAT-ya"
+    language: Sanskrit
+
+  Ahimsa:
+    pronunciation: "ah-HIM-sa"
+    language: Sanskrit
+
+  Asteya:
+    pronunciation: "ah-STAY-ya"
+    language: Sanskrit
+
+  Brahmacharya:
+    pronunciation: "brah-mah-CHAR-ya"
+    language: Sanskrit
+
+  Aparigraha:
+    pronunciation: "ah-pah-ree-GRAH-ha"
+    language: Sanskrit
+
+  Saucha:
+    pronunciation: "SAU-cha"
+    language: Sanskrit
+
+  Santosha:
+    pronunciation: "san-TOH-sha"
+    language: Sanskrit
+
+  # ── Philosophical terms ──────────────────────────────────────────────────
+
+  Chitta:
+    pronunciation: "CHIT-ta"
+    language: Sanskrit
+
+  Vritti:
+    pronunciation: "VRIT-ti"
+    language: Sanskrit
+
+  Nirodha:
+    pronunciation: "nee-ROH-dha"
+    language: Sanskrit
+
+  Sutra:
+    pronunciation: "SOO-tra"
+    language: Sanskrit
+
+  Maharishi:
+    pronunciation: "mah-HAR-ee-shee"
+    language: Sanskrit
+
+  Dharma:
+    pronunciation: "DAR-ma"
+    language: Sanskrit
+
+  Karma:
+    pronunciation: "KAR-ma"
+    language: Sanskrit
+
+  Atman:
+    pronunciation: "AHT-man"
+    language: Sanskrit
+
+  Brahman:
+    pronunciation: "BRAH-man"
+    language: Sanskrit
+
+  Prakriti:
+    pronunciation: "PRAK-ri-ti"
+    language: Sanskrit
+
+  Purusha:
+    pronunciation: "poo-ROO-sha"
+    language: Sanskrit
+
+  Maya:
+    pronunciation: "MAH-ya"
+    language: Sanskrit
+
+  Samsara:
+    pronunciation: "sam-SAH-ra"
+    language: Sanskrit
+
+  Moksha:
+    pronunciation: "MOHK-sha"
+    language: Sanskrit
+
+  Prajna:
+    pronunciation: "PRAHG-nya"
+    language: Sanskrit
+
+  Viveka:
+    pronunciation: "vi-VAY-ka"
+    language: Sanskrit
+
+  # ── Historical figures ───────────────────────────────────────────────────
+
+  Vivekananda:
+    pronunciation: "vi-vay-kah-NAN-da"
+    language: Sanskrit
+
+  Ramakrishna:
+    pronunciation: "rah-mah-KRISH-na"
+    language: Sanskrit
+
+  Shankaracharya:
+    pronunciation: "shan-kah-rah-CHAR-ya"
+    language: Sanskrit
+
+  # ── Common greetings / connective terms ──────────────────────────────────
+
+  Namaste:
+    pronunciation: "nah-mas-TAY"
+    language: Sanskrit
+
+  Namaskar:
+    pronunciation: "nah-mas-KAR"
+    language: Sanskrit

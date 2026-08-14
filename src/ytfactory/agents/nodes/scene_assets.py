@@ -16,6 +16,7 @@ from video_core.providers.tts.factory import get_tts_provider
 from video_core.providers.tts.optimizer import SpeechOptimizer
 from video_core.providers.tts.validator import AudioValidator
 from ytfactory.ssml_enhancer import SsmlEnhancer, strip_ssml
+from ytfactory.tts_prep import TTSPreparationService, apply_pronunciation
 from ytfactory.images.human_detector import (
     add_back_view_hand_orientation,
     add_hand_avoidance_composition,
@@ -43,6 +44,9 @@ _tts_provider_lock = threading.Lock()
 
 _ssml_enhancer_cache: dict[str, SsmlEnhancer] = {}
 _ssml_enhancer_lock = threading.Lock()
+
+_tts_prep_cache: dict[str, TTSPreparationService] = {}
+_tts_prep_lock = threading.Lock()
 
 
 def _get_vision_provider(provider_name: str, local_model: str) -> object:
@@ -81,6 +85,19 @@ def _get_ssml_enhancer(settings: object) -> SsmlEnhancer:
         if key not in _ssml_enhancer_cache:
             _ssml_enhancer_cache[key] = SsmlEnhancer(get_llm_for_role(s, "ssml"))
     return _ssml_enhancer_cache[key]
+
+
+def _get_tts_prep_service(settings: object) -> TTSPreparationService:
+    from ytfactory.config.settings import Settings
+
+    s = settings if isinstance(settings, Settings) else Settings()
+    config_path = getattr(s, "tts_pronunciation_config", "config/pronunciations.yaml")
+    if config_path in _tts_prep_cache:
+        return _tts_prep_cache[config_path]
+    with _tts_prep_lock:
+        if config_path not in _tts_prep_cache:
+            _tts_prep_cache[config_path] = TTSPreparationService(config_path=config_path)
+    return _tts_prep_cache[config_path]
 
 
 def _get_audio_duration(path: Path) -> float:
@@ -275,6 +292,17 @@ def generate_scene_assets(state: VideoState) -> dict:
         try:
             tts = _get_tts_provider(settings)
 
+            # ── TTS Pronunciation Preparation ────────────────────────────────
+            # Runs on the canonical narration text — NEVER mutates it.
+            # Produces structured hints for Sanskrit / non-English terms.
+            # Hints are injected into tts_text after SSML enhancement (below).
+            use_pronunciation = getattr(settings, "tts_pronunciation_enabled", True)
+            prepared_pronunciation = (
+                _get_tts_prep_service(settings).prepare(narration)
+                if use_pronunciation
+                else None
+            )
+
             # SSML enhancement — when enabled, ssml_script goes to TTS and
             # clean_script (tags stripped) is used for subtitle generation only.
             use_ssml = settings.ssml_enhancement_enabled
@@ -296,6 +324,24 @@ def generate_scene_assets(state: VideoState) -> dict:
                 )
                 clean_script = narration
                 debug.write_optimized(tts_text)
+
+            # Apply pronunciation hints to tts_text (not clean_script / narration).
+            # In SSML mode: injects <sub alias="..."> tags for Speechify.
+            # In plain-text mode: metadata only (no unsafe injection).
+            if prepared_pronunciation and prepared_pronunciation.hint_count > 0:
+                tts_text = apply_pronunciation(
+                    tts_text,
+                    prepared_pronunciation,
+                    provider_name=settings.tts_provider,
+                    ssml_mode=use_ssml,
+                )
+                logger.info(
+                    "TTS PREP: scene {} — provider={} ssml={} hints={}",
+                    index,
+                    settings.tts_provider,
+                    use_ssml,
+                    prepared_pronunciation.hint_count,
+                )
 
             debug.write_original(narration)
             debug.write_provider_request(

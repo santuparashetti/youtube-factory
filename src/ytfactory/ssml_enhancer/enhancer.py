@@ -76,6 +76,18 @@ _TAG_RE = re.compile(
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _NEWLINE_RE = re.compile(r"\n{2,}")
+_BREAK_RE = re.compile(r'<break\s+time="([0-9]*\.?[0-9]+)s"\s*/>')
+
+
+def _halve_breaks(ssml: str) -> str:
+    """Halve every <break time="Xs"/> value and remove all newlines."""
+    def _half(m: re.Match) -> str:
+        seconds = float(m.group(1)) / 2
+        # format: one decimal place, strip trailing zero only when it's .0
+        formatted = f"{seconds:.1f}".rstrip("0").rstrip(".")
+        return f'<break time="{formatted}s"/>'
+
+    return _BREAK_RE.sub(_half, ssml).replace("\n", "")
 
 
 def strip_ssml(text: str) -> str:
@@ -136,6 +148,7 @@ class SsmlEnhancer:
             )
             return script
         ssml = ssml.lstrip()  # normalise any leading whitespace the model emitted
+        ssml = _halve_breaks(ssml)
 
         logger.info(
             "SsmlEnhancer: enhanced {} chars → {} chars SSML",

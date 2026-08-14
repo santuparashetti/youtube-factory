@@ -218,18 +218,29 @@ class TestKaiFirewallInComposer:
 
 
 class TestGraphWiring:
-    def test_composer_node_in_active_graph(self):
+    def test_composer_node_not_in_default_graph(self):
+        """Composer (A/B path) is archived — not wired into the default production graph.
+        The new production path uses atma_7beat_refiner instead.
+        The composer code itself is NOT deleted; this test simply reflects
+        the new routing (spec: 'Existing A/B code should NOT be deleted',
+        'Do NOT generate A/B script versions in the production path').
+        """
         from ytfactory.agents.graph import build_graph
 
         nodes = build_graph().nodes.keys()
-        assert "composer" in nodes
+        assert "composer" not in nodes
+        assert "atma_7beat_refiner" in nodes
+        assert "script_identity" in nodes
+        assert "human_review_atma_script" in nodes
         assert "script_enhancer" not in nodes
         assert "structural_retention" not in nodes
 
-    def test_route_entry_sends_script_md_to_composer(self):
+    def test_route_entry_sends_to_beats_extractor(self):
+        """Entry point routes to beats_extractor (feeding the 7-Beat path)."""
         from ytfactory.agents.graph import _route_entry
 
-        assert _route_entry({"script_md": "some script"}) == "composer"
+        assert _route_entry({"script_md": "some script"}) == "beats_extractor"
+        assert _route_entry({"source_url": "https://youtube.com/watch?v=abc"}) == "acquire_audio"
 
     def test_retired_modules_still_importable(self):
         """Archived, not deleted — must remain importable for manual/CLI use."""

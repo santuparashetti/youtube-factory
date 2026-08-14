@@ -20,7 +20,9 @@ class VideoState(TypedDict, total=False):
     style: Optional[str]  # visual style hint: "spiritual" | "documentary" | None
     target_minutes: int  # target narration duration (1-10); drives enhancer word count
     auto_mode: bool  # True → skip all human-review gates
-    ab_script_selection: bool  # True → composer generates 2 variants; user picks one (interactive)
+    ab_script_selection: (
+        bool  # True → composer generates 2 variants; user picks one (interactive)
+    )
     skip_images: bool  # True → skip image generation (for manual-image workflow)
     skip_thumbnail: bool  # True → skip thumbnail generation (Phase 2 resume)
 
@@ -43,6 +45,19 @@ class VideoState(TypedDict, total=False):
     selected_script: str  # chosen + polished script, ready for scene_planner
     polisher_report: dict  # {chosen, selection_reason, changes_made, change_percentage, unchanged_note, [fallback]}
 
+    # ── Atma Theory 7-Beat Refinement Pipeline ───────────────────────────────
+    # Populated by script_identity_node (deterministic, no LLM):
+    script_identity: Optional[dict]  # serialized ScriptIdentity
+
+    # Populated by atma_7beat_refiner_node:
+    atma_current_refined: Optional[
+        str
+    ]  # current refined script text (for rejection loop)
+    atma_current_revision_id: Optional[str]  # UUID of the latest ScriptRevision
+    atma_revision_number: Optional[int]  # 1, 2, 3, ... increments on each refinement
+    atma_validation: Optional[dict]  # serialized ScriptValidationResult
+    atma_reviewer_feedback: Optional[str]  # structured feedback from human rejection
+
     # ── YouTube ingestion (alternate Phase 1 source: URL instead of a script
     # file or AI research). When set, routes START → acquire_audio instead of
     # research_agent / script_enhancer. See agents/nodes/youtube_ingest.py.
@@ -62,7 +77,9 @@ class VideoState(TypedDict, total=False):
 
     # ── Quality review (populated by quality_review_node) ─────────────────
     review_result: Optional[dict]  # {"verdict": "PASS"|"FAIL", "errors": [...], ...}
-    pipeline_qa_score: Optional[dict]  # {"total": float, "breakdown": {...}, "violations": [...], "passed": bool}
+    pipeline_qa_score: Optional[
+        dict
+    ]  # {"total": float, "breakdown": {...}, "violations": [...], "passed": bool}
 
     # ── Remediation (populated by remediation_node) ────────────────────────
     remediation_result: Optional[
