@@ -3799,9 +3799,30 @@ CRITICAL GATE INSTRUCTIONS — you must follow these exactly, they override your
   medical claims, financial advice) with no story grounding, OR directly tells the
   viewer what to do in their real life without connecting it to a story beat.
 
+- For the single visual world check: the following are NEVER a competing visual world
+  and must NEVER be flagged:
+  (a) Common English idioms used in philosophical or application paragraphs, such as
+      "brick by brick", "build your own foundation", "standing on your own two feet",
+      "step by step", "lay the groundwork", "one stone at a time" — these are
+      conceptual phrases, not visual scenes.
+  (b) Any abstract or metaphorical phrase that does not introduce a new character,
+      setting, or symbolic object with its own narrative presence.
+  (c) A phrase or sentence that uses figurative language while the dominant visual
+      world (e.g. ant/mountain journey) continues to govern all actual [Visual: ...]
+      directions and the narrative arc.
+  A phrase alone — even one with concrete nouns — does not constitute a second visual world.
+  Only FAIL when ALL THREE of the following are true:
+  1. A second distinct character, setting, or symbolic object is introduced.
+  2. It has its own dedicated [Visual: ...] direction or meaningful narrative presence
+     (developed across more than one paragraph, not mentioned once in passing).
+  3. It operates independently of the dominant visual world rather than supporting it.
+  Example genuine FAIL: An ant/mountain journey is established, then the script
+  develops an unrelated eagle story or lamp metaphor across multiple scenes with
+  their own [Visual:] directions.
+
 CHECKS:
 1. SINGLE_VISUAL_WORLD — Does only one metaphor/visual universe exist throughout the script?
-   FAIL if more than one distinct visual world is introduced (e.g. an eagle story, then an unrelated lamp metaphor).
+   FAIL only when a second distinct visual world has meaningful narrative presence (see guard above).
 2. NO_REPEATED_BEATS — Does every paragraph advance the script?
    A repeated beat is when the EXACT SAME POINT appears TWICE within the SAME narrative stage
    (both in story, or both in human parallel) with nothing new between them.
