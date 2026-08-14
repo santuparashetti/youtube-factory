@@ -286,7 +286,20 @@ class RemediationEngine:
         visual_metadata: VisualMetadata | None = None,
         prompt_package: PromptPackage | None = None,
         attempt: int = 1,
+        scene_context: dict | None = None,
     ) -> RemediationPackage:
+        """Build a remediation package.
+
+        Parameters
+        ----------
+        scene_context:
+            Optional dict with narrative context from the scene plan:
+            ``narration``, ``assigned_beat``, ``narrative_purpose``,
+            ``story_context``, ``action_constraints``, ``scene_analysis``.
+            When provided and the issues include narrative categories
+            (environment, content), a narrative-intent guard is prepended
+            so the refined prompt preserves the story moment.
+        """
         issues = result.issues or []
         strategy = self._strategy.select_strategy(issues, visual_metadata, attempt)
         highest = RemediationStrategyEngine._highest_severity(issues)
@@ -302,6 +315,28 @@ class RemediationEngine:
             "narrative role",
         ]
         issues_fixed: list[str] = []
+
+        # Narrative-intent guard: when the issue is semantic (environment /
+        # content mismatch) and we have the approved narration, prepend a
+        # short directive so the refined prompt doesn't drift away from the
+        # story moment.
+        if scene_context:
+            narration = scene_context.get("narration", "").strip()
+            beat = scene_context.get("assigned_beat", "").strip()
+            narrative_cats = {"environment", "content", "content_mismatch"}
+            has_narrative_issue = any(
+                (i.category.lower() if hasattr(i, "category") else "").split(":")[0]
+                in narrative_cats
+                for i in issues
+            )
+            if has_narrative_issue and narration:
+                beat_tag = f" [{beat}]" if beat else ""
+                instructions.append(
+                    f"NARRATIVE INTENT{beat_tag}: The image must depict "
+                    f"'{narration[:120]}'. "
+                    "Do not substitute an unrelated scene — preserve the "
+                    "approved story moment exactly."
+                )
 
         if visual_metadata and visual_metadata.is_populated:
             era_key = visual_metadata.era.value if visual_metadata.era else None

@@ -206,11 +206,20 @@ class ImageRemediationOrchestrator:
                 issues=[_dict_to_vision_issue(i) for i in artifact.issues],
             )
             visual_metadata = ImageReviewEngine._extract_visual_metadata(scene)
+            scene_ctx = {
+                "narration": scene.get("narration", ""),
+                "assigned_beat": scene.get("assigned_beat", ""),
+                "narrative_purpose": scene.get("narrative_purpose", ""),
+                "story_context": scene.get("story_context", ""),
+                "action_constraints": scene.get("action_constraints", ""),
+                "scene_analysis": scene.get("scene_analysis", {}),
+            }
             package = self._remediation_engine.build(
                 original_prompt=original_prompt,
                 result=vision_result,
                 visual_metadata=visual_metadata,
                 attempt=attempt,
+                scene_context=scene_ctx,
             )
             refined = package.remediated_prompt
             current_prompt = refined

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def generate_story_bible(
     narrations: list[str],
     llm: LLMProvider,
     audience_profile: str = "western_english",
+    script_identity_context: str = "",
 ) -> StoryBible:
     """Single LLM call to extract a StoryBible from all scene narrations."""
     narration_block = "\n".join(
@@ -116,6 +118,8 @@ def generate_story_bible(
         narrations=narration_block,
         audience_directive=audience_directive,
     )
+    if script_identity_context:
+        prompt = script_identity_context + prompt
 
     try:
         response = llm.generate(prompt, temperature=0.3)
@@ -144,29 +148,59 @@ def generate_story_bible(
         return StoryBible()
 
 
+def _story_bible_identity_hash(script_identity_context: str) -> str:
+    """16-char sha256 of the identity context; empty string for legacy projects."""
+    if not script_identity_context:
+        return ""
+    return hashlib.sha256(script_identity_context.encode()).hexdigest()[:16]
+
+
 def load_or_generate_story_bible(
     project_id: str,
     workspace_dir: str,
     narrations: list[str],
     llm: LLMProvider,
     audience_profile: str = "western_english",
+    script_identity_context: str = "",
 ) -> StoryBible:
     """Load cached bible from disk, or generate and persist a new one."""
     bible_path = Path(workspace_dir) / project_id / "story-bible" / "bible.json"
+    current_hash = _story_bible_identity_hash(script_identity_context)
+
     if bible_path.exists():
         try:
-            data = json.loads(bible_path.read_text(encoding="utf-8"))
-            bible = StoryBible(**data)
-            logger.info("Story Bible loaded from cache ({} chars, {} locs)", len(bible.characters), len(bible.locations))
-            return bible
+            raw = json.loads(bible_path.read_text(encoding="utf-8"))
+            # New format: {"identity_hash": "...", "bible": {...}}
+            # Old format: StoryBible fields directly at top level
+            if "bible" in raw:
+                cached_hash = raw.get("identity_hash", "")
+                if current_hash and cached_hash != current_hash:
+                    logger.info(
+                        "Story Bible identity_hash mismatch (cached={!r} current={!r}) — regenerating",
+                        cached_hash, current_hash,
+                    )
+                else:
+                    bible = StoryBible(**raw["bible"])
+                    logger.info("Story Bible loaded from cache ({} chars, {} locs)", len(bible.characters), len(bible.locations))
+                    return bible
+            else:
+                # Legacy format — use as-is; no hash check
+                bible = StoryBible(**raw)
+                logger.info("Story Bible loaded from cache (legacy format, {} chars, {} locs)", len(bible.characters), len(bible.locations))
+                return bible
         except Exception as e:
             logger.warning("Cached Story Bible invalid: {} — regenerating", e)
 
-    bible = generate_story_bible(narrations, llm, audience_profile=audience_profile)
+    bible = generate_story_bible(
+        narrations,
+        llm,
+        audience_profile=audience_profile,
+        script_identity_context=script_identity_context,
+    )
 
     bible_path.parent.mkdir(parents=True, exist_ok=True)
     bible_path.write_text(
-        json.dumps(bible.model_dump(), ensure_ascii=False, indent=2),
+        json.dumps({"identity_hash": current_hash, "bible": bible.model_dump()}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     logger.info(

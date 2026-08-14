@@ -81,7 +81,11 @@ class TestVoicePipelineEnabled:
         We verify this by checking that the early-return condition is False,
         and that the TTS provider is loaded when run() is called.
         """
-        settings = Settings(voice_enabled=True)
+        settings = Settings(
+            voice_enabled=True,
+            ssml_enhancement_enabled=False,
+            tts_validate_audio=False,
+        )
         pipeline = VoicePipeline(settings)
 
         # The early-return check should be False
@@ -90,6 +94,7 @@ class TestVoicePipelineEnabled:
         assert pipeline._provider is None
 
         mock_provider = MagicMock()
+        mock_provider.capabilities.provider_name = "mock-tts"
         mock_provider.generate_with_boundaries.return_value = (None, [{"end": 5.0}])
 
         project_dir = _scaffold_project(tmp_path, n_scenes=1)

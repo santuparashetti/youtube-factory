@@ -1292,6 +1292,11 @@ def build_visual_prompts_prompt(
         if action_constraints:
             scene_lines.append(action_constraints.rstrip("\n"))
 
+        # Atma 7-beat narrative phase — present for Atma projects, absent for legacy
+        assigned_beat = s.get("assigned_beat", "")
+        if assigned_beat:
+            scene_lines.append(f"  ► Narrative beat: {assigned_beat}")
+
     scene_list = "\n".join(scene_lines)
 
     if prev_context:

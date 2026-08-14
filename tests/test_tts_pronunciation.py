@@ -394,16 +394,16 @@ class TestAdapter:
     def test_speechify_without_ssml_mode_no_injection(self):
         plain_text = "Dirghakala means practice."
         prepared = self._make_prepared(plain_text)
-        # ssml_mode=False → even Speechify uses the safe non-injection path
-        # because there's no <speak> wrapper to anchor the <sub> tags safely.
-        # (When ssml_enhancement_enabled=False, Speechify receives plain text.)
+        # ssml_mode=False → no injection even for Speechify.
+        # Integration test (2026-08-14) confirmed <sub> only works when the full
+        # text is wrapped in <speak>…</speak>. Standalone <sub> in plain text is
+        # untested; we block it rather than risk the tags being spoken literally.
         result = apply_pronunciation(
             plain_text, prepared, provider_name="speechify", ssml_mode=False
         )
-        # Speechify IS in _SSML_CAPABLE_PROVIDERS so it will inject even without ssml_mode
-        # This is intentional: Speechify can handle standalone <sub> in its input.
-        # Test that the output is at least valid (no crash).
-        assert "Dirghakala" in result
+        # Text must be returned unchanged — no <sub> tags injected.
+        assert result == plain_text
+        assert "<sub" not in result
 
     # ── Word count in TTS vs subtitle ────────────────────────────────────
 

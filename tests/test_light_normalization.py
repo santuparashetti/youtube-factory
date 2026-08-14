@@ -336,6 +336,7 @@ class TestRenameBackwardCompat:
         with (
             patch("ytfactory.build.pipeline.Settings"),
             patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
+            patch("ytfactory.build.pipeline.SourceRefinerPipeline"),
             patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
             patch("ytfactory.build.pipeline.StructuralRetentionPipeline"),
             patch("ytfactory.build.pipeline.EditorialQAPipeline"),

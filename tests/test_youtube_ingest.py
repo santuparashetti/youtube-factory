@@ -247,16 +247,16 @@ class TestRouteEntry:
         state = {"source_url": "https://youtube.com/x", "script_md": "already have a script"}
         assert _route_entry(state) == "acquire_audio"
 
-    def test_routes_to_composer_when_script_md_set(self):
+    def test_routes_to_beats_extractor_when_script_md_set(self):
         from ytfactory.agents.graph import _route_entry
 
-        assert _route_entry({"script_md": "some script"}) == "composer"
+        assert _route_entry({"script_md": "some script"}) == "beats_extractor"
 
-    def test_routes_to_composer_by_default(self):
+    def test_routes_to_beats_extractor_by_default(self):
         from ytfactory.agents.graph import _route_entry
 
-        # Research stage removed — all non-URL sources go directly to composer.
-        assert _route_entry({}) == "composer"
+        # Non-URL sources go through beats_extractor before the script refinement path.
+        assert _route_entry({}) == "beats_extractor"
 
     def test_graph_contains_ingestion_nodes(self):
         from ytfactory.agents.graph import build_graph

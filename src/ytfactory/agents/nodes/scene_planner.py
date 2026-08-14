@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -699,8 +700,145 @@ def _stub_visual_bible() -> VisualBible:
     )
 
 
+# ── Atma 7-Beat narrative constants ───────────────────────────────────────────
+
+# Human-readable purpose for each Atma beat.  Used in prompts and beat metadata.
+_BEAT_PURPOSES: dict[str, str] = {
+    "DISRUPT": "Open with a provocative premise that hooks attention.",
+    "CHALLENGE": "Deepen the conflict — push into tension and uncertainty.",
+    "PROVE": "Build evidence and demonstration — show, don't tell.",
+    "REVEAL": "The pivotal discovery that reframes everything seen so far.",
+    "FRAME": "Contextualize the revelation — provide the conceptual framework.",
+    "APPLY": "Bridge from insight to practical consequence — make it actionable.",
+    "TRANSFORM": "Close with earned resolution — the world through the changed lens.",
+}
+
+# Emotional intensity (0–1) for each beat position — used when script-segments.json
+# is absent and we derive intensity from the beat structure directly.
+_BEAT_INTENSITIES: dict[str, float] = {
+    "DISRUPT": 0.8,
+    "CHALLENGE": 0.7,
+    "PROVE": 0.6,
+    "REVEAL": 0.9,
+    "FRAME": 0.6,
+    "APPLY": 0.5,
+    "TRANSFORM": 0.7,
+}
+
+
+def _make_identity_context(script_identity: dict) -> str:
+    """Format ScriptIdentity fields as a concise directive block.
+
+    Used to seed VisualBible and StoryBible generation with the pre-approved
+    narrative identity so those systems don't independently reinterpret the
+    script. Returns empty string when script_identity is absent (legacy path).
+    """
+    lines: list[str] = []
+    if script_identity.get("core_thesis"):
+        lines.append(f"Core thesis: {script_identity['core_thesis'][:200]}")
+    if script_identity.get("emotional_promise"):
+        lines.append(f"Emotional promise: {script_identity['emotional_promise'][:120]}")
+    if script_identity.get("central_conflict"):
+        lines.append(f"Central conflict: {script_identity['central_conflict'][:120]}")
+    if script_identity.get("important_visual_moments"):
+        moments = "; ".join(script_identity["important_visual_moments"][:3])
+        lines.append(f"Key visual moments: {moments[:200]}")
+    if not lines:
+        return ""
+    return (
+        "APPROVED SCRIPT IDENTITY — align visual choices with these facts; "
+        "do not reinterpret:\n"
+        + "\n".join(f"- {ln}" for ln in lines)
+        + "\n\n"
+    )
+
+
+def _assign_beat_metadata(scenes: list[dict], beats: list[dict]) -> None:
+    """Distribute Atma 7-beat structure across scenes and write beat metadata.
+
+    Each generated-image scene receives:
+      assigned_beat       — beat name (DISRUPT, CHALLENGE, …)
+      beat_index          — 0-based index into beats list
+      narrative_purpose   — short description of the beat's role
+      is_hook             — True for the opening DISRUPT beat
+      resolves_story      — True for the closing TRANSFORM beat
+
+    Also back-fills ``emotional_intensity`` when the scene has no value yet
+    (i.e. script-segments.json was absent and _attach_emotional_metadata was
+    a no-op for this project).
+
+    When beats is empty the function is a no-op (legacy projects not affected).
+    """
+    if not beats:
+        return
+    generated = [
+        s for s in scenes if s.get("scene_type", "generated_image") == "generated_image"
+    ]
+    n = len(generated)
+    if n == 0:
+        return
+    num_beats = len(beats)
+    for i, scene in enumerate(generated):
+        beat_idx = min(int(i * num_beats / n), num_beats - 1)
+        beat_dict = beats[beat_idx]
+        beat_name = beat_dict.get("beat", "")
+        scene["assigned_beat"] = beat_name
+        scene["beat_index"] = beat_idx
+        scene["narrative_purpose"] = _BEAT_PURPOSES.get(beat_name, "")
+        scene["is_hook"] = beat_idx == 0
+        scene["resolves_story"] = beat_idx == num_beats - 1
+        if not scene.get("emotional_intensity"):
+            scene["emotional_intensity"] = _BEAT_INTENSITIES.get(beat_name, 0.6)
+
+
+def _make_scene_narrative_context(scene: dict, script_identity: dict) -> str:
+    """Build a concise narrative context block for V2 structured prompt.
+
+    Injects the scene's beat assignment and relevant ScriptIdentity fields into
+    the per-scene LLM call so the cinematographer prompt aligns with approved
+    narrative intent rather than re-deriving it from the narration alone.
+    Returns empty string when no Atma data is present (legacy path).
+    """
+    parts: list[str] = []
+    beat = scene.get("assigned_beat", "")
+    if beat:
+        purpose = _BEAT_PURPOSES.get(beat, "")
+        parts.append(
+            f"Narrative beat: {beat}"
+            + (f" — {purpose}" if purpose else "")
+        )
+    core_thesis = script_identity.get("core_thesis", "")
+    if core_thesis:
+        parts.append(f"Core thesis: {core_thesis[:150]}")
+    emotional_promise = script_identity.get("emotional_promise", "")
+    if emotional_promise:
+        parts.append(f"Emotional promise: {emotional_promise[:100]}")
+    if not parts:
+        return ""
+    return (
+        "NARRATIVE CONTEXT (from approved Atma script — do not contradict):\n"
+        + "\n".join(f"- {p}" for p in parts)
+        + "\n"
+    )
+
+
+def _identity_hash(identity: dict) -> str:
+    """Return a 16-char SHA-256 hex digest of the identity dict.
+
+    Returns an empty string for an empty/absent identity so legacy projects
+    (no script_identity) never invalidate their own caches.
+    """
+    if not identity:
+        return ""
+    payload = json.dumps(identity, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 def _generate_visual_bible(
-    script_text: str, llm: LLMProvider, settings: Settings
+    script_text: str,
+    llm: LLMProvider,
+    settings: Settings,
+    script_identity_context: str = "",
 ) -> VisualBible:
     """Single LLM call to produce a VisualBible. Falls back to stub on failure."""
     if not settings.VISUAL_BIBLE_ENABLED:
@@ -718,7 +856,8 @@ def _generate_visual_bible(
             "the story originates from Indian philosophy. Rivers, forests, and natural "
             "environments should be culturally neutral.\n"
         )
-    full_prompt = f"{prompt_text}{audience_note}\n\nSCRIPT:\n{script_text}"
+    identity_block = f"\n{script_identity_context}" if script_identity_context else ""
+    full_prompt = f"{prompt_text}{audience_note}{identity_block}\n\nSCRIPT:\n{script_text}"
     try:
         response = llm.generate(full_prompt, temperature=0.4)
         raw = response.text.strip()
@@ -795,6 +934,7 @@ def _build_structured_prompt(
     prev_scene: dict | None = None,
     story_bible: StoryBible | None = None,
     story_context: str = "",
+    narrative_context: str = "",
 ) -> StructuredImagePrompt:
     """LLM call per scene to produce a StructuredImagePrompt."""
     arc_phase = _get_arc_phase(scene_index, total_scenes)
@@ -999,6 +1139,7 @@ def _build_structured_prompt(
             else ""
         )
         + (f"{prev_context}\n\n" if prev_context else "")
+        + (f"{narrative_context}\n" if narrative_context else "")
         + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
         + "OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n"
         + "{\n"
@@ -3722,6 +3863,11 @@ def scene_planner_node(state: VideoState) -> dict:
     project_id = state["project_id"]
     style = state.get("style")
 
+    # Atma Theory narrative intelligence — present for new Atma projects, absent for legacy.
+    beats: list[dict] = state.get("beats") or []
+    script_identity_dict: dict = state.get("script_identity") or {}
+    identity_context = _make_identity_context(script_identity_dict)
+
     project_repo.update_stage(project_id, "scenes", "running")
     style_label = f" [{style}]" if style else ""
     console.print(
@@ -3731,119 +3877,148 @@ def scene_planner_node(state: VideoState) -> dict:
 
     # ── Idempotency: load existing plan from disk if available ────────────
     existing_plan_path = Path(WORKSPACE_DIR) / project_id / "scenes" / "scene-plan.json"
+    current_id_hash = _identity_hash(script_identity_dict)
     if existing_plan_path.exists():
         existing = json.loads(existing_plan_path.read_text(encoding="utf-8"))
-        scenes = existing.get("scenes", [])
-
-        for _scene in scenes:
-            if "visual_metadata" not in _scene:
-                _scene["visual_metadata"] = {}
-            if not _scene.get("anchor_role"):
-                _scene["anchor_role"] = "absent"
-
-        # Defensive: strip heading prefix from scene 1 narration if it leaked from
-        # a run before this fix was in place.  Patches the cached JSON in-place so
-        # subsequent reads are already clean (idempotent — heading_text won't match
-        # after first strip).  Three fallback sources for the heading text:
-        #   1. script_md in graph state  2. script.md on disk  3. project title
-        _raw_script = state.get("script_md", "") or ""
-        if not _raw_script:
-            _sp = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
-            if _sp.exists():
-                _raw_script = _sp.read_text(encoding="utf-8")
-        _, _heading = strip_script_heading(_raw_script) if _raw_script else ("", "")
-        if not _heading:
-            _proj = project_repo.load(project_id)
-            _heading = _proj.title.upper() if _proj and _proj.title else ""
-        if _heading:
-            _heading_text = _heading.strip()
-            for _scene in scenes:
-                _narration = _scene.get("narration", "")
-                if _narration.startswith(_heading_text):
-                    _scene["narration"] = _narration[len(_heading_text) :].lstrip(
-                        " ,.:;"
-                    )
-                    existing_plan_path.write_text(
-                        json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    # Subtitles always rebuild from narration, but audio and video are
-                    # skipped when the file already exists.  Delete stale files so the
-                    # next generate-voice / render run picks up the corrected text.
-                    _idx = _scene.get("index", 0)
-                    _job_dir = Path(WORKSPACE_DIR) / project_id
-                    for _stale in [
-                        _job_dir / "audio" / f"scene-{_idx:03d}.mp3",
-                        _job_dir / "video" / f"scene-{_idx:03d}.mp4",
-                    ]:
-                        if _stale.exists():
-                            _stale.unlink()
-                            logger.info(
-                                "Deleted stale {} for scene {:03d} after heading-strip patch",
-                                _stale.name,
-                                _idx,
-                            )
-                    break
-
-        total = sum(s.get("duration_seconds", 0) for s in scenes)
-        console.print(
-            f"  [green]✓[/green] Loaded existing scene plan — "
-            f"{len(scenes)} scenes, ~{total / 60:.1f} min (skipping LLM calls)"
-        )
-
-        # Re-apply brand-card guarantee so cached plans (including plans from
-        # before this fix) always end with the dedicated brand card asset.
-        scenes = _mark_asset_scenes(scenes)
-
-        # ── Re-inject story context for cached plans ─────────────────────────
-        # Scenes loaded from disk have story_context="" (the planner's idempotency
-        # early-return previously skipped all continuity code).  Rebuild the
-        # analysis map from the scene_analysis stored per-scene, then call the
-        # shared helper so every scene receives fresh story_context and
-        # action_constraints before the plan is written back to disk.
-        _cached_analysis_map: dict[int, Any] = {
-            _s["index"]: _s["scene_analysis"]
-            for _s in scenes
-            if _s.get("scene_analysis")
-        }
-        if _cached_analysis_map:
-            _cached_story_state = _inject_continuity_context(
-                scenes, _cached_analysis_map
+        cached_id_hash = existing.get("identity_hash", "")
+        if cached_id_hash != current_id_hash:
+            # Identity has changed since the plan was generated — the cached
+            # VisualBible and scene prompts were not seeded with the current
+            # ScriptIdentity.  Invalidate and fall through to full regeneration.
+            logger.info(
+                "scene_planner: identity_hash mismatch (cached={!r} current={!r}) — "
+                "invalidating cached plan and regenerating",
+                cached_id_hash, current_id_hash,
             )
-            _cached_findings = ContinuityValidator(_cached_story_state).validate_all(
-                scenes, _cached_analysis_map
-            )
-            _cached_errors = [f for f in _cached_findings if f.is_error()]
-            _cached_warnings = [f for f in _cached_findings if f.is_warning()]
-            if _cached_errors:
-                for _f in _cached_errors:
-                    logger.error("STORY CONTINUITY (cached): {}", str(_f))
-                console.print(
-                    f"  [bold red]⚠ {len(_cached_errors)} story continuity errors "
-                    f"in cached plan[/bold red]"
-                )
-            if _cached_warnings:
-                for _f in _cached_warnings:
-                    logger.warning("STORY CONTINUITY WARNING (cached): {}", str(_f))
-                console.print(
-                    f"  [yellow]⚠ {len(_cached_warnings)} story continuity warnings[/yellow]"
-                )
             console.print(
-                f"  [green]✓[/green] Story context refreshed — "
-                f"{len(_cached_story_state.characters)} chars, "
-                f"{len(_cached_story_state.props)} props"
+                "  [yellow]↻[/yellow] Scene plan identity changed — regenerating..."
+            )
+        else:
+            scenes = existing.get("scenes", [])
+
+            for _scene in scenes:
+                if "visual_metadata" not in _scene:
+                    _scene["visual_metadata"] = {}
+                if not _scene.get("anchor_role"):
+                    _scene["anchor_role"] = "absent"
+
+            # Defensive: strip heading prefix from scene 1 narration if it leaked from
+            # a run before this fix was in place.  Patches the cached JSON in-place so
+            # subsequent reads are already clean (idempotent — heading_text won't match
+            # after first strip).  Three fallback sources for the heading text:
+            #   1. script_md in graph state  2. script.md on disk  3. project title
+            _raw_script = state.get("script_md", "") or ""
+            if not _raw_script:
+                _sp = Path(WORKSPACE_DIR) / project_id / "script" / "script.md"
+                if _sp.exists():
+                    _raw_script = _sp.read_text(encoding="utf-8")
+            _, _heading = strip_script_heading(_raw_script) if _raw_script else ("", "")
+            if not _heading:
+                _proj = project_repo.load(project_id)
+                _heading = _proj.title.upper() if _proj and _proj.title else ""
+            if _heading:
+                _heading_text = _heading.strip()
+                for _scene in scenes:
+                    _narration = _scene.get("narration", "")
+                    if _narration.startswith(_heading_text):
+                        _scene["narration"] = _narration[len(_heading_text) :].lstrip(
+                            " ,.:;"
+                        )
+                        existing_plan_path.write_text(
+                            json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        # Subtitles always rebuild from narration, but audio and video are
+                        # skipped when the file already exists.  Delete stale files so the
+                        # next generate-voice / render run picks up the corrected text.
+                        _idx = _scene.get("index", 0)
+                        _job_dir = Path(WORKSPACE_DIR) / project_id
+                        for _stale in [
+                            _job_dir / "audio" / f"scene-{_idx:03d}.mp3",
+                            _job_dir / "video" / f"scene-{_idx:03d}.mp4",
+                        ]:
+                            if _stale.exists():
+                                _stale.unlink()
+                                logger.info(
+                                    "Deleted stale {} for scene {:03d} after heading-strip patch",
+                                    _stale.name,
+                                    _idx,
+                                )
+                        break
+
+            total = sum(s.get("duration_seconds", 0) for s in scenes)
+            console.print(
+                f"  [green]✓[/green] Loaded existing scene plan — "
+                f"{len(scenes)} scenes, ~{total / 60:.1f} min (skipping LLM calls)"
             )
 
-        existing_plan_path.write_text(
-            json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+            # Re-apply brand-card guarantee so cached plans (including plans from
+            # before this fix) always end with the dedicated brand card asset.
+            scenes = _mark_asset_scenes(scenes)
 
-        prompts_path = _write_prompts_file(project_id, scenes, style, settings)
-        console.print(f"  [green]✓[/green] Image prompts: [dim]{prompts_path}[/dim]")
-        _write_faithfulness_gate_report(project_id, scenes)
-        project_repo.update_stage(project_id, "scenes", "completed")
-        return {"scene_plan": scenes}
+            # ── Atma beat metadata upgrade for cached plans ───────────────────
+            # Plans pre-dating Atma integration lack assigned_beat.  When beats
+            # are present in state, run beat assignment once so cached scenes
+            # carry the same metadata as freshly generated scenes.  Idempotent:
+            # if assigned_beat is already on all scenes (same beats, re-run), the
+            # existing values are preserved by _assign_beat_metadata's intensity guard.
+            if beats and not any(s.get("assigned_beat") for s in scenes):
+                _assign_beat_metadata(scenes, beats)
+                console.print(
+                    f"  [green]✓[/green] Cached plan upgraded: beat metadata assigned "
+                    f"({len(beats)} beats → "
+                    f"{len([s for s in scenes if s.get('assigned_beat')])} scenes)"
+                )
+
+            # ── Re-inject story context for cached plans ─────────────────────
+            # Scenes loaded from disk have story_context="" (the planner's idempotency
+            # early-return previously skipped all continuity code).  Rebuild the
+            # analysis map from the scene_analysis stored per-scene, then call the
+            # shared helper so every scene receives fresh story_context and
+            # action_constraints before the plan is written back to disk.
+            _cached_analysis_map: dict[int, Any] = {
+                _s["index"]: _s["scene_analysis"]
+                for _s in scenes
+                if _s.get("scene_analysis")
+            }
+            if _cached_analysis_map:
+                _cached_story_state = _inject_continuity_context(
+                    scenes, _cached_analysis_map
+                )
+                _cached_findings = ContinuityValidator(_cached_story_state).validate_all(
+                    scenes, _cached_analysis_map
+                )
+                _cached_errors = [f for f in _cached_findings if f.is_error()]
+                _cached_warnings = [f for f in _cached_findings if f.is_warning()]
+                if _cached_errors:
+                    for _f in _cached_errors:
+                        logger.error("STORY CONTINUITY (cached): {}", str(_f))
+                    console.print(
+                        f"  [bold red]⚠ {len(_cached_errors)} story continuity errors "
+                        f"in cached plan[/bold red]"
+                    )
+                if _cached_warnings:
+                    for _f in _cached_warnings:
+                        logger.warning("STORY CONTINUITY WARNING (cached): {}", str(_f))
+                    console.print(
+                        f"  [yellow]⚠ {len(_cached_warnings)} story continuity warnings[/yellow]"
+                    )
+                console.print(
+                    f"  [green]✓[/green] Story context refreshed — "
+                    f"{len(_cached_story_state.characters)} chars, "
+                    f"{len(_cached_story_state.props)} props"
+                )
+
+            existing_plan_path.write_text(
+                json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            prompts_path = _write_prompts_file(project_id, scenes, style, settings)
+            console.print(f"  [green]✓[/green] Image prompts: [dim]{prompts_path}[/dim]")
+            _write_faithfulness_gate_report(project_id, scenes)
+            project_repo.update_stage(project_id, "scenes", "completed")
+            return {"scene_plan": scenes}
 
     # Load script — prefer state, fall back to disk
     script_md = state.get("script_md", "")
@@ -3869,7 +4044,9 @@ def scene_planner_node(state: VideoState) -> dict:
     # ── V2: Generate Visual Bible once before per-scene planning ─────────────
     if settings.VISUAL_BIBLE_ENABLED:
         console.print("  [cyan]→[/cyan] V2: generating visual bible...")
-    visual_bible = _generate_visual_bible(script_md, llm, settings)
+    visual_bible = _generate_visual_bible(
+        script_md, llm, settings, script_identity_context=identity_context
+    )
     if settings.VISUAL_BIBLE_ENABLED:
         console.print(
             f'  [green]✓[/green] Visual Bible: "{visual_bible.dominant_metaphor[:60]}..."'
@@ -3888,6 +4065,7 @@ def scene_planner_node(state: VideoState) -> dict:
             narrations=all_narrations,
             llm=llm,
             audience_profile=getattr(settings, "AUDIENCE_PROFILE", "western_english"),
+            script_identity_context=identity_context,
         )
         # Sync color progression from VisualBible into StoryBible
         if visual_bible.color_arc:
@@ -3936,6 +4114,16 @@ def scene_planner_node(state: VideoState) -> dict:
     # of the script enhancer). This is core metadata used by motion, pauses,
     # music, and retention scoring downstream.
     _attach_emotional_metadata(project_id, scenes)
+
+    # For Atma projects: assign beat metadata from the approved 7-beat structure.
+    # This runs after _attach_emotional_metadata so beat-derived values only fill
+    # in where script-segments.json did not already provide them (emotional_intensity).
+    if beats:
+        _assign_beat_metadata(scenes, beats)
+        console.print(
+            f"  [green]✓[/green] Atma beat metadata: {len(beats)} beats → "
+            f"{len([s for s in scenes if s.get('assigned_beat')])} scenes assigned"
+        )
 
     # ── Scene Analysis (NEW) — structured story-first grounding per scene ─────
     console.print("  [cyan]→[/cyan] Analyzing scenes for story-first grounding...")
@@ -4485,6 +4673,7 @@ def scene_planner_node(state: VideoState) -> dict:
                 prev_scene=prev,
                 story_bible=story_bible,
                 story_context=scene.get("story_context", ""),
+                narrative_context=_make_scene_narrative_context(scene, script_identity_dict),
             )
             sp_dict, repair_errors = _repair_structured_prompt_dict(
                 sp.model_dump(),
@@ -4677,6 +4866,7 @@ def scene_planner_node(state: VideoState) -> dict:
         "scenes": scenes,
         "visual_bible": visual_bible.model_dump(),
         "continuity_warnings": continuity_warnings,
+        "identity_hash": current_id_hash,
     }
     artifact_repo.write_json(project_id, "scenes", "scene-plan.json", scene_plan)
 

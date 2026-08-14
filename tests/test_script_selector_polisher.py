@@ -153,7 +153,7 @@ def test_composer_node_produces_both_variants(monkeypatch):
         def __init__(self, settings):
             pass
 
-        def run(self, project_id, script_text=None, *, temperature=None):
+        def run(self, project_id, script_text=None, *, temperature=None, **kwargs):
             return f"variant@{temperature}"
 
     monkeypatch.setattr(composer_mod, "ComposerPipeline", _FakeComposer)

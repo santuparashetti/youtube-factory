@@ -245,7 +245,11 @@ class Settings(SharedSettings):
     # pronunciation hints. In SSML mode (ssml_enhancement_enabled=True with the
     # speechify provider) hints are injected as <sub alias="..."> SSML tags.
     # Canonical script text is NEVER modified regardless of this setting.
-    tts_pronunciation_enabled: bool = True
+    #
+    # DEFAULT: False — integration test (2026-08-14) showed Speechify's native
+    # text normalization produces more natural Sanskrit pronunciation than our
+    # hyphenated phonetic aliases. Enable only after tuning per-term aliases.
+    tts_pronunciation_enabled: bool = False
 
     # Path to the pronunciation dictionary YAML (relative to CWD).
     # Defaults to config/pronunciations.yaml.

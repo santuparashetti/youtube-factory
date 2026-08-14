@@ -527,6 +527,7 @@ class TestBuildPipelineIncrementalScript:
         patches = [
             patch("ytfactory.build.pipeline.Settings"),
             patch("ytfactory.build.pipeline.LightNormalizationPipeline"),
+            patch("ytfactory.build.pipeline.SourceRefinerPipeline"),
             patch("ytfactory.build.pipeline.DocumentaryScriptEnhancerPipeline"),
             patch("ytfactory.build.pipeline.ScriptEnhancerPipeline"),  # backward compat alias
             patch("ytfactory.build.pipeline.StructuralRetentionPipeline"),
@@ -562,6 +563,8 @@ class TestBuildPipelineIncrementalScript:
         bp.voice = MagicMock()
         bp.captions = MagicMock()
         bp.video = MagicMock()
+        bp.animate = MagicMock()
+        bp.stitch = MagicMock()
         bp.cta = MagicMock()
         bp.review = MagicMock()
         bp.publish = MagicMock()
