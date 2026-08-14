@@ -131,6 +131,83 @@ _CHARACTER_ENV_CONTAMINATION_MARKERS: tuple[str, ...] = (
 # Marker that reliably separates a character spec from the environment description.
 _CHAR_ENV_SEPARATOR = " — "
 
+# Animals/creatures that are visual subjects — their presence in environment_prompt
+# makes the "no character present" label false even when character_staging is null.
+# These are CORRECT in environment_prompt (not misrouted like human staging), but they
+# must still be recognised as subjects so the wrong label is never emitted.
+_VISUAL_SUBJECT_MARKERS: tuple[str, ...] = (
+    " ant ",
+    "the ant",
+    "a tiny ant",
+    "tiny ant",
+    "an ant",
+    " bird ",
+    "the bird",
+    "a bird",
+    "an eagle",
+    " eagle",
+    "animal",
+    "creature",
+    "insect",
+)
+
+# Regex patterns that match instructions to render exact readable text inside the
+# image.  Applied by _sanitize_text_rendering_from_env() in _assemble_export_prompt()
+# to strip these instructions from environment_prompt before the final prompt is
+# assembled.  Replacements preserve the composition-space intent without asking the
+# image generator to produce specific text content.
+_TEXT_RENDER_SENTENCE_RE = re.compile(
+    r"[A-Z][^.]*\bdisplays?\b[^.]*'[^']{5,}'[^.]*\.?",
+    re.DOTALL,
+)
+_TYPOGRAPHIC_OVERLAY_RE = re.compile(
+    r"[A-Z][^.]*\btypographic overlay\b[^.]*\bpresenting(?: the)? exact\b[^.]*\.",
+    re.IGNORECASE | re.DOTALL,
+)
+_EXACT_CONTENT_RE = re.compile(
+    r"(?:for the )?(?:the )?exact (?:graphic )?(?:message|text|overlay|transliteration)[^.]*'[^']+'[^.]*",
+    re.IGNORECASE,
+)
+_EXACT_UNQUOTED_RE = re.compile(
+    r"the exact message\s+[A-Z][A-Z\s><=]+(?=[\s,.])",
+    re.IGNORECASE,
+)
+_COMPOSITION_SPACE_NOTE = "Leave open space for compositor text overlay."
+
+
+def _sanitize_text_rendering_from_env(text: str) -> str:
+    """Strip instructions that ask the image generator to render exact readable text.
+
+    Replaces matched sentences/phrases with a neutral composition note so the
+    generator knows to preserve clear space without attempting to typeset specific
+    text content (Sanskrit quotes, brand phrases, CTA copy, etc.).
+    Text content is preserved in the narration and scene metadata; this function
+    only concerns the image-generation prompt.
+    """
+    result = _TEXT_RENDER_SENTENCE_RE.sub(_COMPOSITION_SPACE_NOTE, text)
+    result = _TYPOGRAPHIC_OVERLAY_RE.sub(_COMPOSITION_SPACE_NOTE, result)
+    result = _EXACT_CONTENT_RE.sub("for compositor text overlay", result)
+    result = _EXACT_UNQUOTED_RE.sub("the compositor overlay", result)
+    # Collapse duplicate adjacent notes
+    result = re.sub(
+        r"(" + re.escape(_COMPOSITION_SPACE_NOTE) + r")\s*\1",
+        r"\1",
+        result,
+    )
+    return result.strip()
+
+
+def _env_has_visual_subject(environment_prompt: str) -> bool:
+    """True when environment_prompt mentions an animal/creature that is a visual subject.
+
+    Unlike _env_has_character_contamination() (which detects human staging text that
+    has leaked into the wrong field), this function checks for legitimate non-human
+    subjects — such as the recurring ant — that correctly live in environment_prompt
+    but still make the 'no character present' label false.
+    """
+    ep_lower = environment_prompt.lower()
+    return any(m in ep_lower for m in _VISUAL_SUBJECT_MARKERS)
+
 
 def _has_kai_markers(prompt: str) -> bool:
     p = prompt.lower()
@@ -1141,6 +1218,16 @@ def _build_structured_prompt(
         + (f"{prev_context}\n\n" if prev_context else "")
         + (f"{narrative_context}\n" if narrative_context else "")
         + f"SCENE POSITION: Scene {scene_index + 1} of {total_scenes}. Arc phase: {arc_phase}.\n\n"
+        + "TYPOGRAPHY RULE — environment_prompt (mandatory, never override):\n"
+        + "- Do NOT instruct the image generator to render any exact readable text,\n"
+        + "  quotations, transliterations, translations, brand phrases, or graphic messages.\n"
+        + "- Text overlays (quotes, subtitles, CTAs, branding) are handled by the compositor.\n"
+        + "- If a surface shows text (notebook, screen, scroll): write 'text' or 'writing' only —\n"
+        + "  never quote verbatim content inside environment_prompt.\n"
+        + "- If a scene needs space for a text overlay: write ONLY 'Leave open space for\n"
+        + "  compositor overlay.' — do not name or quote the overlay content.\n"
+        + "- This applies to: Sanskrit quotes, English translations, 'CONSISTENCY > CAPACITY',\n"
+        + "  CTA text, subscribe prompts, Atma Theory branding, and any other named text.\n\n"
         + "OUTPUT: Respond ONLY with a JSON object matching this schema exactly:\n"
         + "{\n"
         + (
@@ -2506,16 +2593,22 @@ def _assemble_export_prompt(
     # ── 2. PRIMARY ACTION ─────────────────────────────────────────────────────
     # INVARIANT: never say "no character present" when character description exists
     # anywhere in the prompt — that creates an explicit contradiction.
+    # Also applies when environment_prompt mentions an animal/creature visual subject
+    # (e.g. the recurring ant) that correctly lives in environment_prompt but still
+    # makes the "no character present" label false.
     if character_staging:
         lines.append(f"PRIMARY ACTION: {character_staging}")
-    elif not _env_contaminated:
-        # Truly no character content in either field → safe to declare environment-only.
+    elif not _env_contaminated and not _env_has_visual_subject(environment_prompt):
+        # Truly no character or creature in either field → safe to declare environment-only.
         lines.append(
             "PRIMARY ACTION: Environment-only/symbolic scene — no character present."
         )
-    # else: environment_prompt has character content → skip contradictory action line.
+    # else: environment_prompt has character/creature content → skip contradictory label.
 
     # ── 3. ENVIRONMENT ────────────────────────────────────────────────────────
+    # Strip text-rendering instructions before assembling (image generators must not
+    # be asked to typeset exact quotes, transliterations, CTAs, or brand phrases).
+    environment_prompt = _sanitize_text_rendering_from_env(environment_prompt)
     if environment_prompt:
         lines.append(f"ENVIRONMENT: {environment_prompt}")
 

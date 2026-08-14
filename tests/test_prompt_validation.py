@@ -32,6 +32,8 @@ from ytfactory.agents.nodes.scene_planner import (
     _CHARACTER_ENV_CONTAMINATION_MARKERS,
     _CHAR_ENV_SEPARATOR,
     _env_has_character_contamination,
+    _env_has_visual_subject,
+    _sanitize_text_rendering_from_env,
     _repair_structured_prompt_dict,
     KAI_COMPRESSED_SPEC,
     _EXPORT_STYLE_HYBRID,
@@ -665,3 +667,195 @@ class TestCheckPositiveNegativeConflicts:
 
     def test_empty_positive_no_conflicts(self):
         assert check_positive_negative_conflicts("", ["lamp"], scene_idx=1) == []
+
+
+# ---------------------------------------------------------------------------
+# N. Visual subject classification — ant/animal must not get "no character" label
+# ---------------------------------------------------------------------------
+
+class TestVisualSubjectClassification:
+    """Scenes containing an ant/bird/animal must not be labelled environment-only."""
+
+    def test_ant_in_env_prompt_suppresses_no_character_label(self):
+        """environment_prompt with 'a tiny ant' must not produce 'no character present'."""
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt=(
+                "A vast alpine foothill landscape, weathered granite slabs, sparse grasses. "
+                "A tiny ant, dramatically smaller than every rock, traces a purposeful line "
+                "across the stones toward the distant mountain peaks."
+            ),
+        )
+        prompt = _assemble(scene)
+        assert "no character present" not in prompt.lower()
+
+    def test_ant_in_env_prompt_detected_by_visual_subject_helper(self):
+        """_env_has_visual_subject() returns True when ant is mentioned."""
+        env = "A tiny ant crawls along an unbroken route across the mountain path."
+        assert _env_has_visual_subject(env)
+
+    def test_the_ant_marker_detected(self):
+        """'The ant' prefix is recognised as a visual subject."""
+        assert _env_has_visual_subject("The ant follows an unbroken route across the stones.")
+
+    def test_bird_in_env_is_visual_subject(self):
+        """A bird in the environment suppresses the environment-only label."""
+        env = "A bird lands on the edge of the cliff."
+        assert _env_has_visual_subject(env)
+
+    def test_eagle_in_env_is_visual_subject(self):
+        assert _env_has_visual_subject("An eagle circles the mountain peak.")
+
+    def test_genuine_environment_only_scene_gets_label(self):
+        """No animal or creature in environment_prompt → label correctly emitted."""
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt=(
+                "Ancient forest floor, damp soil, roots, fallen leaves, dawn light."
+            ),
+        )
+        prompt = _assemble(scene)
+        assert "no character present" in prompt.lower()
+
+    def test_clean_env_not_detected_as_visual_subject(self):
+        """Environment with no animal/creature → _env_has_visual_subject returns False."""
+        env = "Ancient forest floor, damp soil, roots, fallen leaves at dawn."
+        assert not _env_has_visual_subject(env)
+
+    def test_ant_scene_subject_appears_in_primary_subject_line(self):
+        """The assembled prompt for an ant scene must have a meaningful PRIMARY SUBJECT."""
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt=(
+                "A vast photorealistic alpine landscape. "
+                "A tiny ant traces an unbroken purposeful line across a massive rock."
+            ),
+        )
+        prompt = _assemble(scene)
+        assert "PRIMARY SUBJECT:" in prompt
+
+
+# ---------------------------------------------------------------------------
+# O. Typography separation — exact text must not reach the image generator
+# ---------------------------------------------------------------------------
+
+class TestTypographySeparation:
+    """Image prompts must not instruct the image generator to render exact text."""
+
+    # ── sanitizer unit tests ─────────────────────────────────────────────────
+
+    def test_notebook_displays_typeset_text_stripped(self):
+        """'displays the carefully typeset ... 'QUOTE'' is removed."""
+        env = (
+            "A rustic workroom, rough timber walls, worn stone worktable. "
+            "The notebook displays the carefully typeset Yoga Sutra transliteration, "
+            "'Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih,' with clear "
+            "English translations highlighting key words. Pale morning light."
+        )
+        result = _sanitize_text_rendering_from_env(env)
+        assert "Satkara-sevito" not in result
+        assert "transliteration" not in result or "displays" not in result
+
+    def test_exact_transliteration_overlay_stripped(self):
+        """Typographic overlay sentences with exact content are replaced."""
+        env = (
+            "A vast alpine landscape, weathered granite, low fog. "
+            "Restrained cinematic typographic overlay suspended over the landscape, "
+            "presenting the exact Yoga Sutra transliteration: "
+            "'Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih,' with clean "
+            "English translations highlighting 'devotion,' 'long duration,' 'without "
+            "interruption,' and 'firm foundation.'"
+        )
+        result = _sanitize_text_rendering_from_env(env)
+        assert "Satkara-sevito" not in result
+        assert "typographic overlay" not in result.lower() or "compositor" in result.lower()
+
+    def test_exact_graphic_message_quote_replaced(self):
+        """'for the exact graphic message 'CONSISTENCY > CAPACITY'' loses its quoted content."""
+        env = (
+            "A workroom interior. "
+            "Leave calm negative space for the exact graphic message 'CONSISTENCY > CAPACITY'."
+        )
+        result = _sanitize_text_rendering_from_env(env)
+        assert "CONSISTENCY > CAPACITY" not in result
+        # The composition intent (reserve space) should survive
+        assert "compositor" in result.lower() or "space" in result.lower()
+
+    def test_exact_unquoted_message_replaced(self):
+        """'the exact message CONSISTENCY > CAPACITY integrated' is neutralised."""
+        env = (
+            "A clean digital end-screen environment, "
+            "the exact message CONSISTENCY > CAPACITY integrated with ample negative space."
+        )
+        result = _sanitize_text_rendering_from_env(env)
+        assert "CONSISTENCY > CAPACITY" not in result
+
+    def test_clean_environment_unchanged(self):
+        """An environment description with no text instructions is unchanged."""
+        env = (
+            "A vast photorealistic alpine foothill landscape, weathered granite slabs, "
+            "sparse wind-bent grasses, towering Himalayan peaks, no buildings or vehicles."
+        )
+        result = _sanitize_text_rendering_from_env(env)
+        # Core content preserved; nothing stripped
+        assert "Himalayan peaks" in result
+        assert "granite slabs" in result
+
+    def test_composition_note_preserved(self):
+        """'Leave open space for compositor text overlay' survives unchanged."""
+        env = "A mountain landscape. Leave open space for compositor text overlay."
+        result = _sanitize_text_rendering_from_env(env)
+        assert "open space" in result or "compositor" in result
+
+    # ── assembled prompt integration tests ───────────────────────────────────
+
+    def test_assembled_prompt_strips_exact_typeset_text(self):
+        """_assemble_export_prompt must not emit exact Sanskrit in environment line."""
+        env = (
+            "A modest workroom, rough timber walls, worn stone worktable. "
+            "The notebook displays the carefully typeset Yoga Sutra transliteration, "
+            "'Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih,' with clear "
+            "English translations highlighting key words."
+        )
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt=env,
+        )
+        prompt = _assemble(scene)
+        assert "Satkara-sevito" not in prompt
+
+    def test_assembled_prompt_strips_exact_consistency_message(self):
+        """Assembled prompt must not instruct image generator to render 'CONSISTENCY > CAPACITY'."""
+        env = (
+            "A workroom interior. "
+            "Leave calm negative space for the exact graphic message 'CONSISTENCY > CAPACITY'."
+        )
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt=env,
+        )
+        prompt = _assemble(scene)
+        assert "CONSISTENCY > CAPACITY" not in prompt
+
+    def test_narration_not_affected_by_sanitizer(self):
+        """The sanitizer only touches environment_prompt; narration field is unchanged."""
+        narration = "[Text Overlay on Screen: CONSISTENCY > CAPACITY]"
+        scene = _make_scene(
+            anchor_role="absent",
+            character_staging=None,
+            environment_prompt="A mountain landscape.",
+        )
+        # Narration is not part of the assembled image prompt
+        assert "narration" not in _assemble(scene)
+
+    def test_typography_rule_in_build_system_prompt(self):
+        """_build_structured_prompt system prompt must contain the typography rule."""
+        import inspect
+        from ytfactory.agents.nodes import scene_planner as _mod
+        source = inspect.getsource(_mod._build_structured_prompt)
+        assert "TYPOGRAPHY RULE" in source
