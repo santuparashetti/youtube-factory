@@ -15,6 +15,18 @@ Priority hierarchy enforced:
 Core rule: image prompts exist to support the narration.  Narration wins every
 conflict.  Metadata wins conflicts with the prompt unless doing so would
 contradict the narration — then narration + scene intent resolve.
+
+Critical protections (always applied, override other rules):
+  1. Never remove required subjects.
+  2. Never invent subjects.
+  3. Narration semantic fidelity preserved.
+  4. Intentional abstraction (CTA, compositor, end-screen) left intact.
+  5. Visual Bible architecture never altered.
+  6. Subject/action fields never verbatim-duplicated.
+  7. Existing prompt preserved unless a concrete violation is found.
+  8. Repairs must not create continuity breaks.
+  9. Hybrid style (illustrated characters, photorealistic environments) preserved.
+  10. Uncertainty = no change (confidence rule).
 """
 
 from __future__ import annotations
@@ -222,10 +234,73 @@ PRIORITY HIERARCHY — enforce in this order:
   6. Hybrid visual style
   7. Cinematic composition/style
 
-CORE RULE: Image prompts exist to visually support the narration.  If a prompt conflicts \
+CORE RULE: Image prompts exist to visually support the narration.  If a prompt conflicts
 with the narration, fix the prompt.  Never sacrifice narration fidelity for visual novelty.
 
 NARRATION means semantic fidelity, NOT literal word matching.
+
+CRITICAL PROTECTIONS — these override every other instruction:
+
+  1. NEVER REMOVE REQUIRED SUBJECTS
+     If narration, [Visual:], PRIMARY SUBJECT, scene_analysis, or explicit metadata
+     requires a person, host, animal, bird, ant, or other character — preserve that subject
+     and repair the prompt around it.  NEVER convert the scene to environment-only.  NEVER
+     remove a subject merely because the environment prompt can stand without it.
+     Only remove a subject when authoritative metadata explicitly forbids it
+     (e.g. CHARACTER_PRESENCE: [] and ANCHOR_ROLE: absent and no narration mention).
+
+  2. NEVER INVENT SUBJECTS
+     Do not add people, animals, props, locations, or actions not supported by narration,
+     scene analysis, beat purpose, Visual Bible, or the existing prompt.  Do not invent
+     visual content merely to make narration "more visual."
+
+  3. NARRATION SEMANTIC FIDELITY
+     Every important concrete element in narration must remain visually represented when
+     appropriate.  Do not replace a specific narrated action/object/person with a generic
+     symbolic scene unless the existing scene architecture explicitly calls for symbolic
+     treatment.
+
+  4. PRESERVE INTENTIONAL ABSTRACTION
+     Do NOT force literal visuals for: philosophical statements, abstract concepts,
+     CTA/engagement narration, compositor-owned text, end-screen elements, [Text Overlay],
+     or [End Screen] scenes.  For compositor-owned elements, reserve clean visual space but
+     do not generate text, logos, or buttons in the prompt.
+
+  5. DO NOT ALTER VISUAL BIBLE ARCHITECTURE
+     Do not introduce a competing visual world, recurring character, environment, palette, or
+     metaphor.  Do not remove an established visual motif merely because the current narration
+     is abstract.
+
+  6. SUBJECT/ACTION FIELD RULES
+     PRIMARY SUBJECT identifies WHO/WHAT is present.
+     PRIMARY ACTION describes what that subject is doing — it must not be a verbatim copy of
+     PRIMARY SUBJECT.
+     Do not create duplicate character blocks (ANT:, BIRD:, PERSON:, etc.) when the same
+     specification already exists in PRIMARY SUBJECT.
+     Preserve useful existing detail; normalize duplication rather than rewriting the scene.
+
+  7. EXISTING PROMPT PRESERVATION
+     If a prompt is already faithful and valid, return it UNCHANGED.
+     Prefer the smallest repair possible.
+     Explicitly forbidden: rewriting prose for style, changing camera without evidence,
+     changing composition without evidence, changing era without evidence, changing
+     environment without evidence, replacing a character with an environment, adding
+     decorative details, introducing new metaphors.
+
+  8. CONTINUITY PROTECTION
+     A repair must not create: character disappearance, character duplication, environment
+     contradiction, era contradiction, Visual Bible contradiction, an impossible action, or
+     conflict with adjacent-scene continuity.
+
+  9. HYBRID STYLE PRESERVATION
+     Environments = photorealistic.
+     Humans / animals / birds = illustrated storybook style.
+     Never render characters in a photorealistic style.
+
+  10. CONFIDENCE RULE
+      If uncertain whether something is a violation — DO NOT CHANGE IT.
+      Return the original prompt.  Only repair when there is clear evidence of a concrete
+      violation.
 
 QA CHECKS — for EVERY scene verify:
   A. Prompt accurately represents the narration's important subjects, actions, relationships,
@@ -261,14 +336,16 @@ QA CHECKS — for EVERY scene verify:
 REPAIR RULES:
   - Fix ONLY the violating portion.  Do NOT rewrite or improve a prompt merely because you
     would phrase it differently.
-  - Preserve valid visual details.
-  - Preserve the intended scene concept.
+  - Preserve all valid visual details.
+  - Preserve the intended scene concept and visual architecture.
   - Preserve narration meaning.  Never change narration.
   - Do not add creative elements just to make the image more interesting.
+  - When a scene has no concrete violation: return the original prompt UNCHANGED.
   - NARRATION WINS every conflict with the prompt (highest priority).
   - METADATA WINS conflicts with the prompt unless it contradicts the narration; \
 then resolve using narration + scene intent.
   - FORBIDDEN_CHARACTERS must never appear in the repaired prompt.
+  - Apply Critical Protections 1–10 before emitting any repaired_prompt.
 
 OUTPUT FORMAT — return ONLY valid JSON (no markdown fences), exactly this shape:
 {

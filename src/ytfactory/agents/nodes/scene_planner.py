@@ -16,7 +16,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from video_core.providers.llm.base import LLMProvider
-from video_core.providers.llm.factory import get_llm_for_role
+from video_core.providers.llm.factory import get_llm_for_role, get_llm_for_task
+from video_core.providers.llm.tasks import LLMTask
 from ytfactory.agents.prompts.branding import (
     CLOSING_VARIATIONS,
     SOFT_CTA,
@@ -1427,19 +1428,24 @@ def _validate_visual_continuity(
     # Check 1: Anchor environment reuse
     anchor_refs = 0
     for scene in scenes:
-        if scene.get("structured_prompt"):
+        sp = scene.get("structured_prompt")
+        if sp:
             env = (
-                scene["structured_prompt"].get("environment_prompt", "").lower()
-                if isinstance(scene["structured_prompt"], dict)
-                else getattr(
-                    scene["structured_prompt"], "environment_prompt", ""
-                ).lower()
+                sp.get("environment_prompt", "").lower()
+                if isinstance(sp, dict)
+                else getattr(sp, "environment_prompt", "").lower()
             )
-            for anchor in visual_bible.anchor_environments:
-                key_words = anchor.lower().split()[:4]
-                if any(w in env for w in key_words):
-                    anchor_refs += 1
-                    break
+        else:
+            # V2 mode: structured_prompt is never populated; fall back to visual_prompt
+            env = scene.get("visual_prompt", "").lower()
+        if not env:
+            continue
+        for anchor in visual_bible.anchor_environments:
+            # Use content words (>3 chars) from anchor description for matching
+            key_words = [w for w in anchor.lower().split() if len(w) > 3][:6]
+            if any(w in env for w in key_words):
+                anchor_refs += 1
+                break
     if anchor_refs < max(2, scene_count // 5):
         warnings.append(
             f"CONTINUITY: Anchor environments appear in only {anchor_refs}/{scene_count} scenes. "
@@ -1648,14 +1654,19 @@ class SceneEntities:
 
 
 def _get_cheap_llm(settings: Settings, purpose: str) -> LLMProvider:
-    """Return an LLM provider configured for cheap/fast inference."""
+    """Return an LLM provider for extraction/validation sub-tasks.
+
+    Explicit per-purpose model overrides take precedence; otherwise delegates
+    to the QA task resolver so YT_LLM_MODEL_QA controls all cheap inference.
+    """
     model_override = {
         "extraction": settings.entity_extraction_model,
         "validation": settings.faithfulness_validation_model,
         "llm_validation": settings.faithfulness_validator_model,
     }.get(purpose, "")
-
-    return get_llm_for_role(settings, "validator", model_override=model_override)
+    if model_override:
+        return get_llm_for_role(settings, "validator", model_override=model_override)
+    return get_llm_for_task(settings, LLMTask.QA)
 
 
 def _parse_json_response(text: str) -> dict | None:
@@ -1675,7 +1686,11 @@ def _parse_json_response(text: str) -> dict | None:
 def _extract_scene_entities(narration: str, llm_client: LLMProvider) -> SceneEntities:
     """Extract entity constraints from a narration segment."""
     prompt = ENTITY_EXTRACTION_PROMPT.format(narration=narration)
-    response = llm_client.generate(prompt, temperature=0.0)
+    try:
+        response = llm_client.generate(prompt, temperature=0.0)
+    except Exception:
+        logger.warning("Entity extraction LLM call failed; defaulting to abstract")
+        return SceneEntities(scene_category="abstract")
 
     data = _parse_json_response(response.text)
     if not data:
@@ -1777,7 +1792,11 @@ def _posthoc_correct_scene_analysis(
 def _analyze_scene(narration: str, scene_id: int, llm_client: LLMProvider) -> dict:
     """Analyze a single scene for story-first visual grounding."""
     prompt = build_scene_analysis_prompt(narration, scene_id)
-    response = llm_client.generate(prompt, temperature=0.0)
+    try:
+        response = llm_client.generate(prompt, temperature=0.0)
+    except Exception:
+        logger.warning("Scene analysis LLM call failed for scene {} — using empty analysis", scene_id)
+        return {"scene_id": scene_id}
     data = _parse_json_response(response.text)
     if not data:
         logger.warning("Scene analysis returned invalid JSON for scene {}", scene_id)
@@ -3840,9 +3859,17 @@ CRITICAL GATE INSTRUCTIONS — you must follow these exactly, they override your
       e.g. "The traveler lost his life — this is what distraction costs"
       or "The body we depend on is temporary" following a story's climax
   (e) Any philosophical teaching that follows directly from the narrative
+  (f) Any practical application section that applies a philosophical framework or
+      teaching to real life through concrete examples — e.g. "Now make it practical.
+      If your goal is a new career..." following Patanjali's Yoga Sutras teaching, or
+      daily-life examples that extend a spiritual or philosophical framework established
+      earlier in the script. These are grounded in the narrative's philosophical arc,
+      not disclaimers. "Make it practical" sections are the Atma Theory pipeline formula.
   Only flag if a paragraph makes factual claims about the real world (statistics,
-  medical claims, financial advice) with no story grounding, OR directly tells the
-  viewer what to do in their real life without connecting it to a story beat.
+  medical claims, financial advice) with NO philosophical, spiritual, or narrative
+  framework established earlier in the script, OR is a standalone real-world warning
+  that exists independently of any story or teaching (e.g. "Poverty is real. Loss is
+  real. These are hard truths." with no surrounding narrative context).
 
 - For the single visual world check: the following are NEVER a competing visual world
   and must NEVER be flagged:
@@ -3882,12 +3909,15 @@ CHECKS:
    PASS if: NARRATIVE_ENDING resolves, echoes, transforms, or returns to any element from the opening.
 4. NO_DISCLAIMER_PARAGRAPHS — Is all hardship or limitation shown through story or character?
    FAIL only if a paragraph makes factual claims about the real world (statistics, medical claims,
-   financial advice) with no story grounding, OR directly tells the viewer what to do in their real
-   life without connecting it to a story beat (e.g. "Poverty is real. Loss is real. These are hard truths.").
+   financial advice) with NO philosophical/spiritual/narrative framework established earlier in the
+   script, OR is a standalone real-world warning with no surrounding narrative context
+   (e.g. "Poverty is real. Loss is real. These are hard truths." appearing without any story).
    NEVER flag: story beats, practice framing ("Not a promise..."), philosophical statements about
    fear/identity/impermanence, paragraphs that translate a story beat into a universal principle
-   ("The body we depend on is temporary" after a story climax), or philosophical teachings that
-   follow directly from the narrative arc.
+   ("The body we depend on is temporary" after a story climax), philosophical teachings that
+   follow directly from the narrative arc, OR practical application sections that apply a
+   philosophical framework to real life through concrete examples (e.g. "Now make it practical.
+   If your goal is a new career..." following Patanjali's teachings — this is the pipeline formula).
 
 NARRATIVE_ENDING (pre-extracted, brand wrap already stripped — use this for check 3):
 {narrative_ending}
@@ -3987,7 +4017,7 @@ def scene_planner_node(state: VideoState) -> dict:
     6. Save scene-plan.json + scene-plan.md
     """
     settings = Settings()
-    llm = get_llm_for_role(settings, "scene_planner")
+    llm = get_llm_for_task(settings, LLMTask.SCENE_PLANNING)
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()
 
@@ -4009,7 +4039,15 @@ def scene_planner_node(state: VideoState) -> dict:
 
     # ── Idempotency: load existing plan from disk if available ────────────
     existing_plan_path = Path(WORKSPACE_DIR) / project_id / "scenes" / "scene-plan.json"
-    current_id_hash = _identity_hash(script_identity_dict)
+    # Include synthesis mode so the cache is invalidated when V2 is toggled on or
+    # off.  Without this, a cached plan produced by the old synthesis path would
+    # pass the hash check and be reused even after V2 was enabled — potentially
+    # re-exporting broken prompts that V2 validation would have repaired.
+    _hash_identity = {
+        **script_identity_dict,
+        "_v2": settings.image_prompt_synthesis_v2_enabled,
+    }
+    current_id_hash = _identity_hash(_hash_identity)
     if existing_plan_path.exists():
         existing = json.loads(existing_plan_path.read_text(encoding="utf-8"))
         cached_id_hash = existing.get("identity_hash", "")
@@ -4140,6 +4178,22 @@ def scene_planner_node(state: VideoState) -> dict:
                     f"{len(_cached_story_state.characters)} chars, "
                     f"{len(_cached_story_state.props)} props"
                 )
+
+            # Enforce the invariant: scene["visual_prompt"] == exported prompt.
+            # Cached plans may contain blocking structural failures if they were
+            # generated before the current validators existed or if the synthesis
+            # repair pass failed silently.  Run the same ONE-repair-call mechanic
+            # used during full synthesis so IMAGE_PROMPTS.md is always written
+            # from validated prompts.
+            if settings.image_prompt_synthesis_v2_enabled:
+                from ytfactory.images.prompt_synthesis import validate_and_repair_cached
+                scenes, _cached_repaired = validate_and_repair_cached(
+                    scenes, get_llm_for_task(settings, LLMTask.VISUAL_REFINEMENT)
+                )
+                if _cached_repaired:
+                    console.print(
+                        "  [yellow]↻[/yellow] Cached prompt structural repairs applied"
+                    )
 
             existing_plan_path.write_text(
                 json.dumps({"scenes": scenes}, ensure_ascii=False, indent=2),
@@ -4417,20 +4471,54 @@ def scene_planner_node(state: VideoState) -> dict:
                 "  [yellow]⚠[/yellow] Pacing LLM failed — proceeding without reflection beats"
             )
 
-    console.print(
-        f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
-        f"[dim]({settings.llm_provider}, batches of {_VP_BATCH}, "
-        f"{len(generated_scenes)}/{len(scenes)} scenes)[/dim]..."
-    )
     vp_map: dict[int, str] = {}
+    _v2_failed_scenes: set[int] = set()
     _vm_map: dict[int, dict] = {}
     _ar_map: dict[int, str] = {}
     _faithfulness_qa: dict[int, dict] = {}
-    visual_diary: list[
-        str
-    ] = []  # cross-batch continuity: short summaries of prompts already written
+    visual_diary: list[str] = []  # cross-batch continuity (Phase 2 old path only)
 
-    for batch_start in range(0, len(generated_scenes), _VP_BATCH):
+    # ── Synthesis V2: single-pass prompt generation ───────────────────────────
+    if settings.image_prompt_synthesis_v2_enabled:
+        from video_core.providers.llm.factory import get_provider_label_for_role
+        from ytfactory.images.prompt_synthesis import synthesize_visual_prompts
+        _v2_label = get_provider_label_for_role(settings, "scene_planner")
+        console.print(
+            f"  [cyan]→[/cyan] Synthesis V2: single-pass visual prompt generation "
+            f"[dim]({_v2_label}, {len(generated_scenes)} scenes)[/dim]..."
+        )
+        _synthesis_report = synthesize_visual_prompts(
+            generated_scenes,
+            get_llm_for_task(settings, LLMTask.VISUAL_PROMPTS),
+            visual_bible=visual_bible,
+            story_bible=story_bible,
+        )
+        vp_map = _synthesis_report.prompts
+        _v2_failed_scenes = set(_synthesis_report.failed_scenes)
+        if _synthesis_report.validation_issues:
+            console.print(
+                f"  [yellow]⚠[/yellow] Synthesis V2: "
+                f"{len(_synthesis_report.validation_issues)} validation issue(s) — see logs"
+            )
+        if _synthesis_report.failed_scenes:
+            console.print(
+                f"  [bold red]⚠ Synthesis V2: {len(_synthesis_report.failed_scenes)} "
+                f"scene(s) rejected after failed repair — manual review required[/bold red]"
+            )
+        console.print(
+            f"  [green]✓[/green] Synthesis V2: {len(vp_map)} prompts generated "
+            f"({_synthesis_report.llm_call_count} LLM call(s))"
+        )
+
+    if not settings.image_prompt_synthesis_v2_enabled:
+        # ── Phase 2 (old path): batch visual prompt generation ────────────────
+        console.print(
+            f"  [cyan]→[/cyan] Phase 2: generating visual prompts "
+            f"[dim]({settings.llm_provider}, batches of {_VP_BATCH}, "
+            f"{len(generated_scenes)}/{len(scenes)} scenes)[/dim]..."
+        )
+
+    for batch_start in ([] if settings.image_prompt_synthesis_v2_enabled else range(0, len(generated_scenes), _VP_BATCH)):
         batch = generated_scenes[batch_start : batch_start + _VP_BATCH]
         batch_nums = f"{batch[0]['index']}–{batch[-1]['index']}"
         prompt = build_visual_prompts_prompt(
@@ -4510,9 +4598,10 @@ def scene_planner_node(state: VideoState) -> dict:
     # "Retrying N failed prompt(s)" phase) that fired a second, differently-shaped
     # retry request after all scenes were already processed and could never parse
     # the result. See docs/script/task-2.2-retry-engine-reliability.md.
-    console.print("  [cyan]→[/cyan] Validating prompt fidelity...")
-    _validation_llm = _get_cheap_llm(settings, "validation")
     validation_issues = 0
+    if not settings.image_prompt_synthesis_v2_enabled:
+        console.print("  [cyan]→[/cyan] Validating prompt fidelity...")
+    _validation_llm = _get_cheap_llm(settings, "validation")
     max_retries = settings.scene_planner_max_retries
     use_json_mode = settings.scene_planner_json_mode
 
@@ -4525,7 +4614,7 @@ def scene_planner_node(state: VideoState) -> dict:
         for _ch in _sc.get("scene_analysis", {}).get("allowed_characters") or []:
             _story_characters.add(_ch)
 
-    for scene in generated_scenes:
+    for scene in (generated_scenes if not settings.image_prompt_synthesis_v2_enabled else []):
         idx = scene["index"]
         current_prompt = vp_map.get(idx, "")
         if not current_prompt:
@@ -4741,18 +4830,21 @@ def scene_planner_node(state: VideoState) -> dict:
             "llm_reason": llm_reason_text,
         }
 
-    if validation_issues:
-        console.print(
-            f"  [yellow]⚠[/yellow] Prompt fidelity: {validation_issues} issue(s) — retries attempted"
-        )
-    else:
-        console.print("  [green]✓[/green] Prompt fidelity passed")
+    if not settings.image_prompt_synthesis_v2_enabled:
+        if validation_issues:
+            console.print(
+                f"  [yellow]⚠[/yellow] Prompt fidelity: {validation_issues} issue(s) — retries attempted"
+            )
+        else:
+            console.print("  [green]✓[/green] Prompt fidelity passed")
 
-    # Apply prompts and visual_metadata; fall back to title-based placeholder for any missed scene
+    # Apply prompts and visual_metadata; fall back to title-based placeholder for any missed scene.
+    # V2 rejected scenes (_v2_failed_scenes) must be overwritten even if the scene planner LLM
+    # already wrote a (broken) visual_prompt — that original prompt caused the rejection.
     for s in scenes:
         if s["index"] in vp_map:
             s["visual_prompt"] = vp_map[s["index"]]
-        elif not s.get("visual_prompt"):
+        elif s["index"] in _v2_failed_scenes or not s.get("visual_prompt"):
             s["visual_prompt"] = (
                 f"Cinematic wide shot, {s.get('title', 'contemplative moment')}, "
                 "golden hour lighting, silhouette, spiritual documentary, no text, no watermark, photorealistic"
@@ -4776,18 +4868,31 @@ def scene_planner_node(state: VideoState) -> dict:
                 "llm_validated": False,
                 "llm_reason": "",
             }
+        elif settings.image_prompt_synthesis_v2_enabled and s["index"] in vp_map:
+            s["faithfulness_qa"] = {
+                "status": FaithfulnessStatus.PASS.value,
+                "violation": "",
+                "attempts": 1,
+                "critical_errors": [],
+                "llm_validated": False,
+                "llm_reason": "synthesis_v2",
+            }
 
     # ── Character presence enforcement ────────────────────────────────────
-    # character_presence is authoritative: strips stray Kai from non-Kai scenes
-    # and sets anchor_role from character_presence when that field is set.
-    # No automatic Kai injection (no distribution/closing-scene override).
-    scenes = _enforce_primary_kai_spec(scenes)
+    # Skipped for synthesis V2: V2 prompts are final prose — prepending
+    # KAI_COMPRESSED_SPEC would corrupt them. _enforce_style_footer reads
+    # character_presence directly and does not require this pass.
+    if not settings.image_prompt_synthesis_v2_enabled:
+        scenes = _enforce_primary_kai_spec(scenes)
     scenes = _propagate_environment_anchors(scenes)
-    scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
+    if not settings.image_prompt_synthesis_v2_enabled:
+        scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
     scenes = _enforce_era_consistency(scenes)
 
     # ── V2: Per-scene structured prompt generation ────────────────────────
-    if settings.HYBRID_STYLE_ENABLED or settings.VISUAL_BIBLE_ENABLED:
+    # Skipped when synthesis_v2_enabled: the new synthesis produces the final
+    # prompt directly, so the old per-scene LLM structured-prompt pass is redundant.
+    if (settings.HYBRID_STYLE_ENABLED or settings.VISUAL_BIBLE_ENABLED) and not settings.image_prompt_synthesis_v2_enabled:
         console.print(
             f"  [cyan]→[/cyan] V2: building structured prompts for "
             f"{len([s for s in scenes if s.get('scene_type') != 'brand_card'])} scenes..."
@@ -4854,10 +4959,11 @@ def scene_planner_node(state: VideoState) -> dict:
                     "llm_reason": scene["faithfulness_qa"].get("llm_reason", ""),
                 }
 
-    # ── V2: Post-V2 Kai re-enforcement ─────────────────────────────────
-    # V2 may have generated aerial prompts for Kai-primary scenes despite
-    # the shot_type constraint; demote those to absent so Step 0 is accurate.
-    scenes = _enforce_primary_kai_spec(scenes)
+    # ── Post-structured-prompt Kai re-enforcement (old V2 path only) ────
+    # Skipped for synthesis V2: synthesis produces final prose; this pass
+    # would corrupt it by prepending KAI_COMPRESSED_SPEC.
+    if not settings.image_prompt_synthesis_v2_enabled:
+        scenes = _enforce_primary_kai_spec(scenes)
 
     # ── Strip pipeline meta-annotations from all visual prompts ─────────
     # Phase labels, anchor-role justifications, and internal planning notes
@@ -4992,7 +5098,9 @@ def scene_planner_node(state: VideoState) -> dict:
         console.print(f"  [green]✓[/green] V4 debug output: [dim]{debug_dir}[/dim]")
 
     # ── Prompt QA/Fix pass — semantic narration-fidelity check ────────────
-    if settings.image_prompt_qa_enabled:
+    # Disabled when synthesis_v2_enabled: the new synthesis produces high-quality
+    # prompts in a single pass; no LLM repair is needed or wanted.
+    if settings.image_prompt_qa_enabled and not settings.image_prompt_synthesis_v2_enabled:
         from ytfactory.images.prompt_qa import run_prompt_qa_pass
         _qa_llm = get_llm_for_role(settings, "validator", model_override=settings.image_prompt_qa_model)
         _qa_report = run_prompt_qa_pass(

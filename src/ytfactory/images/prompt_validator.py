@@ -9,6 +9,8 @@ These checks are deterministic and do not require an LLM.
 
 from __future__ import annotations
 
+import re
+
 
 # ---------------------------------------------------------------------------
 # Semantic conflict groups
@@ -99,8 +101,49 @@ _PHOTOREALISTIC_CHARACTER_MARKERS: frozenset[str] = frozenset({
     "documentary-quality realism",  # OK for environment, NOT for character
 })
 
+# Detects readable text rendered as image content — same patterns as prompt_synthesis._READABLE_TEXT_RE.
+# Kept as a separate constant to avoid a cross-module import.
+_READABLE_TEXT_VALIDATOR_RE = re.compile(
+    r"(?:"
+    r"the\s+word\s+['''“”]?\w+['''“”]?\s+"
+        r"(?:appears?|glows?|fades?\s+in?|floats?|emerges?|displays?)"
+    r"|"
+    r"title\s+graphic\s+"
+        r"(?:['''“”][^'''”]{1,120}['''”]\s+)?"
+        r"(?:appears?|pops?\s+up|fades?\s+in?)"
+    r"|"
+    r"(?:appears?\s+in|in|written\s+in|rendered\s+in)\s+(?:\w+\s+){0,2}devanagari\s+script"
+    r"|"
+    r"(?:in\s+(?:bold\s*,\s*)?|appears?\s+in\s+)sanskrit[\s-]+style\s+"
+        r"(?:script|lettering|text|font)"
+    r"|"
+    r"(?:a\s+)?single\s+line\s+of\s+writing\s*:"
+    r"|"
+    r"lines?\s+of\s+text\s+appear"
+    r")",
+    re.IGNORECASE,
+)
 
-def validate_prompt_contradictions(prompt: str, scene_idx: int) -> list[str]:
+# Positive character/animal terms for environment-only leakage detection (Check F).
+_VALIDATOR_CHAR_RE = re.compile(
+    r"\b(?:ant|ants|bee|bees|bird|birds|butterfly|butterflies|"
+    r"insect|insects|creature|creatures|animal|animals|"
+    r"person|people|man|woman|child|human|humans|figure|"
+    r"silhouette|character|characters)\b",
+    re.IGNORECASE,
+)
+_VALIDATOR_NEGATION_RE = re.compile(
+    r"\b(?:no|not|without|absent|devoid\s+of|free\s+of|empty\s+of|"
+    r"exclude|excluding|never|invisible|hidden|barely)\s+(?:\w+[^\w\s]*\s*){0,3}",
+    re.IGNORECASE,
+)
+
+
+def validate_prompt_contradictions(
+    prompt: str,
+    scene_idx: int,
+    character_presence: list[str] | None = None,
+) -> list[str]:
     """Check a fully assembled prompt for self-contradictions.
 
     Checks:
@@ -108,6 +151,10 @@ def validate_prompt_contradictions(prompt: str, scene_idx: int) -> list[str]:
     B. KAI: block coexisting with "no character present" language.
     C. Positive content names an object that the NEGATIVE section also prohibits.
     D. Photorealistic character language despite global illustrated-character constraint.
+    E. Readable text rendered as image content (quoted literals, "word appears",
+       Devanagari/Sanskrit-style directives) — compositor-owned, not image-generated.
+    F. Environment-only scene (character_presence=[]) but prompt contains positive
+       character/animal terms — character leakage.
 
     Returns a list of human-readable error strings (empty = no contradictions found).
     Does not raise — safe to call on any prompt text.
@@ -187,6 +234,29 @@ def validate_prompt_contradictions(prompt: str, scene_idx: int) -> list[str]:
                 "global illustrated-character constraint."
             )
             break
+
+    # ── Check E: readable text rendered as image content ──────────────────────
+    # These belong to the compositor, not the image generator.
+    m = _READABLE_TEXT_VALIDATOR_RE.search(positive_body)
+    if m:
+        errors.append(
+            f"ERROR: Scene {scene_idx} — prompt requests rendering of readable text "
+            f"(matched: '{m.group()[:70]}') — convert to compositor negative-space; "
+            "image generators must not produce legible titles, quotes, or scripts."
+        )
+
+    # ── Check F: character leakage in environment-only scene ──────────────────
+    # If caller passes character_presence=[] (authoritative metadata), verify the
+    # prompt contains no positive character/animal mentions.
+    if character_presence is not None and not character_presence:
+        stripped = _VALIDATOR_NEGATION_RE.sub("", positive_body)
+        m = _VALIDATOR_CHAR_RE.search(stripped)
+        if m:
+            errors.append(
+                f"ERROR: Scene {scene_idx} — character_presence=[] (environment-only) "
+                f"but positive prompt contains character/animal term '{m.group()[:40]}'. "
+                "Remove or convert to environment-only description."
+            )
 
     return errors
 
