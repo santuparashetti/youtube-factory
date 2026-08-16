@@ -283,6 +283,28 @@ class VoicePipeline:
                 scene_position = idx / max(total - 1, 1)
                 original_text = strip_tts_directives(scene["narration"])
                 check_artifact(original_text, "tts_input")
+
+                if not original_text.strip():
+                    duration = float(scene.get("duration_seconds", 3))
+                    logger.info(
+                        "TTS scene {} — empty narration, writing {}s silence",
+                        scene["index"], duration,
+                    )
+                    subprocess.run(
+                        [
+                            "ffmpeg", "-y",
+                            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+                            "-t", str(duration),
+                            "-q:a", "9", "-acodec", "libmp3lame",
+                            str(output),
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+                    timing_output.write_text("[]")
+                    self._repository.save(VoiceArtifact(scene_id=scene["index"], audio_path=output))
+                    continue
+
                 word_count = len(original_text.split())
                 scene_title = scene.get("title", "")
                 scene_type = scene.get("scene_type", "generated_image")
