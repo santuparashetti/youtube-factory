@@ -457,11 +457,12 @@ class TestContinuityValidatorPropState:
 
 
 # ===========================================================================
-# 11. ContinuityValidator — narration coverage check
+# 11. ContinuityValidator — lexical overlap diagnostic (weak, informational)
 # ===========================================================================
 
 class TestNarrationCoverage:
-    def test_completely_disconnected_prompt_warns(self):
+    def test_completely_disconnected_prompt_emits_info(self):
+        """A prompt with zero lexical overlap must emit a LOW_LEXICAL_OVERLAP INFO finding."""
         state = StoryState()
         v = ContinuityValidator(state)
         scene = FakeScene(
@@ -469,10 +470,13 @@ class TestNarrationCoverage:
             visual_prompt="A majestic mountain range at sunset with golden clouds.",
         )
         findings = v.validate_scene(3, scene, None)
-        warnings = [f for f in findings if f.category == "NARRATION_COVERAGE"]
-        assert len(warnings) >= 1
+        info_findings = [f for f in findings if f.category == "LOW_LEXICAL_OVERLAP"]
+        assert len(info_findings) >= 1
+        # Must be INFO level only — never WARNING or ERROR
+        from ytfactory.scene_continuity.models import ValidationLevel
+        assert all(f.level == ValidationLevel.INFO for f in info_findings)
 
-    def test_connected_prompt_no_warning(self):
+    def test_connected_prompt_no_finding(self):
         state = StoryState()
         v = ContinuityValidator(state)
         scene = FakeScene(
@@ -480,8 +484,41 @@ class TestNarrationCoverage:
             visual_prompt="A weaver threading silk through a traditional wooden loom in a workshop.",
         )
         findings = v.validate_scene(3, scene, None)
-        warnings = [f for f in findings if f.category == "NARRATION_COVERAGE"]
-        assert warnings == []
+        assert not any(f.category == "LOW_LEXICAL_OVERLAP" for f in findings)
+
+    def test_engagement_tag_stripped_short_narration_no_finding(self):
+        """After stripping [ENGAGEMENT:...], if fewer than 3 content words remain, no finding is emitted."""
+        state = StoryState()
+        v = ContinuityValidator(state)
+        # After stripping tag: "If this stayed with you, subscribe." → "stayed", "subscribe" → 2 words < 3
+        scene = FakeScene(
+            narration="[ENGAGEMENT: subscribe_promise] If this stayed with you, subscribe.",
+            visual_prompt=(
+                "Static wide shot: natural worn-wood desk surface; a handwritten journal lies "
+                "open beside a small brass ink lamp; soft golden hour light drifts through "
+                "a half-open window. No text visible. 16:9 aspect ratio."
+            ),
+        )
+        findings = v.validate_scene(21, scene, None)
+        assert not any(f.category == "LOW_LEXICAL_OVERLAP" for f in findings), (
+            "Short engagement narrations with <3 content words after tag strip must not emit a finding, "
+            f"but got: {[f for f in findings if f.category == 'LOW_LEXICAL_OVERLAP']}"
+        )
+
+    def test_cta_tag_stripped_short_narration_no_finding(self):
+        """[CTA:...] prefix is stripped; remaining short text skips the check."""
+        state = StoryState()
+        v = ContinuityValidator(state)
+        # After stripping tag: "Atma Theory returns each week." → "theory", "returns" → 2 words < 3
+        scene = FakeScene(
+            narration="[CTA: journey_invitation] Atma Theory returns each week.",
+            visual_prompt=(
+                "Wide contemplative shot: an open stone courtyard at dusk; "
+                "weathered flagstones; a single oil lamp burns in the far corner. 16:9."
+            ),
+        )
+        findings = v.validate_scene(10, scene, None)
+        assert not any(f.category == "LOW_LEXICAL_OVERLAP" for f in findings)
 
 
 # ===========================================================================

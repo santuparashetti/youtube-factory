@@ -56,7 +56,7 @@ class TestFinalScriptReviewGate:
         gate = FinalScriptReviewGate(settings)
         with patch("ytfactory.editorial_qa.checkpoint.WORKSPACE_DIR", str(tmp_path)):
             with patch("ytfactory.editorial_qa.review_gate.typer.prompt", return_value="c") as mock_prompt:
-                with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role") as mock_get_llm:
+                with patch("ytfactory.editorial_qa.pipeline.get_llm_for_task") as mock_get_llm:
                     result = gate.run("proj-1", "The final script.", auto_mode=False)
             recorded = qa_checkpoint.read_recorded_hash("proj-1")
         assert result == "The final script."
@@ -70,7 +70,7 @@ class TestFinalScriptReviewGate:
         with patch("ytfactory.editorial_qa.checkpoint.WORKSPACE_DIR", str(tmp_path)):
             qa_checkpoint.record_hash("proj-2", script)
             with patch("ytfactory.editorial_qa.review_gate.typer.prompt") as mock_prompt:
-                with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role") as mock_get_llm:
+                with patch("ytfactory.editorial_qa.pipeline.get_llm_for_task") as mock_get_llm:
                     result = gate.run("proj-2", script, auto_mode=False)
         assert result == script
         mock_prompt.assert_not_called()  # skipped straight through

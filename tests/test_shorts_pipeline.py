@@ -913,7 +913,13 @@ class TestShortsPipeline:
         mock_projects = MagicMock()
         mock_projects.load.return_value = self._mock_project()
 
-        with patch("ytfactory.shorts.pipeline.ProjectRepository", return_value=mock_projects):
+        mock_llm = MagicMock()
+        with patch("ytfactory.shorts.extractor.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.generator.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.validator.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.scene_planner.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.recomposer.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.pipeline.ProjectRepository", return_value=mock_projects):
             pipeline = ShortsPipeline(Settings())
             with pytest.raises(FileNotFoundError):
                 pipeline.run("test-project")
@@ -990,6 +996,7 @@ class TestShortsPipeline:
              patch("ytfactory.shorts.generator.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.validator.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.scene_planner.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.recomposer.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.pipeline.ProjectRepository", return_value=mock_projects):
             pipeline = ShortsPipeline(Settings())
             pipeline.run("test-project")
@@ -1572,6 +1579,7 @@ class TestShortsScriptQA:
              patch("ytfactory.shorts.generator.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.validator.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.scene_planner.get_llm_for_role", return_value=mock_llm), \
+             patch("ytfactory.shorts.recomposer.get_llm_for_role", return_value=mock_llm), \
              patch("ytfactory.shorts.pipeline.ProjectRepository", return_value=mock_projects):
             ShortsPipeline(Settings()).run("test-project")
 

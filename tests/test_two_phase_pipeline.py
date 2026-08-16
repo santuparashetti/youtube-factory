@@ -281,11 +281,11 @@ class TestRunnerPipelineMode:
             run_pipeline("Topic", pipeline_mode="resume")
 
     @patch("ytfactory.two_phase.pipeline.TwoPhasePipeline")
-    @patch("ytfactory.agents.runner.graph")
+    @patch("ytfactory.agents.runner.compile_graph")
     @patch("ytfactory.agents.runner.CreatePipeline")
     @patch("ytfactory.storage.project_repository.ProjectRepository")
     def test_prep_only_sets_skip_images(
-        self, mock_repo_cls, mock_create_cls, mock_graph, mock_two_phase_cls, tmp_path, monkeypatch
+        self, mock_repo_cls, mock_create_cls, mock_compile_graph, mock_two_phase_cls, tmp_path, monkeypatch
     ):
         from ytfactory.agents.runner import run_pipeline
 
@@ -304,6 +304,7 @@ class TestRunnerPipelineMode:
         mock_create_cls.return_value.run.return_value = mock_project
         mock_repo_cls.return_value.load.return_value = mock_project
 
+        mock_graph = mock_compile_graph.return_value
         mock_graph.invoke.return_value = {
             "project_id": project_id,
             "scene_plan": [],
@@ -326,11 +327,11 @@ class TestRunnerPipelineMode:
         mock_two_phase._write_phase1_report.assert_called_once()
 
     @patch("ytfactory.two_phase.pipeline.TwoPhasePipeline")
-    @patch("ytfactory.agents.runner.graph")
+    @patch("ytfactory.agents.runner.compile_graph")
     @patch("ytfactory.agents.runner.CreatePipeline")
     @patch("ytfactory.storage.project_repository.ProjectRepository")
     def test_resume_sets_skip_thumbnail(
-        self, mock_repo_cls, mock_create_cls, mock_graph, mock_two_phase_cls, tmp_path, monkeypatch
+        self, mock_repo_cls, mock_create_cls, mock_compile_graph, mock_two_phase_cls, tmp_path, monkeypatch
     ):
         from ytfactory.agents.runner import run_pipeline
 
@@ -359,6 +360,7 @@ class TestRunnerPipelineMode:
         mock_project.id = project_id
         mock_repo_cls.return_value.load.return_value = mock_project
 
+        mock_graph = mock_compile_graph.return_value
         mock_graph.invoke.return_value = {
             "project_id": project_id,
             "scene_plan": [],
@@ -380,11 +382,11 @@ class TestRunnerPipelineMode:
         assert state["skip_thumbnail"] is True
         mock_two_phase._validate_images.assert_called_once_with(project_id)
 
-    @patch("ytfactory.agents.runner.graph")
+    @patch("ytfactory.agents.runner.compile_graph")
     @patch("ytfactory.agents.runner.CreatePipeline")
     @patch("ytfactory.storage.project_repository.ProjectRepository")
     def test_resume_fails_on_missing_image(
-        self, mock_repo_cls, mock_create_cls, mock_graph, tmp_path, monkeypatch
+        self, mock_repo_cls, mock_create_cls, mock_compile_graph, tmp_path, monkeypatch
     ):
         from ytfactory.agents.runner import run_pipeline
 
@@ -421,7 +423,7 @@ class TestRunnerPipelineMode:
                 pipeline_mode="resume",
             )
 
-        mock_graph.invoke.assert_not_called()
+        mock_compile_graph.return_value.invoke.assert_not_called()
 
 
 # ── Phase 1 resume-skip: existing script.md skips regeneration ──────────────

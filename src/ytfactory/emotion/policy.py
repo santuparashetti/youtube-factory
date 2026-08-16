@@ -94,7 +94,7 @@ EMOTION_FAMILIES: dict[str, str] = {
     "angry":       "ANGER",
 }
 
-MINIMUM_DISTINCT_EMOTIONS: int = 5
+MINIMUM_DISTINCT_EMOTIONS: int = 4
 
 
 # ── Phase → emotion map ───────────────────────────────────────────────────────

@@ -6,6 +6,25 @@ import re
 
 _LEADING_H1_RE = re.compile(r"^#[ \t]+(.+)", re.MULTILINE)
 
+# Matches [Visual: ...], [ENGAGEMENT: ...], [NARRATIVE_ENDING], [Text Overlay ...], [End Screen: ...]
+_TTS_DIRECTIVE_RE = re.compile(
+    r"\[(?:Visual|Text Overlay|ENGAGEMENT|NARRATIVE_ENDING|End Screen)[^\]]*\]",
+    re.IGNORECASE,
+)
+
+
+def strip_tts_directives(text: str) -> str:
+    """Remove production directives from narration text before TTS synthesis.
+
+    Strips bracketed production tags ([Visual: ...], [ENGAGEMENT: ...],
+    [NARRATIVE_ENDING], [Text Overlay on Screen: ...], [End Screen: ...])
+    that must not be spoken aloud. Normalizes whitespace; does not alter
+    punctuation or other content.
+    """
+    cleaned = _TTS_DIRECTIVE_RE.sub("", text)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
 
 def strip_script_heading(text: str) -> tuple[str, str]:
     """Remove the leading H1 heading from a script file.

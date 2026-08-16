@@ -61,7 +61,7 @@ def mock_llm():
 
 @pytest.fixture
 def pipeline(settings, mock_llm):
-    with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role", return_value=mock_llm):
+    with patch("ytfactory.editorial_qa.pipeline.get_llm_for_task", return_value=mock_llm):
         return EditorialQAPipeline(settings)
 
 
@@ -270,7 +270,7 @@ class TestEditorialQAPipeline:
     def test_disabled_is_full_noop(self, mock_llm, tmp_path):
         settings = MagicMock()
         settings.editorial_qa_enabled = False
-        with patch("ytfactory.editorial_qa.pipeline.get_llm_for_role", return_value=mock_llm):
+        with patch("ytfactory.editorial_qa.pipeline.get_llm_for_task", return_value=mock_llm):
             pipeline = EditorialQAPipeline(settings)
         with patch("ytfactory.editorial_qa.pipeline.WORKSPACE_DIR", str(tmp_path)):
             result = pipeline.run("proj-disabled", script_text="Some script.")

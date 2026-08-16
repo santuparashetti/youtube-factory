@@ -24,6 +24,7 @@ from .artifacts import audio_directory
 from .models import VoiceArtifact
 from .repository import VoiceRepository
 from ytfactory.shared.pipeline_status import get_writer
+from ytfactory.shared.script_utils import strip_tts_directives
 from ytfactory.ssml_enhancer import SsmlEnhancer, strip_ssml
 
 _optimizer = SpeechOptimizer()
@@ -264,7 +265,7 @@ class VoicePipeline:
 
             if not tts_skipped:
                 scene_position = idx / max(total - 1, 1)
-                original_text = scene["narration"]
+                original_text = strip_tts_directives(scene["narration"])
                 check_artifact(original_text, "tts_input")
                 word_count = len(original_text.split())
                 scene_title = scene.get("title", "")

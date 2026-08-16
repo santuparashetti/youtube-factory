@@ -66,7 +66,7 @@
 
   // Pull the one-time setup / character-consistency message from the
   // "## Step 0 — Before You Start" section — the first fenced ``` block
-  // that appears before the scenes begin.
+  // that appears before the scenes begin. Falls back to "## Global Instructions".
   function extractSetupMessage(text) {
     // Isolate everything before the first "## Scene" so we don't grab
     // the re-run bash block or anything later.
@@ -78,10 +78,19 @@
     );
     let block = step0Match ? step0Match[1] : null;
 
-    // Fallback: first plain (non-bash) fenced block before the scenes.
+    // Fallback 1: first plain (non-bash) fenced block before the scenes.
     if (!block) {
       const anyMatch = beforeScenes.match(/```(?!bash)(?:\w+)?\s*\n([\s\S]*?)\n```/);
       block = anyMatch ? anyMatch[1] : null;
+    }
+
+    // Fallback 2: "## Global Instructions" section content (markdown list
+    // or prose) up to the next heading or horizontal rule.
+    if (!block) {
+      const globalMatch = beforeScenes.match(
+        /##\s*Global\s+Instructions[\s\S]*?(?=^##\s|\n---|\Z)/im
+      );
+      block = globalMatch ? globalMatch[0].replace(/^##\s*Global\s+Instructions\s*/im, '').trim() : null;
     }
 
     if (!block) return null;

@@ -1,7 +1,7 @@
 """Tests for ytfactory.shared.script_utils and ytfactory.shared.religion_agnostic."""
 
 from ytfactory.shared.religion_agnostic import check as ra_check
-from ytfactory.shared.script_utils import strip_script_heading
+from ytfactory.shared.script_utils import strip_script_heading, strip_tts_directives
 
 
 # ── strip_script_heading ───────────────────────────────────────────────────────
@@ -43,6 +43,71 @@ class TestStripScriptHeading:
         body, _ = strip_script_heading(text)
         assert not body.startswith("\n")
         assert body.startswith("Paragraph one.")
+
+
+# ── strip_tts_directives ──────────────────────────────────────────────────────
+
+class TestStripTtsDirectives:
+    def test_strips_visual_directive(self):
+        text = "A tiny ant.\n\n[Visual: A tiny ant crawls across a massive rock.]\n\nThe ant moves on."
+        result = strip_tts_directives(text)
+        assert "[Visual:" not in result
+        assert "A tiny ant." in result
+        assert "The ant moves on." in result
+
+    def test_strips_engagement_directive(self):
+        text = "Stay with this.\n\n[ENGAGEMENT: value_promise]\n\nHere is why."
+        result = strip_tts_directives(text)
+        assert "[ENGAGEMENT:" not in result
+        assert "Stay with this." in result
+        assert "Here is why." in result
+
+    def test_strips_narrative_ending(self):
+        text = "Remember the ant.\n\n[NARRATIVE_ENDING]\n\nStart measuring by ground."
+        result = strip_tts_directives(text)
+        assert "[NARRATIVE_ENDING]" not in result
+        assert "Remember the ant." in result
+
+    def test_strips_text_overlay(self):
+        text = "Most people fail.\n\n[Text Overlay on Screen: **CONSISTENCY > CAPACITY**]\n\nWe mistake greatness."
+        result = strip_tts_directives(text)
+        assert "[Text Overlay" not in result
+        assert "Most people fail." in result
+        assert "We mistake greatness." in result
+
+    def test_strips_end_screen(self):
+        text = "Subscribe to Atma Theory.\n\n[End Screen: Related video suggestions and Subscribe button graphic]"
+        result = strip_tts_directives(text)
+        assert "[End Screen:" not in result
+        assert "Subscribe to Atma Theory." in result
+
+    def test_preserves_normal_punctuation(self):
+        text = "First, **Dirghakala**: practice over a long period of time. Don't judge a goal.\n\n[ENGAGEMENT: comment_prompt]"
+        result = strip_tts_directives(text)
+        assert "**Dirghakala**:" in result
+        assert "Don't judge a goal." in result
+        assert "[ENGAGEMENT:" not in result
+
+    def test_normalizes_whitespace_after_strip(self):
+        text = "Para one.\n\n[ENGAGEMENT: x]\n\n\n\nPara two."
+        result = strip_tts_directives(text)
+        assert "\n\n\n" not in result
+        assert "Para one." in result
+        assert "Para two." in result
+
+    def test_returns_stripped_text(self):
+        text = "\n\nActual narration here.\n\n"
+        assert strip_tts_directives(text) == "Actual narration here."
+
+    def test_plain_narration_unchanged(self):
+        text = "Mastery grows quietly, through work that rarely looks impressive in the moment."
+        assert strip_tts_directives(text) == text
+
+    def test_inline_visual_within_paragraph(self):
+        text = "The ant [Visual: close-up] continues climbing without pause."
+        result = strip_tts_directives(text)
+        assert "[Visual:" not in result
+        assert "The ant  continues climbing without pause." == result or "The ant" in result
 
 
 # ── religion_agnostic.check ───────────────────────────────────────────────────

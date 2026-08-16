@@ -88,7 +88,7 @@ def mock_llm():
 @pytest.fixture
 def pipeline(mock_llm):
     settings = MagicMock()
-    with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+    with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
         return AtmaRefinerPipeline(settings)
 
 
@@ -479,7 +479,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "script_md" in result
         assert result["script_md"].strip() != ""
@@ -497,7 +497,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 with patch("ytfactory.agents.prompts.composer.build_script_a_prompt") as pa:
                     with patch("ytfactory.agents.prompts.composer.build_script_b_prompt") as pb:
                         atma_7beat_refiner_node(state)
@@ -516,7 +516,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "atma_current_revision_id" in result
         assert result["atma_current_revision_id"] is not None
@@ -533,7 +533,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert result["atma_revision_number"] == 1
 
@@ -551,7 +551,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         # Feedback consumed → cleared in result
         assert result["atma_reviewer_feedback"] is None
@@ -568,7 +568,7 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "atma_validation" in result
         assert "status" in result["atma_validation"]
@@ -664,7 +664,7 @@ class TestProductionWorkflowAssertions:
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
 
         with patch("ytfactory.agents.nodes.atma_refiner.WORKSPACE_DIR", str(tmp_path)):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 result = human_review_atma_script_node(state)
 
         # script_md returned is the canonical script
@@ -691,7 +691,7 @@ class TestProductionWorkflowAssertions:
         }
         mock_llm = MagicMock()
         with patch("ytfactory.agents.nodes.atma_refiner.WORKSPACE_DIR", str(tmp_path)):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
                 with patch("typer.prompt") as mock_prompt:
                     human_review_atma_script_node(state)
                     mock_prompt.assert_not_called()
@@ -980,7 +980,7 @@ class TestEngagementLayer:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT_WITH_ENGAGEMENT)
         settings = MagicMock()
-        with patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
+        with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
             pipeline = AtmaRefinerPipeline(settings)
         identity = ScriptIdentity(core_topic="Mastery")
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):

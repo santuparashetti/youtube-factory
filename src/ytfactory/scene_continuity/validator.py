@@ -247,12 +247,23 @@ class ContinuityValidator:
     def _check_narration_coverage(
         self, scene_idx: int, prompt: str, narration: str
     ) -> list[ContinuityFinding]:
-        """Warn when prompt seems completely disconnected from narration content."""
+        """Weak lexical-overlap diagnostic — LOW_LEXICAL_OVERLAP, not proof of narration failure.
+
+        V2 image prompts use cinematic language that intentionally diverges from narration
+        vocabulary; a low overlap score is normal and expected. This check is informational
+        only: it surfaces scenes where the prompt may be disconnected, but never blocks export.
+
+        Engagement/CTA metadata tags are stripped before keyword extraction so the actual
+        spoken narration text is still evaluated.
+        """
         findings: list[ContinuityFinding] = []
         if not narration or not prompt:
             return findings
 
-        # Extract significant words from narration (>4 chars, skip stopwords)
+        # Strip leading [ENGAGEMENT: ...] or [CTA: ...] metadata tags —
+        # they are compositor instructions, not part of the spoken narration.
+        text = re.sub(r"^\s*\[[A-Z]+:[^\]]*\]\s*", "", narration)
+
         _STOPWORDS = frozenset(
             {
                 "there",
@@ -281,29 +292,32 @@ class ContinuityValidator:
         )
         narration_words = {
             w.lower()
-            for w in re.findall(r"\b\w+\b", narration)
+            for w in re.findall(r"\b\w+\b", text)
             if len(w) > 4 and w.lower() not in _STOPWORDS
         }
         prompt_lower = prompt.lower()
 
-        # Count how many narration words appear in prompt
+        # Skip if too few content words remain after stripping tags
         if len(narration_words) < 3:
             return findings
 
         matches = sum(1 for w in narration_words if w in prompt_lower)
         coverage = matches / len(narration_words)
-        if coverage < 0.08:  # Less than 8% overlap — very likely a disconnected prompt
+        if coverage < 0.08:
             findings.append(
                 ContinuityFinding(
                     scene_id=scene_idx,
-                    level=ValidationLevel.WARNING,
-                    category="NARRATION_COVERAGE",
+                    level=ValidationLevel.INFO,
+                    category="LOW_LEXICAL_OVERLAP",
                     message=(
-                        f"Scene {scene_idx} prompt shares very few words with narration "
-                        f"({matches}/{len(narration_words)} key words). "
-                        "Prompt may be disconnected from what is being said."
+                        f"Scene {scene_idx} prompt shares few literal words with narration "
+                        f"({matches}/{len(narration_words)} key words, {coverage:.0%} overlap). "
+                        "V2 cinematic prompts routinely use different vocabulary — verify semantic "
+                        "faithfulness manually if unexpected."
                     ),
-                    suggested_fix="Ensure the visual prompt represents what the narration describes.",
+                    suggested_fix=(
+                        "Check that the visual prompt captures the narration's intent, not its words."
+                    ),
                 )
             )
         return findings

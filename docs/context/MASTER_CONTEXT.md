@@ -10,8 +10,354 @@ metadata:
 # YouTube Factory — Master Context
 
 **Repo root:** `/home/santosh/pvt-files/youtube-factory`  
-**Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg  
-**Test count:** ~3711 passing, 3 skipped, 11 pre-existing failures (as of 2026-08-13)
+**Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg; TypeScript (Node 20, native test runner, no build step)  
+**Test count:** ~4255 Python passing, 3 skipped, 2 pre-existing failures (as of 2026-08-16)
+
+## 2026-08-16 — TypeScript: Model Cost Guard + OpenRouter Job Runner
+
+### Purpose
+
+New TypeScript pipeline layer at `src/` that wraps all OpenRouter LLM calls: fetches live pricing at job start, enforces discount/cost guard rules per role, falls back through a configurable priority list, and prints a per-role cost summary at job completion.
+
+### Files
+
+| File | Description |
+|---|---|
+| `src/lib/model-guard.ts` | Guard module — all exported functions |
+| `src/lib/model-guard.test.ts` | Unit test suite (node:test, native transform-types) |
+| `src/jobs/run-job.ts` | Job entry point — phases A–E pipeline + CLI bootstrap |
+| `package.json` | `"test:guard"` script; `@types/node` only |
+| `tsconfig.json` | Strict mode, NodeNext modules |
+
+### model-guard.ts API
+
+| Function | Description |
+|---|---|
+| `initJobPricing()` | Fetch live OpenRouter rates; validate all role models. **Must be called once before any `guardModel()`.** Throws `MISSING_API_KEY`, `API_ERROR`, `NO_ROLES`, or `FATAL`. |
+| `guardModel(role)` | Validate model for a role immediately before an LLM call. Returns `GuardReport`. Throws `NOT_INITIALIZED`, `UNKNOWN_ROLE`, or `BLOCKED`. |
+| `recordUsage(role, in, out)` | Record actual token counts after each LLM response — updates cost in latest report for that role. |
+| `getGuardReport()` | `GuardReport[]` — one per `guardModel()` call in current job. |
+| `getModelPricing(modelId)` | Cached `ModelPricing` for any model seen in current pricing response. |
+| `_resetState()` | Testing only — wipes all module-level state. |
+
+### Guard Rules (env-configurable)
+
+| Env var | Default | What it guards |
+|---|---|---|
+| `GUARD_MIN_DISCOUNT` | `0.15` | Model must have ≥ 15% discount vs original price |
+| `GUARD_MAX_INPUT_PRICE` | `0.50` | Input price ≤ $0.50/M tokens |
+| `GUARD_MAX_OUTPUT_PRICE` | `0.65` | Output price ≤ $0.65/M tokens |
+
+Discount derived from `original_prompt` if present, else `original_completion`. Zero if neither field exists (fails min-discount rule).
+
+### Role Assignment
+
+```
+ROLE_MODEL__<ROLE>=<model-id>          # primary model for role
+ROLE_FALLBACK__<ROLE>=<m1>,<m2>,...    # fallback chain (comma-separated, trimmed)
+```
+
+`initJobPricing()` tries primary → fallbacks in order. If ALL candidates fail → `FATAL` thrown. **Any role with no passing model blocks the entire job before it starts.**
+
+### Key Architectural Decisions
+
+- **State committed before FATAL**: `_pricingCache`, `_thresholds`, `_roleModels`, `_roleFallbacks` are all assigned BEFORE the FATAL role check. `guardModel()` can still be called for valid roles even when `initJobPricing()` throws — test `beforeEach` pattern: `await initJobPricing().catch(() => {})`.
+- **Always reset on `initJobPricing()`**: Never reuses state from a prior call (fresh rates every job).
+- **No build step**: `node --experimental-transform-types` runs `.ts` files directly.
+
+### Pipeline Modes (`run-job.ts`)
+
+**Design decision:** All wizard menu options route through a single `runJob(config: JobConfig)` rather than separate entry-point files. This mirrors the Python `pipeline_mode` pattern and guarantees the `initJobPricing()` → phases → cost table → `_resetState()` bookend for every mode.
+
+```typescript
+export type PipelineMode = "full" | "resume" | "replan" | "shorts-prep" | "shorts-render" | "images" | "voice";
+
+export interface JobConfig {
+  projectId: string;
+  topic: string;
+  language?: string;
+  pipelineMode?: PipelineMode;
+  scriptContent?: string;   // required for "resume", "replan", "shorts-render", "voice"
+  scenesContent?: string;   // required for "resume", "images"
+}
+```
+
+**Wizard menu → mode mapping:**
+
+| Wizard option | `pipelineMode` | Phases run |
+|---|---|---|
+| New Project (Phase 1) | `"full"` | A (script analysis → writing → judge → recompose → scene plan) + C (visuals) + D (voice) + E (QA) |
+| Resume Project (Phase 2) | `"resume"` | C + D + E — needs `scriptContent` + `scenesContent` |
+| Re-plan Scenes (keep script) | `"replan"` | B (scene-plan only) + C + D + E — needs `scriptContent` |
+| Generate Shorts (Phase 1) | `"shorts-prep"` | script-analysis + scene-planning |
+| Generate Shorts (Phase 2) | `"shorts-render"` | D + E — needs `scriptContent` |
+| Images only | `"images"` | C only — needs `scenesContent` |
+| Voice only | `"voice"` | D only — needs `scriptContent` |
+
+**`runJob()` bookend — all modes guaranteed:**
+```typescript
+await initJobPricing();           // fresh rates; throws FATAL if any role has no passing model
+// ... phases via switch(pipelineMode) ...
+printCostSummary(projectId, pipelineMode, getGuardReport());
+_resetState();                    // explicit wipe — stale prices cannot bleed into next job
+```
+
+**`NOT_INITIALIZED` behavior after `_resetState()`:** calling `guardModel()` without a fresh `initJobPricing()` throws `NOT_INITIALIZED`. This is correct — the guard does NOT auto-retry pricing. Calling code must explicitly start a new job with `initJobPricing()`.
+
+**`runStage()` primitive** — wires guard + LLM + token recording for every role call:
+```typescript
+async function runStage(role: string, prompt: string): Promise<LLMResult> {
+  const { selectedModel } = await guardModel(role);
+  const result = await callLLM(selectedModel, prompt);
+  recordUsage(role, result.inputTokens, result.outputTokens);
+  return result;
+}
+```
+
+**`callLLM()` token counts:** `inputTokens = usage.prompt_tokens ?? 0`, `outputTokens = usage.completion_tokens ?? 0` — defaults to 0 when OpenRouter omits `usage` (some models do this).
+
+### Test fix patterns — three critical gotchas
+
+**1. `setup()` always uses `MOCK_PASSING_MODEL` for the role (not the test model):**
+Assigning a failing test model to `ROLE_MODEL__r` causes `initJobPricing()` to throw FATAL before the test body. Fix: keep the role on `MOCK_PASSING_MODEL`; test models go in the fetch response and are read via `getModelPricing()` only.
+
+**2. "guardModel" `beforeEach` catches FATAL:**
+```typescript
+await initJobPricing().catch(() => {});
+```
+`blocked-role` has all-failing models → FATAL thrown → without `.catch()`, every test in the group fails. Works because `initJobPricing()` commits `_pricingCache`, `_thresholds`, `_roleModels`, `_roleFallbacks` BEFORE throwing, so `guardModel()` for non-blocked roles still works.
+
+**3. IEEE 754 boundary:** `1 - (5e-7 / 5.882352941e-7) = 0.14999...` (not `0.15`). Boundary test model uses `original_prompt = "0.0000010000"` (50% discount) to avoid imprecision — tests check `<=` on price thresholds, not the discount boundary fraction itself.
+
+### Test Run
+
+```bash
+node --experimental-transform-types --test src/lib/model-guard.test.ts
+# or: npm run test:guard
+```
+
+**43/43 pass.** TypeScript strict-mode compiles clean (`npm run typecheck`).
+
+---
+
+## 2026-08-16 — Prompt Assembly Corruption Fix + Scene Prompt QA
+
+### Root Cause
+
+`_enforce_style_footer` in `scene_planner.py` was called on V2 synthesis prompts without a V2 gate. Its helper `_strip_partial_footer` removes from a style indicator word (`photorealistic`, `cel shading`, etc.) through the next period. When these words appear mid-sentence in V2 prose, this strips the rest of the sentence, leaving the prior clause truncated at a dangling article directly abutting the next sentence. This produced the malformed patterns in `IMAGE_PROMPTS.md`: `A tight A tiny...`, `A The visual action...`, `A Their convergence...` (broken_join), `the No single...` (mid_sentence_splice).
+
+**Fix** (1 line, `scene_planner.py` line ~4888):
+```python
+if not settings.image_prompt_synthesis_v2_enabled:
+    scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
+```
+Style enforcement for V2 image generation is handled by `enrich_for_provider()` in `ImagePipeline` (STRICT RULE prefix) — gating `_enforce_style_footer` does not affect output quality.
+
+### Scene Prompt QA Added (`prompt_synthesis.py`)
+
+`validate_scene_prompt_qa(prompt, scene_index, *, narration, character_presence, prev_environment)` — deterministic, no LLM. Called as final pass inside `synthesize_visual_prompts()` AFTER the repair block. Issues go to `report.validation_issues` but **never trigger repair** and **never add scenes to `failed_scenes`**.
+
+| Check | Severity | What |
+|---|---|---|
+| `qa_photo_char_error` | ERROR | `photorealistic/realistic/hyperrealistic + character noun` — excludes artifact/statue false positives |
+| `qa_cartoon_env_error` | ERROR | `cartoon/animated/hand-drawn/illustrated + environment noun` |
+| `qa_env_continuity_warning` | WARNING | Zero token overlap with `prev_environment` + no narration transition signal |
+| `qa_char_presence_warning` | WARNING | `character_presence` non-empty but prompt says "no characters / environment-only" |
+| `qa_compositor_text_error` | ERROR | Subscribe button, like button, end-screen overlay embedded in image prompt |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/agents/nodes/scene_planner.py` | Gate `_enforce_style_footer` on `not settings.image_prompt_synthesis_v2_enabled` |
+| `src/ytfactory/images/prompt_synthesis.py` | 5 QA regex constants + `validate_scene_prompt_qa()` + Scene QA wiring at end of `synthesize_visual_prompts()` |
+| `tests/test_prompt_synthesis.py` | 114 new tests (151 total): corruption patterns × 5 parametrized, clean no-false-positive, B1/B2/C/D/E unit + negative, integration (report wiring, no repair trigger, env-state isolation) |
+
+---
+
+## 2026-08-16 — Task-Specific LLM Model Configuration
+
+### What Was Added
+
+A three-layer task-specific model selection system so each pipeline stage can use the best model for its work (cheap 30B for writing/planning, expensive 235B for analysis/QA), without touching existing provider plumbing.
+
+### Architecture
+
+**New file:** `src/video_core/providers/llm/tasks.py` — `LLMTask(str, Enum)` with 7 values:
+- `SCRIPT_ANALYSIS`, `SCRIPT_WRITING`, `SCRIPT_REFINEMENT` — script-phase tasks
+- `SCENE_PLANNING`, `VISUAL_PROMPTS`, `VISUAL_REFINEMENT` — image-prompt tasks
+- `QA` — all validation / cheap-LLM calls
+
+**`SharedSettings` (`src/video_core/config/shared_settings.py`):**
+- 7 new fields `yt_llm_model_<task>: str`, mapping to `YT_LLM_MODEL_*` env vars
+- Defaults: heavy tasks (`SCRIPT_ANALYSIS`, `QA`) → `Qwen/Qwen3-235B-A22B-Thinking-2507`; light tasks → `Qwen/Qwen3-30B-A3B-Instruct-2507`
+- New method `get_llm_model(task: LLMTask) -> str` — resolution order: task field → `llm_default_model` → provider's own model field; emits `logger.debug` with task + resolved model
+
+**`factory.py` (`src/video_core/providers/llm/factory.py`):**
+- New `get_llm_for_task(settings, task: LLMTask) -> LLMProvider` — resolves model via `get_llm_model`, creates provider via `settings.model_copy(update={field: model})`
+
+**Resolution logic** (`get_llm_for_task`):
+1. Call `settings.get_llm_model(task)` → model string
+2. Look up `_PROVIDER_MODEL_FIELD[provider_type]` to get the settings field name
+3. If resolved model == current field value → call `get_llm_provider(settings)` directly (no copy)
+4. Otherwise → `get_llm_provider(settings.model_copy(update={field: model}))`
+
+### Provider Switch
+
+`.env` switched from `LLM_PROVIDER=anthropic` to `LLM_PROVIDER=deepinfra` with `DEEPINFRA_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507`. Old `LLM_PROVIDER=anthropic` and broken model names (`SCRIPT_MODEL`, `SCENE_PLANNER_MODEL`, `ANTHROPIC_MODEL=deepseek/...`) commented out per `.env` change policy. `DEEPINFRA_API_KEY=` added — user must fill in their key.
+
+### Pipeline Wiring
+
+| File | Change |
+|---|---|
+| `src/ytfactory/agents/nodes/script_writer.py` | `get_llm_for_task(settings, LLMTask.SCRIPT_WRITING)` |
+| `src/ytfactory/agents/nodes/scene_planner.py` | `SCENE_PLANNING` for main planner; `VISUAL_PROMPTS` for synthesis; `VISUAL_REFINEMENT` for repair; `QA` in `_get_cheap_llm` fallback |
+| `src/ytfactory/atma_refiner/pipeline.py` | `get_llm_for_task(settings, LLMTask.SCRIPT_REFINEMENT)` |
+| `src/ytfactory/editorial_qa/pipeline.py` | `get_llm_for_task(settings, LLMTask.SCRIPT_ANALYSIS)` |
+
+`_get_cheap_llm(settings, purpose)` in `scene_planner.py` — when no explicit `model_override`, falls through to `get_llm_for_task(settings, LLMTask.QA)`. Named-purpose overrides (`"validator"`, etc.) still use `get_llm_for_role`.
+
+### `.env.example` Changes
+
+Added DeepInfra block + task-specific model section with 7 commented-out `YT_LLM_MODEL_*` vars.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/video_core/providers/llm/tasks.py` | **NEW** — `LLMTask` enum (7 values) |
+| `src/video_core/config/shared_settings.py` | 7 `yt_llm_model_*` fields + `get_llm_model()` method |
+| `src/video_core/providers/llm/factory.py` | `get_llm_for_task()` function |
+| `src/ytfactory/agents/nodes/script_writer.py` | Wired to `SCRIPT_WRITING` task |
+| `src/ytfactory/agents/nodes/scene_planner.py` | Wired to `SCENE_PLANNING`, `VISUAL_PROMPTS`, `VISUAL_REFINEMENT`, `QA` |
+| `src/ytfactory/atma_refiner/pipeline.py` | Wired to `SCRIPT_REFINEMENT` task |
+| `src/ytfactory/editorial_qa/pipeline.py` | Wired to `SCRIPT_ANALYSIS` task |
+| `.env` | Switched to DeepInfra + Qwen3; old values commented out |
+| `.env.example` | Added DeepInfra block + `YT_LLM_MODEL_*` documentation |
+| `tests/test_llm_tasks.py` | **NEW** — 12 tests covering enum, resolver, fallback chain, debug logging, `get_llm_for_task` |
+| `tests/test_atma_refiner.py` | Patched `get_llm_for_task` (was `get_llm_for_role`) — 10 occurrences |
+| `tests/test_editorial_qa.py` | Patched `get_llm_for_task` (was `get_llm_for_role`) — 2 occurrences |
+| `tests/test_final_script_review_gate.py` | Patched `get_llm_for_task` (was `get_llm_for_role`) — 2 occurrences |
+| `tests/test_shorts_pipeline.py` | Added `recomposer.get_llm_for_role` + all-5-modules patch to `test_pipeline_requires_script_md_exists` |
+| `tests/test_image_prompt_engine.py` | Updated stale `"10 elements"` assertion to match current 5-part PROMPT STRUCTURE |
+
+### Key Invariants
+
+- `LLMTask` is a `str` enum — values can be used as dict keys and in f-strings
+- `YT_LLM_MODEL_*` env vars are the override mechanism; leave them unset to use the coded defaults
+- `DeepInfraProvider.__init__` validates `deepinfra_api_key` at construction time — all tests that create `ShortsPipeline(Settings())` or similar must patch all 5 shorts module `get_llm_for_role` calls
+- `get_llm_for_role` is still used in shorts pipeline modules (`extractor`, `generator`, `validator`, `scene_planner`, `recomposer`) — those modules are intentionally not migrated to task-based selection yet
+- `_get_cheap_llm` in `scene_planner.py` no longer hardcodes a model — it delegates to `LLMTask.QA` via `get_llm_for_task`
+
+### Test Results
+
+- `tests/test_llm_tasks.py`: **12 passed** (new)
+- Full suite: **4255 passed**, 3 skipped, 2 pre-existing failures (`test_static_shot_detected`, `test_system_prompt_contains_framework_sections` — unrelated to this work)
+- ruff: clean; mypy: 0 new errors
+
+## 2026-08-15 — Image Prompt Synthesis V2: single-pass synthesis replacing Phase 2 + Layer 3 + QA repair
+
+### What Was Replaced
+
+Four old LLM paths removed from the image-prompt generation pipeline:
+
+1. **Phase 2 batch synthesis** — `build_visual_prompts_prompt` loop calling LLM once per batch to produce structured prompt dicts
+2. **Layer 3 fidelity validation + retry loop** — per-scene LLM calls validating and rewriting structured prompts (up to 3 attempts each)
+3. **V2 structured prompt block** — per-scene LLM calls to build hybrid-style structured prompts when `HYBRID_STYLE_ENABLED` or `VISUAL_BIBLE_ENABLED` were set
+4. **`run_prompt_qa_pass`** — LLM repair pass that rewrote prompts failing QA checks
+
+All four are now bypassed when `image_prompt_synthesis_v2_enabled=True` (the default).
+
+### Architecture Change
+
+**New module:** `src/ytfactory/images/prompt_synthesis.py` — `synthesize_visual_prompts(scenes, llm, *, visual_bible, story_bible, batch_size, temperature) → SynthesisReport`
+
+- **ONE LLM call per batch** (default batch=10, `json_mode=True`, temp=0.35) → final rich cinematic prose prompt per scene. No structured prompt dicts, no metadata block headers.
+- **System prompt** encodes: hybrid style (photorealistic env + hand-painted 2D illustrated characters/animals), source hierarchy (Narration > [Visual:] > Beat > Continuity > Visual Bible > Context > Global style), character rules, adjacent-context usage, text/branding prohibition, JSON output format.
+- **Adjacent context**: each scene block includes `PREV_NARRATION` and `NEXT_NARRATION` (cross-batch safe — locates each scene in the full list regardless of batch boundary).
+- **Character handling**: `character_presence` field is authoritative (list of Story Bible IDs). Character specs looked up via `_lookup_character_spec()` from Story Bible. Empty `character_presence` = environment-only scene. No global Kai hardcoding.
+- **Deterministic validation only** (6 checks — no LLM repair): `empty_prompt`, `too_short` (<10 words), `too_long` (>500 words), `kai_injection` (environment-only scenes only), `meta_instructions` (PRIMARY SUBJECT:, ANT:, etc.), `text_branding`.
+- **Retry**: on parse failure, one retry with same prompt. On second parse failure: scenes flagged in `report.failed_scenes`, logged as error, pipeline continues (non-blocking).
+- **`faithfulness_qa`**: set to `{status: "pass", llm_reason: "synthesis_v2", llm_validated: False, attempts: 1}` for all scenes processed by synthesis V2.
+
+**Guard pattern** in `scene_planner_node`:
+- Phase 2 loop: `for batch_start in ([] if settings.image_prompt_synthesis_v2_enabled else range(...))`
+- Layer 3 loop: `for scene in (generated_scenes if not settings.image_prompt_synthesis_v2_enabled else [])`
+- V2 structured prompts block: `if (HYBRID_STYLE_ENABLED or VISUAL_BIBLE_ENABLED) and not image_prompt_synthesis_v2_enabled:`
+- QA pass: `if image_prompt_qa_enabled and not image_prompt_synthesis_v2_enabled:`
+
+**What still runs downstream for V1 path only (gated on `not image_prompt_synthesis_v2_enabled`):**
+- `_enforce_primary_kai_spec(scenes)` — data-driven from `character_presence`
+- `_enforce_style_footer(scenes)` — adds style footer; **V2-gated** (see 2026-08-16 fix below)
+- `_enforce_era_consistency(scenes)`
+- `enrich_for_provider()` in `ImagePipeline` — STRICT RULE prefixes, anatomy reinforcement, clothing policy (runs for ALL paths)
+- V4 engine diagnostics
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/images/prompt_synthesis.py` | **NEW** — `synthesize_visual_prompts`, `validate_synthesis_result`, `SynthesisReport`, `SynthesisIssue`, `_build_scene_block`, `_parse_synthesis_response` (with index-remap safety net), `_build_visual_bible_section`, `_lookup_character_spec` |
+| `src/ytfactory/config/settings.py` | Added `image_prompt_synthesis_v2_enabled: bool = True`; changed `image_prompt_qa_enabled` default to `False` |
+| `src/ytfactory/agents/nodes/scene_planner.py` | 7 targeted edits: V2 synthesis block wired before Phase 2; Phase 2 loop gated; Layer 3 loop gated; Layer 3 console.print gated; `faithfulness_qa` PASS case added for V2 scenes; V2 structured prompt block gated; QA pass gated |
+| `tests/test_prompt_synthesis.py` | **NEW** — 37 tests covering all 11 spec scenarios |
+
+### Key Invariants
+- `image_prompt_synthesis_v2_enabled=True` is the default. Set to `False` in `.env` to fall back to old Phase 2 + Layer 3 + QA path (for A/B comparison only).
+- `image_prompt_qa_enabled` defaults to `False` when V2 is enabled. Setting both `True` is redundant and harmless (QA gated on `not image_prompt_synthesis_v2_enabled`).
+- `_parse_synthesis_response`: if LLM returns 1-N indexes instead of the batch's actual indexes and counts match, remaps by position. This handles LLM index reset silently.
+- `faithfulness_qa` PASS with `llm_reason="synthesis_v2"` is set only if the scene's index is in `vp_map` (synthesis produced a result for it). Scenes in `failed_scenes` do not get this override — they fall through to the old `faithfulness_qa` default.
+- Brand-card scenes (`scene_type != "generated_image"`) are excluded from synthesis.
+
+### Test Results
+- `tests/test_prompt_synthesis.py`: **37 passed** (all 11 spec scenarios covered)
+- Full suite: **4036 passed**, 11 pre-existing failures unchanged, 0 new failures
+- ruff: clean; mypy: 0 new errors
+
+## 2026-08-16 — Prompt assembly corruption root-cause fix + Scene Prompt QA
+
+### Root Cause
+
+`_enforce_style_footer` in `scene_planner.py` was called on V2 synthesis prompts without any V2 gate. Its helper `_strip_partial_footer` uses the regex `rf"[,.]?\s*{re.escape(indicator)}[^.]*\.?"` — this strips from the indicator word (`photorealistic`, `cel shading`, etc.) through the end of the sentence. When these words appear mid-sentence in V2 prose (e.g., "standing in a photorealistic stone courtyard, warm light."), the regex removes everything from "photorealistic" to the period, leaving the truncated first clause directly abutting the next sentence with a dangling article. This produced the malformed patterns reported in `IMAGE_PROMPTS.md`:
+- `A tight A tiny...` / `A The visual action...` / `A Their convergence...` — broken_join
+- `the No single...` — mid_sentence_splice
+
+### Fix
+
+One-line gate in `scene_planner.py` (line ~4888), following the same pattern as `_enforce_primary_kai_spec`:
+
+```python
+if not settings.image_prompt_synthesis_v2_enabled:
+    scenes = _enforce_style_footer(scenes, hybrid=settings.HYBRID_STYLE_ENABLED)
+```
+
+Style enforcement for V2 image generation is handled by `enrich_for_provider()` in `ImagePipeline` (STRICT RULE prefix) — gating `_enforce_style_footer` does not affect image quality.
+
+### Scene Prompt QA Added
+
+New `validate_scene_prompt_qa(prompt, scene_index, *, narration, character_presence, prev_environment)` in `prompt_synthesis.py` — deterministic, no LLM, no new provider.
+
+Called at end of `synthesize_visual_prompts()` AFTER the repair block (separate pass). Issues go to `report.validation_issues` as `"qa_*_error"` (hard) or `"qa_*_warning"` (soft). **QA issues do NOT trigger repair and do NOT add scenes to `failed_scenes`** — they are logged and recorded only.
+
+| Check | Severity | What It Catches |
+|---|---|---|
+| `qa_photo_char_error` | ERROR | `photorealistic/realistic/hyperrealistic + character noun` — violates hybrid style contract; excludes artifact/statue false positives |
+| `qa_cartoon_env_error` | ERROR | `cartoon/animated/hand-drawn/illustrated + environment noun` — environments must be photorealistic |
+| `qa_env_continuity_warning` | WARNING | Zero token overlap between current prompt and `prev_environment` with no narration transition signal |
+| `qa_char_presence_warning` | WARNING | `character_presence` non-empty but prompt contains "no characters / no people / environment-only" |
+| `qa_compositor_text_error` | ERROR | UI elements owned by the compositor (subscribe button, like button, end-screen overlay) embedded in image prompt |
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/ytfactory/agents/nodes/scene_planner.py` | Gate `_enforce_style_footer` on `not settings.image_prompt_synthesis_v2_enabled` |
+| `src/ytfactory/images/prompt_synthesis.py` | 5 new QA regex constants + `validate_scene_prompt_qa()` + Scene QA wiring at end of `synthesize_visual_prompts()` |
+| `tests/test_prompt_synthesis.py` | 114 new tests: root-cause corruption patterns (5 parametrized), clean-prompt no-false-positive, B1/B2/C/D/E QA unit tests (positive + negative), integration (report wiring, no repair trigger, env-state isolation) |
+
+### Test Results
+- `tests/test_prompt_synthesis.py`: **151 passed** (114 new + 37 prior)
+- ruff: clean on modified files; mypy: 0 new errors
 
 ## 2026-08-13 — character_presence: remove automatic Kai injection; authoritative character presence field
 

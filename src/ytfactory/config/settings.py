@@ -144,11 +144,17 @@ class Settings(SharedSettings):
     # Image Prompt QA/Fix Pass
     # ------------------------------------------------------------------
 
+    # Single-pass synthesis V2: ONE LLM call per batch → final prompt per scene.
+    # Replaces Phase 2 batch synthesis + Layer 3 fidelity retry + QA repair pass.
+    # When True the old multi-LLM generation paths are bypassed entirely.
+    image_prompt_synthesis_v2_enabled: bool = True
+
     # Run one LLM semantic QA + targeted repair pass after all prompts are
     # generated and before scene-plan.json is written.  The LLM checks
     # narration fidelity, character presence, visual-world coherence, and
     # text-rendering instructions, then repairs only the violating portions.
-    image_prompt_qa_enabled: bool = True
+    # Disabled by default when image_prompt_synthesis_v2_enabled is True.
+    image_prompt_qa_enabled: bool = False
 
     # Model used for the QA/fix pass — lightweight flash model is sufficient.
     image_prompt_qa_model: str = "google/gemini-2.5-flash-lite"

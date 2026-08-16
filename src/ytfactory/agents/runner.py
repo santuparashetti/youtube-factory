@@ -8,14 +8,71 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 
-from ytfactory.agents.graph import graph
+from video_core.providers.llm.cost_tracker import CostTracker
+from ytfactory.agents.graph import compile_graph
 from ytfactory.agents.state import VideoState
 from ytfactory.create.pipeline import CreatePipeline
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.shared.pipeline_status import PipelineAbort
 
 console = Console()
+
+_TASK_LABEL: dict[str, str] = {
+    "script_analysis":   "Script Analysis",
+    "script_writing":    "Script Writing",
+    "script_refinement": "Script Refinement",
+    "scene_planning":    "Scene Planning",
+    "visual_prompts":    "Visual Prompts",
+    "visual_refinement": "Visual Refinement",
+    "qa":                "Prompt QA",
+    "research":          "Research",
+    "script":            "Script",
+    "title":             "Title",
+    "subtitle":          "Subtitle",
+    "ssml":              "SSML",
+}
+
+
+def _print_cost_table() -> None:
+    """Print the per-model LLM cost table accumulated during this run."""
+    records = CostTracker.get_records()
+    if not records:
+        return
+
+    records.sort(key=lambda r: r.task_label)
+    has_cost = any(r.cost_usd > 0 for r in records)
+
+    table = Table(title="LLM Usage", show_footer=True, border_style="dim")
+    table.add_column("Purpose", style="cyan", footer="TOTAL")
+    table.add_column("Model", style="dim")
+    table.add_column("Calls", justify="right", footer=str(sum(r.call_count for r in records)))
+    table.add_column("Input Tokens", justify="right",
+                     footer=f"{sum(r.input_tokens for r in records):,}")
+    table.add_column("Output Tokens", justify="right",
+                     footer=f"{sum(r.output_tokens for r in records):,}")
+    if has_cost:
+        total_cost = sum(r.cost_usd for r in records)
+        table.add_column("Cost (USD)", justify="right",
+                         footer=f"${total_cost:.4f}")
+
+    for rec in records:
+        purpose = _TASK_LABEL.get(rec.task_label, rec.task_label)
+        model_short = rec.model.split("/")[-1] if "/" in rec.model else rec.model
+        row = [
+            purpose,
+            model_short,
+            str(rec.call_count),
+            f"{rec.input_tokens:,}",
+            f"{rec.output_tokens:,}",
+        ]
+        if has_cost:
+            row.append(f"${rec.cost_usd:.4f}")
+        table.add_row(*row)
+
+    console.print()
+    console.print(table)
 
 
 def run_pipeline(
@@ -89,6 +146,7 @@ def run_pipeline(
     if script_path and source_url:
         raise ValueError("script_path and source_url are mutually exclusive — pick one source")
 
+    CostTracker.reset()
     start_time = time.perf_counter()
 
     console.print(Rule("[bold cyan]YouTube Factory — Agentic Pipeline[/bold cyan]"))
@@ -207,7 +265,10 @@ def run_pipeline(
         console.print("[green]✓[/green] All expected images present\n")
 
     # ── Run the graph ─────────────────────────────────────────────────────
+    # Fresh graph per invocation: avoids MemorySaver restoring stale checkpoint
+    # state when the same project_id is re-planned multiple times in one process.
     config = {"configurable": {"thread_id": project_id}}
+    graph = compile_graph()
 
     try:
         final_state = graph.invoke(initial_state, config=config)
@@ -228,6 +289,7 @@ def run_pipeline(
             "Publishing",
         ]:
             console.print(f"  [yellow]✓ {name}[/yellow]")
+        _print_cost_table()
         console.print()
         return project_id
 
@@ -252,6 +314,7 @@ def run_pipeline(
                 border_style="green",
             )
         )
+        _print_cost_table()
         console.print()
         return project_id
 
@@ -276,6 +339,7 @@ def run_pipeline(
             f"({len(scene_plan)} scenes, {narration_words} words)"
         )
 
+    _print_cost_table()
     console.print()
     console.print(Rule("[bold green]Pipeline Complete[/bold green]"))
     console.print()

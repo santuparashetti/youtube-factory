@@ -25,7 +25,8 @@ from ytfactory.agents.prompts.script_writer import (
 )
 from ytfactory.agents.state import VideoState
 from ytfactory.config.settings import Settings
-from video_core.providers.llm.factory import get_llm_for_role
+from video_core.providers.llm.factory import get_llm_for_task
+from video_core.providers.llm.tasks import LLMTask
 from ytfactory.shared.constants import WORKSPACE_DIR
 from ytfactory.storage.artifact_repository import ArtifactRepository
 from ytfactory.storage.project_repository import ProjectRepository
@@ -66,7 +67,7 @@ def script_writer_node(state: VideoState) -> dict:
         return {"script_md": script_file.read_text(encoding="utf-8")}
 
     settings = Settings()
-    llm = get_llm_for_role(settings, "script")
+    llm = get_llm_for_task(settings, LLMTask.SCRIPT_WRITING)
     artifact_repo = ArtifactRepository()
     project_repo = ProjectRepository()
 

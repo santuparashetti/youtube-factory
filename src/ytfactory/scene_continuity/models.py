@@ -71,6 +71,7 @@ class TemporalMode(str, Enum):
 
 class ValidationLevel(str, Enum):
     PASS = "PASS"
+    INFO = "INFO"
     WARNING = "WARNING"
     ERROR = "ERROR"
     CRITICAL = "CRITICAL"

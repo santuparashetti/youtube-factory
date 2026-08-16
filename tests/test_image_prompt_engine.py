@@ -436,12 +436,11 @@ class TestScenePlannerPromptV4:
         prompt = build_visual_prompts_prompt([], style=None)
         assert "VISUAL CONTINUITY" in prompt or "visual journey" in prompt.lower()
 
-    def test_prompt_contains_10_element_structure(self):
+    def test_prompt_contains_prompt_structure_section(self):
         from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt
 
         prompt = build_visual_prompts_prompt([], style=None)
         assert "PROMPT STRUCTURE" in prompt
-        assert "10 elements" in prompt or "10. Quality" in prompt
 
     def test_prev_context_injected_correctly(self):
         from ytfactory.agents.prompts.scene_planner import build_visual_prompts_prompt

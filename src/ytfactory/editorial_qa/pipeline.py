@@ -23,7 +23,8 @@ from ytfactory.config.settings import Settings
 from ytfactory.editorial_qa.ledger import QALedger
 from ytfactory.editorial_qa.promoter import PatternPromoter
 from ytfactory.shared.constants import WORKSPACE_DIR
-from video_core.providers.llm.factory import get_llm_for_role
+from video_core.providers.llm.factory import get_llm_for_task
+from video_core.providers.llm.tasks import LLMTask
 
 console = Console()
 
@@ -197,7 +198,7 @@ class EditorialQAPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_for_role(settings, "validator")
+        self._llm = get_llm_for_task(settings, LLMTask.SCRIPT_ANALYSIS)
 
     def run(self, project_id: str, script_text: str | None = None) -> dict:
         if not getattr(self._settings, "editorial_qa_enabled", True):

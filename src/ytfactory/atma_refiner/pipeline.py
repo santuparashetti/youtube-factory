@@ -25,7 +25,8 @@ from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 
-from video_core.providers.llm.factory import get_llm_for_role
+from video_core.providers.llm.factory import get_llm_for_task
+from video_core.providers.llm.tasks import LLMTask
 from ytfactory.atma_refiner.prompts import (
     build_7beat_system_prompt,
     build_initial_refinement_prompt,
@@ -103,7 +104,7 @@ class AtmaRefinerPipeline:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = get_llm_for_role(settings, "script")
+        self._llm = get_llm_for_task(settings, LLMTask.SCRIPT_REFINEMENT)
         self._validator = ScriptValidator()
 
     def run(
