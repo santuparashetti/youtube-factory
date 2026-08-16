@@ -87,6 +87,9 @@ _TAG_RE = re.compile(
 )
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
+# Strips all non-alphanumeric characters for loose word comparison (catches
+# punctuation reformatting by the LLM without false-positives on content mismatches).
+_NON_WORD_RE = re.compile(r"[^\w]", re.UNICODE)
 _NEWLINE_RE = re.compile(r"\n{2,}")
 # LLMs sometimes capitalise the namespace: <Speechify:style — fix to lowercase.
 _SPEECHIFY_OPEN_CAP = re.compile(r'<Speechify:style\b', re.IGNORECASE)
@@ -174,15 +177,21 @@ class SsmlEnhancer:
         ssml = _normalize_ssml(ssml)
 
         # Verify the LLM did not add or remove words.
-        original_words = script.split()
+        # Normalize away punctuation/quote differences so minor reformatting
+        # by the LLM does not trigger a false fallback — we only want to catch
+        # genuinely added or removed words (hallucinations).
+        def _norm_words(text: str) -> list[str]:
+            return [w for w in (_NON_WORD_RE.sub("", t).lower() for t in text.split()) if w]
+
         ssml_text = strip_ssml(ssml)
-        ssml_words = ssml_text.split()
-        if ssml_words != original_words:
+        original_norm = _norm_words(script)
+        ssml_norm = _norm_words(ssml_text)
+        if ssml_norm != original_norm:
             logger.warning(
                 "SsmlEnhancer: content mismatch — original {} words, SSML has {} words. "
                 "Discarding and passing raw script to TTS.",
-                len(original_words),
-                len(ssml_words),
+                len(original_norm),
+                len(ssml_norm),
             )
             return script
 
