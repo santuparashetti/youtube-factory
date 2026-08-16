@@ -1,0 +1,12 @@
+{
+  "name": "youtube-factory-ts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:guard": "node --experimental-transform-types --test src/lib/model-guard.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20"
+  }
+}
