@@ -173,6 +173,19 @@ class SsmlEnhancer:
         ssml = ssml.lstrip()
         ssml = _normalize_ssml(ssml)
 
+        # Verify the LLM did not add or remove words.
+        original_words = script.split()
+        ssml_text = strip_ssml(ssml)
+        ssml_words = ssml_text.split()
+        if ssml_words != original_words:
+            logger.warning(
+                "SsmlEnhancer: content mismatch — original {} words, SSML has {} words. "
+                "Discarding and passing raw script to TTS.",
+                len(original_words),
+                len(ssml_words),
+            )
+            return script
+
         logger.info(
             "SsmlEnhancer: enhanced {} chars → {} chars SSML",
             len(script),
