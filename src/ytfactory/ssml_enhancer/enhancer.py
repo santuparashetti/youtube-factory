@@ -42,9 +42,21 @@ Inject the following intelligently based on story mood and feeling:
     between paragraphs/sections: 2.5–4.0s
 
 - <speechify:style emotion="...">text</speechify:style> switching as mood shifts.
+  CRITICAL STRUCTURE RULE — put <break> tags INSIDE style blocks, not between them:
+
+  CORRECT:
+    <speechify:style emotion="calm">Sentence one.<break time="1.0s" />Sentence two.<break time="1.5s" />Sentence three.</speechify:style>
+
+  WRONG (causes audio clipping — never do this):
+    <speechify:style emotion="calm">Sentence one.</speechify:style><break time="1.0s" /><speechify:style emotion="calm">Sentence two.</speechify:style>
+
+  Group all consecutive sentences that share the same emotion into ONE style block
+  with breaks inside. Only open a NEW style block when the emotion genuinely changes.
+  When the emotion changes, place the break AFTER the closing tag:
+    <speechify:style emotion="calm">Calm sentence one.<break time="1.0s" />Calm sentence two.</speechify:style><break time="0.8s" /><speechify:style emotion="warm">Warm sentence three.</speechify:style>
+
   IMPORTANT: speechify:style ALWAYS wraps its text with an opening AND a
-  closing tag. Use this form: <speechify:style emotion="calm">your text here</speechify:style>
-  NEVER write it self-closing (<speechify:style emotion="..." />) — this is invalid.
+  closing tag. NEVER write it self-closing (<speechify:style emotion="..." />) — this is invalid.
   ALWAYS include a matching </speechify:style> closing tag.
   Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
 surprised, calm, assertive, energetic, warm, direct, bright
@@ -92,6 +104,13 @@ _NEWLINE_RE = re.compile(r"\n{2,}")
 # used to inject a warm-up comma so the TTS decoder has phonetic context
 # before the next word starts (prevents first-word clipping after silences).
 _BREAK_THEN_WORD = re.compile(r'(<break[^/]*/>\s*)([A-Za-z])')
+# <break/> followed by a <speechify:style> open tag then a letter — the style
+# tag blocks _BREAK_THEN_WORD from firing.  Inject comma AFTER the style open
+# tag so the TTS decoder gets phonetic context before the first word.
+_BREAK_THEN_STYLE_THEN_WORD = re.compile(
+    r'(<break[^/]*/>\s*<speechify:style[^>]*>)([A-Za-z])',
+    re.IGNORECASE,
+)
 # Fix capital-S namespace: <Speechify:style → <speechify:style (and closing tag).
 _SPEECHIFY_OPEN_CAP = re.compile(r'<Speechify:style\b', re.IGNORECASE)
 _SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
@@ -122,7 +141,8 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)     # fix close-tag capitalisation
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                       # drop invalid self-closing tags
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml) # strip trailing dead air
-    ssml = _BREAK_THEN_WORD.sub(r'\1, \2', ssml)                    # warm-up comma after breaks
+    ssml = _BREAK_THEN_WORD.sub(r'\1, \2', ssml)                    # warm-up comma: break → word
+    ssml = _BREAK_THEN_STYLE_THEN_WORD.sub(r'\1, \2', ssml)        # warm-up comma: break → style → word
     return ssml
 
 
