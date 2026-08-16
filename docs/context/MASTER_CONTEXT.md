@@ -13,6 +13,83 @@ metadata:
 **Stack:** Python 3.10, uv, Pydantic v2, LangGraph, Typer, FFmpeg; TypeScript (Node 20, native test runner, no build step)  
 **Test count:** ~4255 Python passing, 3 skipped, 2 pre-existing failures (as of 2026-08-16)
 
+## 2026-08-16 — TTS/Voice upgrades: SSML fixes, Speechify speech marks, fade transitions, motion cleanup
+
+### SSML Enhancer (`src/ytfactory/ssml_enhancer/enhancer.py`)
+
+**`<speechify:style>` wrapping form** — Speechify docs define the correct form as a wrapping tag:
+`<speechify:style emotion="calm">text</speechify:style>` (NOT self-closing).
+System prompt updated; `_normalize_ssml` now:
+- Fixes capitalisation: `<Speechify:style` → `<speechify:style>` (both open and close tags)
+- Drops invalid self-closing `<speechify:style .../>` tags (empty content — just removes them)
+- Strips trailing `<break>` tags before `</speak>` (dead silence); trailing `</speechify:style>` is preserved (valid close)
+- Injects warm-up comma after each `<break>` (`,` before next word) to prevent first-word phoneme clipping after silences
+
+**Narration fidelity** — CRITICAL block in system prompt: LLM must not add/remove/reorder words; never invent sentences.
+
+**Break time** — halving removed entirely; original values preserved. System prompt now says "use seconds format, e.g. time=`1.5s`".
+
+**`strip_ssml` TAG_RE** updated to handle both wrapping open tag + close tag forms (case-insensitive).
+
+### Speechify Provider (`src/video_core/providers/tts/speechify.py`)
+
+**Speech marks wired up** — `_synthesise_chunk()` now returns `(duration: float, speech_marks: list[dict])`.
+Extracts word-level timing from `response.speech_marks.chunks` → `{"word", "start", "end"}` (seconds).
+
+**`generate_with_boundaries()`** — for single-batch requests, returns real word boundaries from the API.
+Falls back to `[]` on:
+- Cache hits (no API response available)
+- Multi-batch synthesis (offset-adjusted marks not yet implemented)
+Caller uses WhisperX alignment in the `[]` case.
+
+**Cache hit** returns `(duration, [])` — no speech marks without an API call.
+
+### Voice Pipeline (`src/ytfactory/voice/pipeline.py`)
+
+| Fix | Detail |
+|---|---|
+| dynaudnorm guarded | Only applied for `edge_tts`; skipped for Speechify/Kokoro |
+| SSML path | Formatter runs first (clean text), then SSML enhancer wraps it |
+| Duration fallback | ffprobe used when direct duration value missing from TTS response |
+| dynaudnorm frame | `m=100` → `m=500` (less aggressive normalisation) |
+| Skipped scenes | Appended to `scenes_metadata` so downstream stages see them |
+
+### FFmpeg Fade Transitions (`src/ytfactory/video/ffmpeg.py`)
+
+**Animated clip path** was missing `_fade_filters()` in two places:
+1. `compose_continuous_video()` — the `use_animated` branch now builds `vf_parts` including fade in/out filters
+2. `_render_animated()` — signature now accepts `transition_in`/`transition_out`; fades wired into filter chain
+3. `render()` fast path now passes `transition_in`/`transition_out` through to `_render_animated()`
+
+Static image path was already calling `_fade_filters()` correctly — only animated was broken.
+
+### OpenAI Provider Rate Limit Retry (`src/video_core/providers/llm/openai_provider.py`)
+
+`generate()` now retries on `RateLimitError` with exponential backoff: 5s → 10s → 20s (max 3 attempts).
+
+### TTS Formatter (`src/video_core/providers/tts/formatter.py`)
+
+`normalize_paragraphs` standard branch: double-newline → `". "`, single-newline → `", "` (substitutions were missing).
+
+### Motion Engine
+
+| Change | Detail |
+|---|---|
+| `WarmBloom` removed | `effects/light.py`, `__init__.py`, registry — unused effect deleted |
+| `LightHaze` removed | Same — unused effect deleted |
+| `MistDrift` improved | Configurable rectangular region via `x0/x1/y0/y1` fractional bounds; 2D density gradient (top-right corner densest); opacity lowered 0.30 → 0.15; default = top-right sky area |
+| `phase2/analyzer.py` | LLM-based motion analysis improvements |
+
+### Key Invariants
+
+- `speechify:style` in the SSML system prompt and `_normalize_ssml` are now aligned: wrapping form is authoritative, self-closing is invalid and dropped
+- Speech marks are extracted inside `_call()` via `nonlocal speech_marks` — only populated on live API calls, never on cache hits
+- `generate_with_boundaries()` is the correct entry point when subtitle timing is needed; `generate()` (single return value) is for audio-only paths
+- Warm-up comma (`_BREAK_THEN_WORD`) fires after EVERY `<break>` tag (not just the first) — regex handles multi-break SSML
+- Fade transitions: `_render_animated` and `compose_continuous_video` animated branch must BOTH be updated if fade logic changes; they are separate code paths for the same visual effect
+
+---
+
 ## 2026-08-16 — TypeScript: Model Cost Guard + OpenRouter Job Runner
 
 ### Purpose
