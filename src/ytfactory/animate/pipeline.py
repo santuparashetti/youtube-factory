@@ -20,7 +20,6 @@ falls back to the static PNG automatically.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from pathlib import Path
@@ -121,8 +120,11 @@ class AnimatePipeline:
             index = scene["index"]
             scene_type = scene.get("scene_type", "generated_image")
 
-            # brand_card / asset scenes are handled separately — no motion
-            if scene_type in ("asset", "brand_card"):
+            # brand_card / asset scenes and tag-only narration scenes (e.g. end
+            # screens) get no animation — still image only.
+            from ytfactory.shared.script_utils import strip_tts_directives
+            narration_text = strip_tts_directives(scene.get("narration", "")).strip()
+            if scene_type in ("asset", "brand_card") or not narration_text:
                 skipped += 1
                 continue
 
