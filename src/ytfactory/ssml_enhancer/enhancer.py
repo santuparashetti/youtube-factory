@@ -38,7 +38,7 @@ Wrap specific phrases in <prosody> for pacing and intimacy variation.
 
 <speak>
   <speechify:style emotion="calm">
-    <prosody rate="slow" pitch="low">Opening thought that needs gravitas.</prosody>
+    <prosody rate="medium" pitch="low">Opening thought that needs gravitas.</prosody>
   </speechify:style>
   <speechify:style emotion="warm">
     A sentence that lifts with warmth.
@@ -59,10 +59,10 @@ Wrap specific phrases in <prosody> for pacing and intimacy variation.
 - Choose the emotion that fits the meaning — use the full palette, not just calm
 - One emotional beat per block (a sentence or short group of sentences)
 
-<prosody rate="X" pitch="Y">:
-- rate: x-slow, slow, medium, fast, x-fast
+<prosody rate="medium" pitch="Y">:
+- rate: ALWAYS "medium" — never slow, x-slow, fast, or x-fast
 - pitch: x-low, low, medium, high, x-high
-- Use for phrases that need to slow down for weight, or speed up for energy
+- Use pitch to vary intimacy and weight; rate stays fixed at medium
 - Wrap specific phrases, not whole blocks (unless the entire block needs it)
 - Do NOT set volume unless the text explicitly calls for it (whispering, shouting)
 
