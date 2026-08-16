@@ -17,75 +17,61 @@ from ytfactory.emotion.policy import NarrativePhase, emotion_policy
 
 _SYSTEM_PROMPT = """\
 You are an expert audio director for a spiritual philosophy channel.
-Your ONLY job is to wrap the given narration text in Speechify-compatible
-SSML markup. You must NOT add, remove, reorder, or rewrite any words.
+Your ONLY job is to wrap the given narration text in Speechify-compatible SSML.
+Do NOT add, remove, reorder, or rewrite any words.
 
-CRITICAL — NARRATION FIDELITY (absolute constraint):
-- Every single word in your output must appear in the input, in the same order.
-- Do NOT invent new sentences, phrases, or clauses.
-- Do NOT paraphrase, expand, or summarise any part of the narration.
-- If the input is one sentence, your SSML must contain exactly one sentence.
-- Treat the input text as sacred — your job is decoration, not rewriting.
+Every word in your output must appear in the input, in the same order.
 
-The default mood is calm and contemplative. Only deviate toward other \
-emotions when the script text strongly calls for it. When in doubt, \
-choose calm over energetic, warm over cheerful, assertive over angry.
+━━━ SSML STRUCTURE (follow exactly) ━━━
 
-Actively vary emotions throughout the script — avoid repeating the same \
-emotion more than 2-3 sentences in a row unless the mood genuinely sustains.
+Use this pattern — breaks go INSIDE style blocks:
 
-Inject the following intelligently based on story mood and feeling:
+<speak>
+  <speechify:style emotion="calm">
+    First sentence.<break time="1.2s"/>Second sentence.<break time="1.5s"/>Third sentence.
+  </speechify:style>
+</speak>
 
-- <break time="Xs" /> pauses (use seconds format, e.g. time="1.5s"):
-    after profound statements: 1.5–2.5s
-    between regular sentences: 0.8–1.2s
-    between paragraphs/sections: 2.5–4.0s
+When the emotion genuinely changes, close the block and open a new one:
 
-- <speechify:style emotion="...">text</speechify:style> switching as mood shifts.
-  CRITICAL STRUCTURE RULE — put <break> tags INSIDE style blocks, not between them:
+<speak>
+  <speechify:style emotion="calm">Opening sentences.<break time="1.0s"/>More calm text.</speechify:style>
+  <speechify:style emotion="warm">Shift to warmth here.<break time="1.2s"/>Continue warmth.</speechify:style>
+</speak>
 
-  CORRECT:
-    <speechify:style emotion="calm">Sentence one.<break time="1.0s" />Sentence two.<break time="1.5s" />Sentence three.</speechify:style>
+━━━ RULES ━━━
 
-  WRONG (causes audio clipping — never do this):
-    <speechify:style emotion="calm">Sentence one.</speechify:style><break time="1.0s" /><speechify:style emotion="calm">Sentence two.</speechify:style>
-
-  Group all consecutive sentences that share the same emotion into ONE style block
-  with breaks inside. Only open a NEW style block when the emotion genuinely changes.
-  When the emotion changes, place the break AFTER the closing tag:
-    <speechify:style emotion="calm">Calm sentence one.<break time="1.0s" />Calm sentence two.</speechify:style><break time="0.8s" /><speechify:style emotion="warm">Warm sentence three.</speechify:style>
-
-  IMPORTANT: speechify:style ALWAYS wraps its text with an opening AND a
-  closing tag. NEVER write it self-closing (<speechify:style emotion="..." />) — this is invalid.
-  ALWAYS include a matching </speechify:style> closing tag.
-  Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
+speechify:style:
+- ALWAYS use opening + closing tags: <speechify:style emotion="X">text</speechify:style>
+- NEVER self-closing: <speechify:style emotion="X"/> is invalid
+- Do NOT nest style blocks inside each other
+- Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
 surprised, calm, assertive, energetic, warm, direct, bright
+- Default to calm; only switch when the text clearly calls for it
+- Do not repeat the same emotion more than 2–3 sentences in a row
 
-- <prosody pitch="..." volume="...">
-  Adjust pitch for transitions; adjust volume for quiet intimacy or emphasis.
-  pitch: x-low/low/medium/high/x-high or %
-  volume: x-soft/medium/loud/x-loud or dB/%
-  DO NOT set rate — leave speech rate at the TTS provider default.
-  Never include rate="slow", rate="x-slow", or any rate attribute.
+<break time="Xs"/>:
+- Place breaks INSIDE style blocks, between sentences
+- After profound statements: 1.5–2.5s
+- Between regular sentences: 0.8–1.2s
+- Between paragraphs or sections: 2.5–4.0s
+- Do NOT place a break at the very end before </speak> — it adds dead silence
 
-- <emphasis level="strong|moderate"> on 1–2 key words per paragraph \
-maximum. Do not over-emphasise.
+<prosody pitch="..." volume="...">:
+- Use for quiet intimacy or emphasis; do NOT set rate (leave at default)
 
-SSML rules (strict):
-- Wrap everything in <speak>...</speak>
-- Do NOT nest <speechify:style> inside itself
-- Escape & → &amp;  < → &lt;  > → &gt; in spoken text only, never in tags
-- Max break time is 10s
-- Do NOT place <break> or <speechify:style> tags at the very end before </speak> \
-— they add dead silence after the last word
-- Return raw SSML only. No explanation, no markdown, no preamble.\
+<emphasis level="strong|moderate">:
+- At most 1–2 key words per paragraph
+
+Escape & → &amp;  < → &lt;  > → &gt; in spoken text only, never in tags.
+Return raw SSML only. No explanation, no markdown, no preamble.\
 """
 
 # All SSML tags that strip_ssml must remove.
 _TAG_RE = re.compile(
     r"<speak>"
     r"|</speak>"
-    r"|<speechify:style(?:\s[^>]*)?\s*/>"   # self-closing (legacy/malformed)
+    r"|<speechify:style(?:\s[^>]*)?\s*/>"   # self-closing (invalid but strip safely)
     r"|<speechify:style(?:\s[^>]*)? *>"     # wrapping open tag
     r"|</speechify:style>"                  # wrapping close tag
     r"|<break(?:\s[^/]*)?\s*/>"
@@ -100,24 +86,12 @@ _TAG_RE = re.compile(
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _NEWLINE_RE = re.compile(r"\n{2,}")
-# When a <break/> sits BETWEEN two style blocks, move it inside the first block.
-# Before: </speechify:style> <break time="Xs" /> <speechify:style emotion="Y">word
-# After:  <break time="Xs" /> </speechify:style><speechify:style emotion="Y">word
-# Effect: the break runs inside the first block's synthesis context so the second
-# block's first word starts immediately — no decoder cold-start gap after silence.
-_STYLE_CLOSE_BREAK_STYLE_OPEN = re.compile(
-    r'(</speechify:style>)(\s*<break[^/]*/>\s*)(<speechify:style)',
-    re.IGNORECASE,
-)
-# Fix capital-S namespace: <Speechify:style → <speechify:style (and closing tag).
+# LLMs sometimes capitalise the namespace: <Speechify:style — fix to lowercase.
 _SPEECHIFY_OPEN_CAP = re.compile(r'<Speechify:style\b', re.IGNORECASE)
 _SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
-# LLMs sometimes emit self-closing <speechify:style .../> which is invalid per
-# Speechify docs — the tag must wrap its text.  If the LLM emits
-# <speechify:style emotion="calm"/> with no content, just drop it entirely.
+# Self-closing <speechify:style .../> is invalid — drop it.
 _SPEECHIFY_SELFCLOSE = re.compile(r'<speechify:style\b[^>]*/>', re.IGNORECASE)
-# Trailing break tags before </speak> add dead air at the end of the clip.
-# The </speechify:style> before </speak> is fine (it closes the last style block).
+# Trailing breaks before </speak> add dead air at the end of the clip.
 _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
     r'(\s*<break[^/]*/>\s*)+</speak>',
     re.IGNORECASE,
@@ -125,21 +99,15 @@ _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
 
 
 def _normalize_ssml(ssml: str) -> str:
-    """Normalise SSML before sending to Speechify.
+    """Clean up LLM output before sending to Speechify.
 
-    - Strip newlines (keeps the payload on one line)
-    - Normalise <Speechify:style → <speechify:style (both open and close tags)
-    - Drop self-closing <speechify:style .../> — per docs it must wrap its text
-    - Strip trailing <break> tags before </speak> (add dead silence)
-    - Inject a warm-up comma after each <break> tag so the TTS decoder has
-      phonetic context before the next word (prevents first-word clipping).
+    Only fixes known format issues — no structural manipulation.
     """
-    ssml = ssml.replace("\n", "")
-    ssml = _SPEECHIFY_OPEN_CAP.sub("<speechify:style", ssml)        # fix open-tag capitalisation
-    ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)     # fix close-tag capitalisation
-    ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                       # drop invalid self-closing tags
-    ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml) # strip trailing dead air
-    ssml = _STYLE_CLOSE_BREAK_STYLE_OPEN.sub(r'\2\1\3', ssml)      # move break inside preceding block
+    ssml = ssml.replace("\n", "")                                       # single line for API
+    ssml = _SPEECHIFY_OPEN_CAP.sub("<speechify:style", ssml)           # fix capitalisation
+    ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)        # fix capitalisation
+    ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                          # drop invalid self-closing
+    ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)   # strip trailing dead air
     return ssml
 
 
@@ -200,7 +168,7 @@ class SsmlEnhancer:
                 "discarding and passing raw script to TTS."
             )
             return script
-        ssml = ssml.lstrip()  # normalise any leading whitespace the model emitted
+        ssml = ssml.lstrip()
         ssml = _normalize_ssml(ssml)
 
         logger.info(
