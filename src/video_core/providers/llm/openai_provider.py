@@ -208,4 +208,5 @@ class OpenAICompatibleProvider(LLMProvider):
             completion_tokens=usage.completion_tokens if usage else 0,
             total_tokens=usage.total_tokens if usage else 0,
             finish_reason=finish_reason,
+            cost_usd=float(getattr(usage, "cost", 0.0) or 0.0),
         )

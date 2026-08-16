@@ -1,5 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from video_core.providers.llm.tasks import LLMTask
 
 
 class ImageModelTier(BaseModel):
@@ -303,6 +310,53 @@ class SharedSettings(BaseSettings):
 
     # Master switch for faithfulness validation gate.
     faithfulness_validation_enabled: bool = True
+
+    # ------------------------------------------------------------------
+    # Task-Specific LLM Models
+    # ------------------------------------------------------------------
+    # Override per task via YT_LLM_MODEL_<TASK> env vars.
+    # Resolution: task field > LLM_DEFAULT_MODEL > provider model.
+    yt_llm_model_script_analysis: str = "Qwen/Qwen3-235B-A22B-Thinking-2507"
+    yt_llm_model_script_writing: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    yt_llm_model_script_refinement: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    yt_llm_model_scene_planning: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    yt_llm_model_visual_prompts: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    yt_llm_model_visual_refinement: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    yt_llm_model_qa: str = "Qwen/Qwen3-235B-A22B-Thinking-2507"
+
+    def get_llm_model(self, task: "LLMTask") -> str:
+        """Resolve the model name for a specific pipeline task.
+
+        Resolution: task-specific field > LLM_DEFAULT_MODEL > provider model.
+        """
+        from loguru import logger
+        from video_core.providers.llm.tasks import LLMTask as _T
+
+        _TASK_FIELD: dict[_T, str] = {
+            _T.SCRIPT_ANALYSIS: "yt_llm_model_script_analysis",
+            _T.SCRIPT_WRITING: "yt_llm_model_script_writing",
+            _T.SCRIPT_REFINEMENT: "yt_llm_model_script_refinement",
+            _T.SCENE_PLANNING: "yt_llm_model_scene_planning",
+            _T.VISUAL_PROMPTS: "yt_llm_model_visual_prompts",
+            _T.VISUAL_REFINEMENT: "yt_llm_model_visual_refinement",
+            _T.QA: "yt_llm_model_qa",
+        }
+        field = _TASK_FIELD.get(task, "")
+        model = (getattr(self, field, "") or "") if field else ""
+        if not model:
+            model = self.llm_default_model or ""
+        if not model:
+            _PROVIDER_FIELD = {
+                "anthropic": "anthropic_model",
+                "gemini": "gemini_text_model",
+                "groq": "groq_model",
+                "ollama": "ollama_model",
+                "deepinfra": "deepinfra_model",
+            }
+            pf = _PROVIDER_FIELD.get(self.llm_provider.lower(), "")
+            model = (getattr(self, pf, "") or "") if pf else ""
+        logger.debug("LLM task={} model={}", task.value, model)
+        return model
 
     # ------------------------------------------------------------------
     # Audience Profile

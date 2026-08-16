@@ -14,3 +14,4 @@ class LLMResponse:
     total_tokens: int = 0
 
     finish_reason: str | None = None
+    cost_usd: float = 0.0
