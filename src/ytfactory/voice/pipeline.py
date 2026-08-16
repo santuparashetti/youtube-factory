@@ -11,6 +11,7 @@ from ytfactory.config.settings import Settings
 from ytfactory.validators.kai_firewall import check_artifact
 from video_core.providers.tts.debug import TTSDebugWriter
 from video_core.providers.tts.factory import get_tts_provider
+from video_core.providers.tts.formatter import SpeechFormatter
 from video_core.providers.tts.optimizer import SpeechOptimizer
 from ytfactory.providers.tts.pacing.injector import PauseInjector
 from video_core.providers.tts.validator import AudioValidator, ValidationResult
@@ -28,6 +29,7 @@ from ytfactory.shared.script_utils import strip_tts_directives
 from ytfactory.ssml_enhancer import SsmlEnhancer, strip_ssml
 
 _optimizer = SpeechOptimizer()
+_formatter = SpeechFormatter()
 _validator = AudioValidator()
 _pacer = PauseInjector()
 
@@ -51,7 +53,7 @@ def _normalize_audio_attack(audio_path: Path) -> None:
                 "-i",
                 str(audio_path),
                 "-af",
-                "dynaudnorm=p=0.95:m=100",
+                "dynaudnorm=p=0.95:m=500",
                 "-codec:a",
                 "libmp3lame",
                 "-q:a",
@@ -262,6 +264,20 @@ class VoicePipeline:
                             output_bytes=output.stat().st_size,
                         )
                     )
+                scenes_metadata.append({
+                    "scene_index": scene["index"],
+                    "provider": self._provider.capabilities.provider_name,
+                    "voice": None,
+                    "style": style,
+                    "language": language,
+                    "duration_seconds": _get_audio_duration(output),
+                    "word_count": len(scene["narration"].split()),
+                    "retry_count": 0,
+                    "validation_passed": True,
+                    "validation_issues": [],
+                    "pacing_enabled": False,
+                    "pacing_profile": None,
+                })
 
             if not tts_skipped:
                 scene_position = idx / max(total - 1, 1)
@@ -284,8 +300,11 @@ class VoicePipeline:
                 use_ssml = self._settings.ssml_enhancement_enabled
                 if use_ssml:
                     narrative_phase = scene.get("narrative_phase", "")
+                    # Normalise line breaks → natural pauses before SSML enhancement
+                    # so the enhancer receives clean sentence boundaries, not raw \n.
+                    formatted_for_ssml = _formatter.format(original_text, style=style)
                     ssml_script = self._ensure_ssml_enhancer().enhance(
-                        original_text, narrative_phase=narrative_phase
+                        formatted_for_ssml, narrative_phase=narrative_phase
                     )
                     clean_script = strip_ssml(ssml_script)
                     debug.write_ssml(ssml_script)
@@ -405,8 +424,9 @@ class VoicePipeline:
                         retry_count = attempt
                         break
 
-                # Normalise TTS audio to fix soft attack at start of speech
-                if output.exists():
+                # dynaudnorm soft-attack fix is Edge TTS specific — other providers
+                # (Speechify, Cartesia, etc.) handle their own audio shaping.
+                if output.exists() and self._provider.capabilities.provider_name == "edge_tts":
                     _normalize_audio_attack(output)
 
                 # Write timing even on partial success
@@ -440,8 +460,8 @@ class VoicePipeline:
                 # Collect debug metadata for project summary
                 duration = (
                     validation.duration_seconds
-                    if validation
-                    else (boundaries[-1]["end"] if boundaries else 0.0)
+                    if validation and validation.duration_seconds > 0
+                    else (boundaries[-1]["end"] if boundaries else _get_audio_duration(output))
                 )
                 scene_meta = {
                     "scene_index": scene["index"],

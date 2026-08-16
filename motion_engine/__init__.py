@@ -5,7 +5,7 @@ from .effects.flicker import LampFlicker, CandleFlicker, TorchFlicker
 from .effects.water import WaterRipple
 from .effects.particles import DustParticles, MistDrift
 from .effects.camera import SlowPushIn, SlowPullOut
-from .effects.light import SunRays, WarmBloom, LightHaze
+from .effects.light import SunRays
 from .effects.nature import (
     TreeSway, GrassMovement, CloudMovement,
     WaterfallFlow, FallingLeaves, Birds, Butterflies,
@@ -21,8 +21,6 @@ EFFECT_REGISTRY = {
     "torch_flicker":  TorchFlicker,
     "sun_rays":       SunRays,
     # Atmospheric — full-frame, no mask needed
-    "warm_bloom":     WarmBloom,
-    "light_haze":     LightHaze,
     "mist_drift":     MistDrift,
     "fog":            Fog,
     "fog_drift":      Fog,       # canonical LLM name → same class
@@ -94,7 +92,6 @@ _EFFECT_CATEGORY = {
     # lighting / atmospheric — grouped together as "lighting"
     "sun_rays": "lighting",
     # atmospheric
-    "warm_bloom": "atmospheric", "light_haze": "atmospheric",
     "mist_drift": "atmospheric", "fog": "atmospheric", "fog_drift": "atmospheric",
     # particle
     "dust_particles": "particle", "falling_leaves": "particle",
@@ -123,7 +120,6 @@ _EFFECT_PRIORITY = {
     # lighting
     "sun_rays":       90,
     # atmospheric — scene-specific first, generic fallbacks last
-    "warm_bloom":     75, "light_haze":     70,
     "mist_drift":     65, "fog":            60, "fog_drift":     60,
     # particle — specific context beats generic dust
     "smoke":          80, "rain":           80, "snow":          80,
@@ -296,8 +292,6 @@ __all__ = [
     "DustParticles",
     "MistDrift",
     "SunRays",
-    "WarmBloom",
-    "LightHaze",
     "SlowPushIn",
     "SlowPullOut",
 ]

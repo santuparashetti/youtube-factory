@@ -315,11 +315,16 @@ class FFmpegRenderer:
             cmd += ["-i", str(audio)]
 
             if use_animated:
-                # Motion already baked in — just scale, trim, subtitle, normalize
+                # Motion already baked in — scale, trim, fade, subtitle, normalize.
+                # Fade filters must be applied here too; they were previously missing
+                # from the animated path, causing hard cuts between all animated scenes.
+                t_in = scene.get("transition_in")
+                t_out = scene.get("transition_out")
                 vf_parts = [
                     f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
                     f"trim=duration={dur:.4f},setpts=PTS-STARTPTS",
                 ]
+                vf_parts += self._fade_filters(t_in, t_out, fps, dur)
                 if subtitle is not None:
                     sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
                     vf_parts.append(f"subtitles='{sub_escaped}'")
@@ -446,6 +451,8 @@ class FFmpegRenderer:
         subtitle: Path | None,
         output: Path,
         duration_hint: float,
+        transition_in: dict | None = None,
+        transition_out: dict | None = None,
     ) -> None:
         """Mux a pre-animated MP4 (video-only) with narration audio and subtitle burn-in.
 
@@ -460,6 +467,7 @@ class FFmpegRenderer:
             f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
             f"trim=duration={duration_hint:.4f},setpts=PTS-STARTPTS",
         ]
+        vf_parts += self._fade_filters(transition_in, transition_out, fps, duration_hint)
         if subtitle is not None and self.settings.subtitle_burn_enabled:
             sub_esc = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
             vf_parts.append(f"subtitles='{sub_esc}'")
@@ -563,7 +571,11 @@ class FFmpegRenderer:
                     sub = ass_path
                 elif subtitle and subtitle.is_file():
                     sub = subtitle
-            self._render_animated(animated_video, audio, sub, output, duration_hint)
+            self._render_animated(
+                animated_video, audio, sub, output, duration_hint,
+                transition_in=transition_in,
+                transition_out=transition_out,
+            )
             return
 
         output.parent.mkdir(parents=True, exist_ok=True)

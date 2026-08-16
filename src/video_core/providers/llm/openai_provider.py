@@ -139,6 +139,15 @@ class OpenAICompatibleProvider(LLMProvider):
                     f"(model={model!r}). The API may be temporarily unavailable."
                 ) from e
             except Exception as e:
+                from openai import RateLimitError as _RateLimitError
+                if isinstance(e, _RateLimitError) and _attempt < _max_retries:
+                    delay = 5.0 * (2 ** (_attempt - 1))  # 5s, 10s, 20s …
+                    logger.warning(
+                        "RateLimitError (attempt {}/{}) — model={} retrying in {:.0f}s",
+                        _attempt, _max_retries, model, delay,
+                    )
+                    _time.sleep(delay)
+                    continue
                 logger.error(
                     "Provider API call failed — model={} error={}: {}",
                     model,

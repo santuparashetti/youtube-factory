@@ -148,8 +148,8 @@ class SpeechFormatter:
           the first word of the following phrase to be clipped or softened.
 
         Standard style:
-          Double newlines become a space (single-line narration).
-          Single newlines also become spaces.
+          Paragraph breaks (\\n\\n) become ". " — sentence-end pause.
+          Single newlines become ", " — brief breath between lines.
         """
         if style == "spiritual":
             # Step A: if a phrase already ends with ".", consuming the period
@@ -158,8 +158,11 @@ class SpeechFormatter:
             # Step B: remaining newlines (phrases that did NOT end with ".").
             text = self._RE_REMAINING_NEWLINES.sub(". ", text)
         else:
-            text = re.sub(r"\n{2,}", " ", text)
-            text = re.sub(r"\n", " ", text)
+            # Paragraph breaks → sentence pause; single newlines → brief breath.
+            # Plain space produces no pause — TTS runs lines together.
+            text = self._RE_PERIOD_THEN_NEWLINES.sub(". ", text)   # avoid ".."
+            text = re.sub(r"\n{2,}", ". ", text)   # paragraph break → sentence pause
+            text = re.sub(r"\n", ", ", text)        # line break → brief breath
 
         return text
 

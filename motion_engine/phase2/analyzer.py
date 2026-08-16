@@ -15,6 +15,8 @@ import json
 import base64
 import logging
 import os
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -22,6 +24,12 @@ from typing import List, Tuple, Optional
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# Global rate limiter — 1 LLM request at a time with a minimum gap.
+# Prevents 429s from OpenRouter upstream shared pools.
+_llm_lock = threading.Lock()
+_llm_last_call: float = 0.0
+_LLM_MIN_INTERVAL_S: float = 1.5  # seconds between requests
 
 
 def is_qwen3_model(model: str) -> bool:
@@ -46,7 +54,7 @@ AVAILABLE_EFFECTS = [
     # LIGHTING_EFFECTS
     "sun_rays",
     # ATMOSPHERIC_EFFECTS — full-frame, no mask
-    "fog_drift", "mist_drift", "light_haze", "warm_bloom",
+    "fog_drift", "mist_drift",
     # PARTICLE_EFFECTS — figures auto-excluded
     "dust_particles", "smoke",
     # CAMERA_EFFECTS — always last
@@ -148,9 +156,7 @@ AVAILABLE EFFECTS (use only names from this list):
 
   ATMOSPHERIC_EFFECTS — one maximum, choose the best fit:
     fog_drift      → heavy mist, forest ground fog, stormy atmosphere
-    mist_drift     → light atmospheric haze, cool morning
-    light_haze     → warm sunny haze, temple interior glow
-    warm_bloom     → golden hour warmth, candlelit room subtle glow
+    mist_drift     → light atmospheric haze, cool morning, warm sunny haze, temple interior glow
 
   PARTICLE_EFFECTS — one maximum, only if it fits naturally:
     dust_particles → floating dust in light beams (AVOID in rain/snow scenes)
@@ -169,14 +175,14 @@ GLOBAL RULES (the engine enforces these, but respect them in your selection):
   - Never add tree_sway or grass_sway if figures dominate the frame — use dust_particles instead
 
 SCENE RECIPES:
-  Interior night / lamp scene  → lamp_flicker + warm_bloom + slow_push_in
-  Interior day / temple        → sun_rays + light_haze + slow_push_in
-  Exterior golden hour         → sun_rays + warm_bloom + dust_particles + slow_push_in
+  Interior night / lamp scene  → lamp_flicker + slow_push_in
+  Interior day / temple        → sun_rays + mist_drift + slow_push_in
+  Exterior golden hour         → sun_rays + dust_particles + slow_push_in
   Exterior forest / nature     → tree_sway + mist_drift + slow_push_in  (only if leaves region non-null)
   Exterior rainy / stormy      → fog_drift + slow_push_in (no dust in rain)
   Lake / river scene           → water_ripple + mist_drift + slow_push_in
-  Ending / closing shot        → warm_bloom + slow_pull_out
-  Scene with human figure(s)   → warm_bloom + dust_particles + slow_push_in (no displacement on figures)
+  Ending / closing shot        → mist_drift + slow_pull_out
+  Scene with human figure(s)   → dust_particles + slow_push_in (no displacement on figures)
 
 figure_boxes: ALL human figures as [x0,y0,x1,y1] fractions (0.0–1.0). Add 3–5% padding.
 regions: same fractional format. null if not present.
@@ -299,6 +305,13 @@ class SceneAnalyzer:
                     "order": ["OpenAI"],
                     "allow_fallbacks": False,
                 }
+
+            global _llm_last_call
+            with _llm_lock:
+                gap = time.monotonic() - _llm_last_call
+                if gap < _LLM_MIN_INTERVAL_S:
+                    time.sleep(_LLM_MIN_INTERVAL_S - gap)
+                _llm_last_call = time.monotonic()
 
             response = client.chat.completions.create(
                 model=self._model,

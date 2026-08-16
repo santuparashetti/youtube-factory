@@ -80,34 +80,54 @@ class DustParticles(BaseEffect):
 
 
 class MistDrift(BaseEffect):
+    """
+    Atmospheric mist over a configurable rectangular region.
+
+    Region bounds are fractional (0.0–1.0).  Density fades toward the
+    inner edges of the region so the mist blends naturally into the scene.
+
+    Default: top-right sky area (x 0.35→1.0, y 0.0→0.50).
+    """
+
     def __init__(
         self,
-        region_bottom: float = 0.6,
-        opacity: float = 0.30,
+        opacity: float = 0.15,
         drift_speed: float = 0.08,
         color: tuple = (240, 240, 235),
+        # region bounds (fractional, 0.0–1.0)
+        x0: float = 0.35,
+        x1: float = 1.00,
+        y0: float = 0.00,
+        y1: float = 0.50,
     ):
-        self.region_bottom = region_bottom
         self.opacity = opacity
         self.drift_speed = drift_speed
         self.color = color
+        self.x0 = x0
+        self.x1 = x1
+        self.y0 = y0
+        self.y1 = y1
 
     def apply(self, frame: np.ndarray, t: float) -> np.ndarray:
         h, w = frame.shape[:2]
-        mist_top = int(h * (1 - self.region_bottom))
+
+        rx0, rx1 = int(w * self.x0), int(w * self.x1)
+        ry0, ry1 = int(h * self.y0), int(h * self.y1)
+        rw = max(rx1 - rx0, 1)
+        rh = max(ry1 - ry0, 1)
+
+        # 2-D density: fades from dense (top-right corner) toward inner edges
+        cols = np.linspace(0.0, 1.0, rw, dtype=np.float32)   # left→right
+        rows = np.linspace(1.0, 0.0, rh, dtype=np.float32)   # top→bottom fade
+
+        density = rows[:, None] * cols[None, :]               # (rh, rw)
+
+        color_arr = np.array(self.color, dtype=np.float32)
+        mist_patch = density[:, :, None] * color_arr          # (rh, rw, 3)
 
         mist_layer = np.zeros_like(frame, dtype=np.float32)
+        mist_layer[ry0:ry1, rx0:rx1] = mist_patch
 
-        # vectorized: compute density gradient for all rows at once
-        rows = np.arange(mist_top, h)
-        density = (rows - mist_top) / max(h - mist_top, 1)  # (N,)
-
-        color_arr = np.array(self.color, dtype=np.float32)  # (3,)
-
-        # density * color for each row → (N, 3)
-        row_colors = (density[:, None] * color_arr).astype(np.float32)
-
-        # broadcast to full width: (N, W, 3)
-        mist_layer[mist_top:h] = row_colors[:, None, :]
-
-        return cv2.addWeighted(frame.astype(np.float32), 1.0, mist_layer, self.opacity, 0).clip(0, 255).astype(np.uint8)
+        return cv2.addWeighted(
+            frame.astype(np.float32), 1.0, mist_layer, self.opacity, 0
+        ).clip(0, 255).astype(np.uint8)

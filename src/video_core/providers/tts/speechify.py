@@ -104,8 +104,15 @@ class SpeechifyProvider(TTSProvider):
 
     # ── Internal synthesis ─────────────────────────────────────────────────────
 
-    def _synthesise_chunk(self, text: str, output_path: Path) -> float:
-        """Synthesise one text batch to ``output_path``. Returns duration (s)."""
+    def _synthesise_chunk(
+        self, text: str, output_path: Path
+    ) -> tuple[float, list[dict]]:
+        """Synthesise one text batch to ``output_path``.
+
+        Returns (duration_seconds, word_boundaries).
+        word_boundaries is a list of dicts with keys: word, start, end (seconds).
+        Uses Speechify speech marks when available so WhisperX is not needed.
+        """
         ext = self._output_format
         key = TTSCache.make_key(
             text=text,
@@ -122,14 +129,24 @@ class SpeechifyProvider(TTSProvider):
                 "TTS [speechify] cache HIT — skipping API call (chars={})",
                 len(text),
             )
-            return self._probe_duration(output_path)
+            return self._probe_duration(output_path), []
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # SSML inputs must start with <speak> — prepending a warm-up cue would
+        # break the XML root element and cause Speechify to read tags as plain
+        # text.  Plain text gets the warm-up prefix; SSML already encodes pauses
+        # via <break> tags so no prefix is needed.
+        is_ssml = text.lstrip().startswith("<speak>")
+        warmed_text = text if is_ssml else ". " + text.lstrip()
+
+        speech_marks: list[dict] = []
+
         def _call() -> bytes:
+            nonlocal speech_marks
             client = self._get_client()
             response = client.audio.speech(
-                input=text,
+                input=warmed_text,
                 voice_id=self._voice_id,
                 model=self._model,
                 audio_format=self._output_format,
@@ -141,6 +158,21 @@ class SpeechifyProvider(TTSProvider):
             )
             if not response.audio_data:
                 raise ValueError("Speechify API returned empty audio_data")
+            # Extract word-level speech marks when the API returns them.
+            # response.speech_marks is a SpeechMarks object with a chunks list.
+            raw_marks = getattr(response, "speech_marks", None)
+            if raw_marks is not None:
+                chunks = getattr(raw_marks, "chunks", None) or []
+                for chunk in chunks:
+                    word = getattr(chunk, "value", None) or ""
+                    start_ms = getattr(chunk, "start_time", None)
+                    end_ms = getattr(chunk, "end_time", None)
+                    if word and start_ms is not None and end_ms is not None:
+                        speech_marks.append({
+                            "word": word,
+                            "start": round(start_ms / 1000, 3),
+                            "end": round(end_ms / 1000, 3),
+                        })
             return base64.b64decode(response.audio_data)
 
         def _action() -> None:
@@ -154,7 +186,12 @@ class SpeechifyProvider(TTSProvider):
         )
         with_retry(_action, max_retries=max_retries, timeout=self._timeout)
 
-        return self._probe_duration(output_path)
+        if not is_ssml:
+            # Strip the warm-up pause, then add a clean 100ms lead-in.
+            # SSML inputs skip this — <break> tags handle all timing.
+            _strip_leading_silence(output_path)
+            _prepend_silence(output_path, ms=100)
+        return self._probe_duration(output_path), speech_marks
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -173,7 +210,7 @@ class SpeechifyProvider(TTSProvider):
 
         t0 = time.perf_counter()
         if len(batches) == 1:
-            duration = self._synthesise_chunk(batches[0], output_path)
+            duration, _ = self._synthesise_chunk(batches[0], output_path)
         else:
             duration = self._synthesize_batched(batches, output_path)
         elapsed = time.perf_counter() - t0
@@ -247,7 +284,8 @@ class SpeechifyProvider(TTSProvider):
             for i, batch in enumerate(batches):
                 tmp = output_path.with_suffix(f".part{i}{output_path.suffix}")
                 tmp_paths.append(tmp)
-                total += self._synthesise_chunk(batch, tmp)
+                dur, _ = self._synthesise_chunk(batch, tmp)
+                total += dur
             _concat_audio(tmp_paths, output_path)
         finally:
             for p in tmp_paths:
@@ -264,7 +302,35 @@ class SpeechifyProvider(TTSProvider):
         style: str | None = None,
         scene_position: float = 0.5,
     ) -> tuple[Path, list[dict]]:
-        """Generate audio. Returns empty boundaries — use WhisperX for timing."""
+        """Generate audio with word-level timing from Speechify speech marks.
+
+        Returns (audio_path, word_boundaries) where word_boundaries is a list
+        of {"word": str, "start": float, "end": float} dicts (seconds).
+        Falls back to [] when speech marks are not returned by the API (e.g.
+        cache hit or multi-batch synthesis) — caller should use WhisperX in
+        that case.
+        """
+        batches = batch_sentences(text, max_chars=self._max_chars)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if len(batches) == 1:
+            # Single batch — synthesise directly and capture speech marks from
+            # the API response. _synthesise_chunk writes the audio file.
+            _, speech_marks = self._synthesise_chunk(batches[0], output_path)
+            if speech_marks:
+                logger.info(
+                    "TTS [speechify] speech marks: {} word boundaries captured",
+                    len(speech_marks),
+                )
+            else:
+                logger.debug(
+                    "TTS [speechify] no speech marks returned (cache hit or "
+                    "API did not include them) — WhisperX alignment will be used"
+                )
+            return output_path, speech_marks
+
+        # Multi-batch: concatenated audio; speech marks would need per-batch
+        # offset adjustment — not implemented yet, fall back to WhisperX.
         audio_path = self.generate(
             text,
             output_path,
@@ -296,6 +362,56 @@ def _call_with_timeout(func: Any, timeout: float) -> bytes:
             raise TimeoutError(
                 f"Speechify synthesis timed out after {timeout}s"
             ) from exc
+
+
+def _strip_leading_silence(path: Path, threshold_db: float = -35.0) -> None:
+    """Remove the leading pause produced by the warm-up prefix cue."""
+    import subprocess
+
+    tmp = path.with_suffix(".stripped" + path.suffix)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(path),
+                "-af",
+                f"silenceremove=start_periods=1:start_duration=0.01:start_threshold={threshold_db}dB",
+                "-c:a", "libmp3lame", "-q:a", "2",
+                str(tmp),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        tmp.replace(path)
+    except Exception:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+
+
+def _prepend_silence(path: Path, ms: int = 250) -> None:
+    """Prepend ``ms`` milliseconds of silence to an audio file in-place.
+
+    Neural TTS models often mispronounce or rush the very first phoneme
+    because they start generating without prior context.  A short leading
+    silence gives the decoder a clean start and lets the first word land
+    with full prosodic clarity.
+    """
+    import subprocess
+
+    tmp = path.with_suffix(".silpad" + path.suffix)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(path),
+                "-af", f"adelay={ms}:all=1",
+                "-c:a", "libmp3lame", "-q:a", "2",
+                str(tmp),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        tmp.replace(path)
+    except Exception:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
 
 
 def _concat_audio(parts: list[Path], output_path: Path) -> None:

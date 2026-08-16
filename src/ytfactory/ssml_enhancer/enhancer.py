@@ -17,7 +17,15 @@ from ytfactory.emotion.policy import NarrativePhase, emotion_policy
 
 _SYSTEM_PROMPT = """\
 You are an expert audio director for a spiritual philosophy channel.
-Transform the narration script into Speechify-compatible SSML.
+Your ONLY job is to wrap the given narration text in Speechify-compatible
+SSML markup. You must NOT add, remove, reorder, or rewrite any words.
+
+CRITICAL — NARRATION FIDELITY (absolute constraint):
+- Every single word in your output must appear in the input, in the same order.
+- Do NOT invent new sentences, phrases, or clauses.
+- Do NOT paraphrase, expand, or summarise any part of the narration.
+- If the input is one sentence, your SSML must contain exactly one sentence.
+- Treat the input text as sacred — your job is decoration, not rewriting.
 
 The default mood is calm and contemplative. Only deviate toward other \
 emotions when the script text strongly calls for it. When in doubt, \
@@ -28,12 +36,16 @@ emotion more than 2-3 sentences in a row unless the mood genuinely sustains.
 
 Inject the following intelligently based on story mood and feeling:
 
-- <break time="Xs" /> pauses:
+- <break time="Xs" /> pauses (use seconds format, e.g. time="1.5s"):
     after profound statements: 1.5–2.5s
     between regular sentences: 0.8–1.2s
     between paragraphs/sections: 2.5–4.0s
 
-- <speechify:style emotion="..."> switching as mood shifts.
+- <speechify:style emotion="...">text</speechify:style> switching as mood shifts.
+  IMPORTANT: speechify:style ALWAYS wraps its text with an opening AND a
+  closing tag. Use this form: <speechify:style emotion="calm">your text here</speechify:style>
+  NEVER write it self-closing (<speechify:style emotion="..." />) — this is invalid.
+  ALWAYS include a matching </speechify:style> closing tag.
   Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
 surprised, calm, assertive, energetic, warm, direct, bright
 
@@ -52,8 +64,8 @@ SSML rules (strict):
 - Do NOT nest <speechify:style> inside itself
 - Escape & → &amp;  < → &lt;  > → &gt; in spoken text only, never in tags
 - Max break time is 10s
-- Preserve all original words exactly — only add tags, never remove or \
-rewrite any word
+- Do NOT place <break> or <speechify:style> tags at the very end before </speak> \
+— they add dead silence after the last word
 - Return raw SSML only. No explanation, no markdown, no preamble.\
 """
 
@@ -61,9 +73,9 @@ rewrite any word
 _TAG_RE = re.compile(
     r"<speak>"
     r"|</speak>"
-    r"|<speechify:style(?:\s[^>]*)?\s*/>"     # self-closing (unlikely but safe)
-    r"|<speechify:style(?:\s[^>]*)? *>"
-    r"|</speechify:style>"
+    r"|<speechify:style(?:\s[^>]*)?\s*/>"   # self-closing (legacy/malformed)
+    r"|<speechify:style(?:\s[^>]*)? *>"     # wrapping open tag
+    r"|</speechify:style>"                  # wrapping close tag
     r"|<break(?:\s[^/]*)?\s*/>"
     r"|<prosody(?:\s[^>]*)? *>"
     r"|</prosody>"
@@ -76,18 +88,42 @@ _TAG_RE = re.compile(
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _NEWLINE_RE = re.compile(r"\n{2,}")
-_BREAK_RE = re.compile(r'<break\s+time="([0-9]*\.?[0-9]+)s"\s*/>')
+# Matches a closing break tag followed by optional whitespace then a letter —
+# used to inject a warm-up comma so the TTS decoder has phonetic context
+# before the next word starts (prevents first-word clipping after silences).
+_BREAK_THEN_WORD = re.compile(r'(<break[^/]*/>\s*)([A-Za-z])')
+# Fix capital-S namespace: <Speechify:style → <speechify:style (and closing tag).
+_SPEECHIFY_OPEN_CAP = re.compile(r'<Speechify:style\b', re.IGNORECASE)
+_SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
+# LLMs sometimes emit self-closing <speechify:style .../> which is invalid per
+# Speechify docs — the tag must wrap its text.  If the LLM emits
+# <speechify:style emotion="calm"/> with no content, just drop it entirely.
+_SPEECHIFY_SELFCLOSE = re.compile(r'<speechify:style\b[^>]*/>', re.IGNORECASE)
+# Trailing break tags before </speak> add dead air at the end of the clip.
+# The </speechify:style> before </speak> is fine (it closes the last style block).
+_TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
+    r'(\s*<break[^/]*/>\s*)+</speak>',
+    re.IGNORECASE,
+)
 
 
-def _halve_breaks(ssml: str) -> str:
-    """Halve every <break time="Xs"/> value and remove all newlines."""
-    def _half(m: re.Match) -> str:
-        seconds = float(m.group(1)) / 2
-        # format: one decimal place, strip trailing zero only when it's .0
-        formatted = f"{seconds:.1f}".rstrip("0").rstrip(".")
-        return f'<break time="{formatted}s"/>'
+def _normalize_ssml(ssml: str) -> str:
+    """Normalise SSML before sending to Speechify.
 
-    return _BREAK_RE.sub(_half, ssml).replace("\n", "")
+    - Strip newlines (keeps the payload on one line)
+    - Normalise <Speechify:style → <speechify:style (both open and close tags)
+    - Drop self-closing <speechify:style .../> — per docs it must wrap its text
+    - Strip trailing <break> tags before </speak> (add dead silence)
+    - Inject a warm-up comma after each <break> tag so the TTS decoder has
+      phonetic context before the next word (prevents first-word clipping).
+    """
+    ssml = ssml.replace("\n", "")
+    ssml = _SPEECHIFY_OPEN_CAP.sub("<speechify:style", ssml)        # fix open-tag capitalisation
+    ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)     # fix close-tag capitalisation
+    ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                       # drop invalid self-closing tags
+    ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml) # strip trailing dead air
+    ssml = _BREAK_THEN_WORD.sub(r'\1, \2', ssml)                    # warm-up comma after breaks
+    return ssml
 
 
 def strip_ssml(text: str) -> str:
@@ -148,7 +184,7 @@ class SsmlEnhancer:
             )
             return script
         ssml = ssml.lstrip()  # normalise any leading whitespace the model emitted
-        ssml = _halve_breaks(ssml)
+        ssml = _normalize_ssml(ssml)
 
         logger.info(
             "SsmlEnhancer: enhanced {} chars → {} chars SSML",

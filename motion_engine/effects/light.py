@@ -4,49 +4,6 @@ from math import sin, cos, pi
 from .base import BaseEffect
 
 
-class WarmBloom(BaseEffect):
-    """
-    Gentle warm bloom — slow sinusoidal boost to HSV saturation and brightness.
-    No particles, no masks. Mimics the subtle glow of golden hour or candlelit
-    scenes. Use as the single lighting effect for calm, premium documentary style.
-    """
-
-    def __init__(self, intensity: float = 0.05, pulse_speed: float = 0.20):
-        self.intensity = intensity   # 0.03 (barely visible) to 0.12 (noticeable)
-        self.pulse_speed = pulse_speed
-
-    def apply(self, frame: np.ndarray, t: float) -> np.ndarray:
-        pulse = self.intensity * (0.8 + 0.2 * sin(t * self.pulse_speed))
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
-        hsv[..., 1] = np.clip(hsv[..., 1] * (1.0 + pulse * 0.4), 0, 255)  # saturation
-        hsv[..., 2] = np.clip(hsv[..., 2] * (1.0 + pulse),       0, 255)  # brightness
-        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-
-class LightHaze(BaseEffect):
-    """
-    Very subtle warm atmospheric haze — a faint warm veil over the whole frame
-    that pulses gently. Softer and warmer than fog_drift. Ideal for sun-drenched
-    interiors, temple scenes, or hazy early morning exteriors.
-    """
-
-    def __init__(
-        self,
-        opacity: float = 0.20,
-        color: tuple = (200, 215, 235),  # warm white (BGR)
-        pulse_speed: float = 0.15,
-    ):
-        self.opacity = opacity
-        self.color = np.array(color, dtype=np.float32)
-        self.pulse_speed = pulse_speed
-
-    def apply(self, frame: np.ndarray, t: float) -> np.ndarray:
-        pulse = self.opacity * (0.8 + 0.2 * sin(t * self.pulse_speed))
-        haze = np.full(frame.shape, self.color, dtype=np.float32)
-        result = frame.astype(np.float32) * (1.0 - pulse) + haze * pulse
-        return np.clip(result, 0, 255).astype(np.uint8)
-
-
 class SunRays(BaseEffect):
     """
     Soft volumetric light rays radiating from a light source point.
