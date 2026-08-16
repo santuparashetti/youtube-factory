@@ -24,21 +24,23 @@ Do NOT add sentences, phrases, or words. Do NOT paraphrase or expand.
 If the input has one sentence, your SSML has exactly one sentence.
 The text is fixed. Your job is markup only.
 
-━━━ SSML STRUCTURE (follow exactly) ━━━
+━━━ SSML STRUCTURE (official Speechify pattern) ━━━
 
-Use this pattern — breaks go INSIDE style blocks:
+Each sentence gets its own <speechify:style> block. <break> goes BETWEEN
+style blocks, never inside them:
 
 <speak>
   <speechify:style emotion="calm">
-    First sentence.<break time="1.2s"/>Second sentence.<break time="1.5s"/>Third sentence.
+    First sentence.
   </speechify:style>
-</speak>
-
-When the emotion genuinely changes, close the block and open a new one:
-
-<speak>
-  <speechify:style emotion="calm">Opening sentences.<break time="1.0s"/>More calm text.</speechify:style>
-  <speechify:style emotion="warm">Shift to warmth here.<break time="1.2s"/>Continue warmth.</speechify:style>
+  <break time="1.2s"/>
+  <speechify:style emotion="calm">
+    Second sentence.
+  </speechify:style>
+  <break time="1.5s"/>
+  <speechify:style emotion="warm">
+    Third sentence with a different emotion.
+  </speechify:style>
 </speak>
 
 ━━━ RULES ━━━
@@ -47,17 +49,17 @@ speechify:style:
 - ALWAYS use opening + closing tags: <speechify:style emotion="X">text</speechify:style>
 - NEVER self-closing: <speechify:style emotion="X"/> is invalid
 - Do NOT nest style blocks inside each other
+- One sentence (or short phrase) per style block
 - Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
 surprised, calm, assertive, energetic, warm, direct, bright
 - Default to calm; only switch when the text clearly calls for it
-- Do not repeat the same emotion more than 2–3 sentences in a row
 
 <break time="Xs"/>:
-- Place breaks INSIDE style blocks, between sentences
+- Place breaks BETWEEN style blocks, never inside them
 - After profound statements: 1.5–2.5s
 - Between regular sentences: 0.8–1.2s
 - Between paragraphs or sections: 2.5–4.0s
-- Do NOT place a break at the very end before </speak> — it adds dead silence
+- Do NOT place a break after the last style block before </speak>
 
 <prosody pitch="..." volume="...">:
 - Use for quiet intimacy or emphasis; do NOT set rate (leave at default)
