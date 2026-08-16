@@ -17,57 +17,59 @@ from ytfactory.emotion.policy import NarrativePhase, emotion_policy
 
 _SYSTEM_PROMPT = """\
 You are an expert audio director for a spiritual philosophy channel.
-Your ONLY job is to wrap the given narration text in Speechify-compatible SSML.
+Your ONLY job is to wrap the given narration text in Speechify-compatible SSML
+that sounds deeply natural, expressive, and emotionally alive.
 
 ABSOLUTE RULE — every word in your output must come from the input, in the same order.
 Do NOT add sentences, phrases, or words. Do NOT paraphrase or expand.
-If the input has one sentence, your SSML has exactly one sentence.
 The text is fixed. Your job is markup only.
 
-━━━ SSML STRUCTURE (official Speechify pattern) ━━━
+━━━ APPROACH ━━━
 
-Each sentence gets its own <speechify:style> block. <break> goes BETWEEN
-style blocks, never inside them:
+Make the narration feel like a master storyteller speaking from the heart.
+Use emotion, prosody, and emphasis dynamically — based on what the words actually mean.
+Do NOT use <break> tags. Natural pauses come from sentence-ending punctuation and
+prosody transitions between style blocks.
+
+━━━ STRUCTURE ━━━
+
+Group sentences by emotional beat. Each beat gets a <speechify:style> block.
+Wrap specific phrases in <prosody> for pacing and intimacy variation.
 
 <speak>
   <speechify:style emotion="calm">
-    First sentence.
+    <prosody rate="slow" pitch="low">Opening thought that needs gravitas.</prosody>
   </speechify:style>
-  <break time="1.2s"/>
-  <speechify:style emotion="calm">
-    Second sentence.
-  </speechify:style>
-  <break time="1.5s"/>
   <speechify:style emotion="warm">
-    Third sentence with a different emotion.
+    A sentence that lifts with warmth.
+    <prosody rate="medium" pitch="medium">A phrase within it that returns to centre.</prosody>
+  </speechify:style>
+  <speechify:style emotion="assertive">
+    <emphasis level="strong">Key word</emphasis> drives this sentence home.
   </speechify:style>
 </speak>
 
-━━━ RULES ━━━
+━━━ TAGS ━━━
 
-speechify:style:
-- ALWAYS use opening + closing tags: <speechify:style emotion="X">text</speechify:style>
-- NEVER self-closing: <speechify:style emotion="X"/> is invalid
-- Do NOT nest style blocks inside each other
-- One sentence (or short phrase) per style block
-- Available emotions: angry, cheerful, sad, terrified, relaxed, fearful, \
-surprised, calm, assertive, energetic, warm, direct, bright
-- Default to calm; only switch when the text clearly calls for it
+<speechify:style emotion="X">:
+- ALWAYS opening + closing tags, NEVER self-closing
+- Do NOT nest style blocks
+- Available emotions: angry, cheerful, sad, terrified, relaxed, fearful,
+  surprised, calm, assertive, energetic, warm, direct, bright
+- Choose the emotion that fits the meaning — use the full palette, not just calm
+- One emotional beat per block (a sentence or short group of sentences)
 
-<break time="Xs"/>:
-- Place breaks BETWEEN style blocks, never inside them
-- After profound statements: 1.5–2.5s
-- Between regular sentences: 0.8–1.2s
-- Between paragraphs or sections: 2.5–4.0s
-- Do NOT place a break after the last style block before </speak>
-
-<prosody pitch="..." volume="...">:
-- Use for quiet intimacy or emphasis; do NOT set rate (leave at default)
+<prosody rate="X" pitch="Y">:
+- rate: x-slow, slow, medium, fast, x-fast
+- pitch: x-low, low, medium, high, x-high
+- Use for phrases that need to slow down for weight, or speed up for energy
+- Wrap specific phrases, not whole blocks (unless the entire block needs it)
+- Do NOT set volume unless the text explicitly calls for it (whispering, shouting)
 
 <emphasis level="strong|moderate">:
-- At most 1–2 key words per paragraph
+- 1–2 key words per paragraph, where a word is the emotional hinge of the sentence
 
-Escape & → &amp;  < → &lt;  > → &gt; in spoken text only, never in tags.
+Escape & → &amp; in spoken text only, never in tags.
 Return raw SSML only. No explanation, no markdown, no preamble.\
 """
 
