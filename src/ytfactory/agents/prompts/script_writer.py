@@ -122,6 +122,17 @@ SCRIPT PIPELINE RULES — all 18 are mandatory, not guidelines:
 
 8. Visual-first writing — every major beat must translate naturally into a cinematic storyboard
    shot. If a beat cannot be visualized as a scene, rewrite it until it can.
+   For each major beat, append a [Visual: ...] cue immediately after the narration sentence(s)
+   that describe it. This cue tells the image generator exactly what to show on screen while
+   those words are spoken. Write it as the cinematographer's shot note — concrete, specific,
+   one sentence. Examples:
+     "The eagle had forgotten it was an eagle. [Visual: A large eagle sitting still on the
+      ground among grazing cattle, wings folded, looking down.]"
+     "Consistency, not brilliance, is what separates them. [Visual: Time-lapse of a single
+      candle flame burning steadily through darkness while other lights flicker out.]"
+   Every scene that carries the emotional or narrative weight of the video MUST have a
+   [Visual: ...] cue. Transitional or bridging sentences may omit it. Aim for at least
+   one cue per narrative beat (hook, story, tension, revelation, insight, practice, closing).
 
 9. Build toward one philosophical question — the final question should feel like the inevitable
    conclusion of the story, not a new idea introduced at the end.
@@ -244,6 +255,8 @@ WRITING GUIDELINES
 - Mix sentence lengths: short punchy lines with longer flowing passages.
 - Address the viewer directly as "you".
 - No stage directions, no [MUSIC], no [CUT TO], no section labels.
+- [Visual: ...] cues are the ONLY bracketed tags allowed — they are consumed by the image
+  generator and stripped before audio synthesis. All other brackets are forbidden.
 - No markdown formatting — pure narration text only.
 - End every major section with a re-hook: a question, raised stake, or curiosity gap —
   never a summary sentence or a transition announcement.
@@ -363,6 +376,9 @@ NEVER remove:
   - Practical takeaway
   - Brand signature
   - Channel closing
+  - [Visual: ...] cues — these are consumed by the image generator and must be preserved
+    exactly as written. If you rewrite a sentence, keep its [Visual: ...] cue attached.
+    If you add a new beat, add a [Visual: ...] cue for it.
 
 ──────────────────────────────────────────────────────────────
 INSTRUCTION
@@ -419,6 +435,7 @@ NEVER remove:
   - Practical takeaway
   - Brand signature
   - Channel closing
+  - [Visual: ...] cues — preserve every cue exactly as written next to its sentence.
 
 Do NOT rewrite the script for quality — only shorten it.
 Preserve the existing wording wherever possible.
@@ -481,6 +498,8 @@ PRESERVATION RULES
 - Preserve the original wording wherever possible
 - Only make minimal edits — do not rewrite sections that work well
 - Maintain: calm, reflective, compassionate, cinematic brand voice
+- Preserve all [Visual: ...] cues exactly as written — they are consumed by the image
+  generator. If you add a new sentence or beat, add a [Visual: ...] cue for it.
 
 Return ONLY the revised script text. No commentary.\
 """
