@@ -18,9 +18,11 @@ from ytfactory.emotion.policy import NarrativePhase, emotion_policy
 _SYSTEM_PROMPT = """\
 You are an expert audio director for a spiritual philosophy channel.
 Your ONLY job is to wrap the given narration text in Speechify-compatible SSML.
-Do NOT add, remove, reorder, or rewrite any words.
 
-Every word in your output must appear in the input, in the same order.
+ABSOLUTE RULE — every word in your output must come from the input, in the same order.
+Do NOT add sentences, phrases, or words. Do NOT paraphrase or expand.
+If the input has one sentence, your SSML has exactly one sentence.
+The text is fixed. Your job is markup only.
 
 ━━━ SSML STRUCTURE (follow exactly) ━━━
 
