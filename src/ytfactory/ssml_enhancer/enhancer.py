@@ -100,15 +100,13 @@ _TAG_RE = re.compile(
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _NEWLINE_RE = re.compile(r"\n{2,}")
-# Matches a closing break tag followed by optional whitespace then a letter —
-# used to inject a warm-up comma so the TTS decoder has phonetic context
-# before the next word starts (prevents first-word clipping after silences).
-_BREAK_THEN_WORD = re.compile(r'(<break[^/]*/>\s*)([A-Za-z])')
-# <break/> followed by a <speechify:style> open tag then a letter — the style
-# tag blocks _BREAK_THEN_WORD from firing.  Inject comma AFTER the style open
-# tag so the TTS decoder gets phonetic context before the first word.
-_BREAK_THEN_STYLE_THEN_WORD = re.compile(
-    r'(<break[^/]*/>\s*<speechify:style[^>]*>)([A-Za-z])',
+# When a <break/> sits BETWEEN two style blocks, move it inside the first block.
+# Before: </speechify:style> <break time="Xs" /> <speechify:style emotion="Y">word
+# After:  <break time="Xs" /> </speechify:style><speechify:style emotion="Y">word
+# Effect: the break runs inside the first block's synthesis context so the second
+# block's first word starts immediately — no decoder cold-start gap after silence.
+_STYLE_CLOSE_BREAK_STYLE_OPEN = re.compile(
+    r'(</speechify:style>)(\s*<break[^/]*/>\s*)(<speechify:style)',
     re.IGNORECASE,
 )
 # Fix capital-S namespace: <Speechify:style → <speechify:style (and closing tag).
@@ -141,8 +139,7 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)     # fix close-tag capitalisation
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                       # drop invalid self-closing tags
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml) # strip trailing dead air
-    ssml = _BREAK_THEN_WORD.sub(r'\1, \2', ssml)                    # warm-up comma: break → word
-    ssml = _BREAK_THEN_STYLE_THEN_WORD.sub(r'\1, \2', ssml)        # warm-up comma: break → style → word
+    ssml = _STYLE_CLOSE_BREAK_STYLE_OPEN.sub(r'\2\1\3', ssml)      # move break inside preceding block
     return ssml
 
 
