@@ -24,6 +24,12 @@ ABSOLUTE RULE — every word in your output must come from the input, in the sam
 Do NOT add sentences, phrases, or words. Do NOT paraphrase or expand.
 The text is fixed. Your job is markup only.
 
+━━━ SANSKRIT ━━━
+
+The input may contain [SANSKRIT] tokens where Sanskrit lines appeared in the script.
+Output [SANSKRIT] exactly as-is — do NOT speak, transliterate, or explain it.
+It will be replaced with a silence break. The Sanskrit text shows on screen separately.
+
 ━━━ APPROACH ━━━
 
 Make the narration feel like a master storyteller speaking from the heart.
@@ -120,6 +126,18 @@ _PAUSE_BREAK_RE = re.compile(
 # clip the first phoneme when resuming speech after silence.
 _WARMUP = "<prosody volume=\"silent\">''</prosody><break time=\"20ms\"/>"
 
+# Sanskrit handling — Devanagari lines are masked before the LLM sees them
+# and replaced with a silence break in the SSML output.
+_SANSKRIT_LINE_RE = re.compile(r'[^\n]*[ऀ-ॿ][^\n]*', re.MULTILINE)
+_SANSKRIT_PLACEHOLDER = "[SANSKRIT]"
+_SANSKRIT_PLACEHOLDER_RE = re.compile(r'\[SANSKRIT\]')
+_SANSKRIT_BREAK = '<break time="3.0s"/>'
+
+
+def _mask_sanskrit(script: str) -> str:
+    """Replace lines containing Devanagari script with [SANSKRIT] placeholder."""
+    return _SANSKRIT_LINE_RE.sub(_SANSKRIT_PLACEHOLDER, script)
+
 
 def _normalize_ssml(ssml: str) -> str:
     """Clean up LLM output before sending to Speechify.
@@ -131,7 +149,9 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)        # fix capitalisation
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                          # drop invalid self-closing
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)   # strip trailing dead air
-    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                  # warm-up after every pause
+    ssml = _SANSKRIT_PLACEHOLDER_RE.sub(_SANSKRIT_BREAK, ssml)         # restore Sanskrit as silence
+    ssml = _SANSKRIT_LINE_RE.sub(_SANSKRIT_BREAK, ssml)                # safety net: catch any Devanagari that leaked through
+    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                  # warm-up after every pause (incl. Sanskrit breaks)
     return ssml
 
 
@@ -174,6 +194,7 @@ class SsmlEnhancer:
                 phase_block = "\n\n" + emotion_policy.build_prompt_block(phase)
 
         system_prompt = _SYSTEM_PROMPT + phase_block
+        script = _mask_sanskrit(script)
 
         try:
             response = self._llm.generate(
