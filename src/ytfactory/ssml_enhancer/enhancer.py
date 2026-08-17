@@ -150,6 +150,12 @@ _WARMUP = '<prosody rate="x-fast" volume="x-soft">m</prosody>'
 # Sanskrit handling — Devanagari lines are masked before the LLM sees them
 # and replaced with a silence break in the SSML output.
 _SANSKRIT_LINE_RE = re.compile(r'[^\n]*[ऀ-ॿ][^\n]*', re.MULTILINE)
+# Romanized Sanskrit: quoted strings containing ≥2 hyphenated compound words
+# where each part is ≥5 chars (e.g. "Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih.")
+# Sanskrit compound words are long; English hyphenated phrases (well-known) have short parts.
+_ROMANIZED_SANSKRIT_RE = re.compile(
+    r'"[^"\n]*\b\w{5,}-\w{5,}\b[^"\n]*\b\w{4,}-\w{4,}\b[^"\n]*"'
+)
 _SANSKRIT_PLACEHOLDER = "[SANSKRIT]"
 _SANSKRIT_PLACEHOLDER_RE = re.compile(r'\[SANSKRIT\]')
 _SANSKRIT_BREAK = (
@@ -160,8 +166,10 @@ _SANSKRIT_BREAK = (
 
 
 def _mask_sanskrit(script: str) -> str:
-    """Replace lines containing Devanagari script with [SANSKRIT] placeholder."""
-    return _SANSKRIT_LINE_RE.sub(_SANSKRIT_PLACEHOLDER, script)
+    """Replace Sanskrit (Devanagari and romanized sutras) with [SANSKRIT] placeholder."""
+    script = _SANSKRIT_LINE_RE.sub(_SANSKRIT_PLACEHOLDER, script)
+    script = _ROMANIZED_SANSKRIT_RE.sub(_SANSKRIT_PLACEHOLDER, script)
+    return script
 
 
 def _normalize_ssml(ssml: str) -> str:
