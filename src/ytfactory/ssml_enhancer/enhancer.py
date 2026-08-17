@@ -126,29 +126,23 @@ _SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
 _SPEECHIFY_SELFCLOSE = re.compile(r'<speechify:style\b[^>]*/>', re.IGNORECASE)
 # Trailing breaks/warm-ups before </speak> — dead air at end of clip.
 _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
-    r'(\s*(?:<break[^/]*/>\s*|<prosody volume="silent">[^<]*</prosody>\s*))+</speak>',
+    r'(\s*(?:<break[^/]*/>\s*|<prosody rate="x-fast"[^>]*>[^<]*</prosody>\s*))+</speak>',
     re.IGNORECASE,
 )
-# Spurious warm-ups (silent prosody + 20ms break) injected by LLM at the
-# START or END of a style block — normalization handles this, LLM should not.
+# Spurious warm-ups injected by LLM at the START of a style block.
 _WARMUP_AT_BLOCK_START = re.compile(
-    r'(<speechify:style\b[^>]*>)\s*(?:<prosody volume="silent">[^<]*</prosody>\s*<break time="20ms"/>\s*)',
+    r'(<speechify:style\b[^>]*>)\s*(?:<prosody rate="x-fast"[^>]*>[^<]*</prosody>\s*)',
     re.IGNORECASE,
 )
-_WARMUP_AT_BLOCK_END = re.compile(
-    r'(?:<prosody volume="silent">[^<]*</prosody>\s*<break time="20ms"/>\s*)(</speechify:style>)',
-    re.IGNORECASE,
-)
-# Real pause breaks that need a warm-up: not already followed by the warm-up,
-# and not immediately before a closing tag (nothing to warm up into).
+# Real pause breaks not already followed by the warm-up prosody.
 _PAUSE_BREAK_RE = re.compile(
-    r'(<break time="(?!20ms)[^"]+"/>)'
-    r'(?!\s*(?:<prosody volume="silent">|</speechify:style>|</speak>))',
+    r'(<break time="[^"]+"/>)'
+    r'(?!\s*<prosody rate="x-fast")',
     re.IGNORECASE,
 )
-# The warm-up sequence injected after every real pause so Speechify doesn't
-# clip the first phoneme when resuming speech after silence.
-_WARMUP = "<prosody volume=\"silent\">''</prosody><break time=\"20ms\"/>"
+# Bridge token appended after every real pause — keeps Speechify synthesis
+# context warm so the next word (or next block) starts without clipping.
+_WARMUP = '<prosody rate="x-fast" volume="x-soft">m</prosody>'
 
 # Sanskrit handling — Devanagari lines are masked before the LLM sees them
 # and replaced with a silence break in the SSML output.
@@ -158,8 +152,7 @@ _SANSKRIT_PLACEHOLDER_RE = re.compile(r'\[SANSKRIT\]')
 _SANSKRIT_BREAK = (
     "In the words of the ancient seers."
     '<break time="3.0s"/>'
-    "<prosody volume=\"silent\">''</prosody>"
-    '<break time="20ms"/>'
+    '<prosody rate="x-fast" volume="x-soft">m</prosody>'
 )
 
 
@@ -178,7 +171,6 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)                          # fix capitalisation
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                                             # drop invalid self-closing
     ssml = _WARMUP_AT_BLOCK_START.sub(r'\1', ssml)                                        # strip spurious warm-ups at block start
-    ssml = _WARMUP_AT_BLOCK_END.sub(r'\1', ssml)                                         # strip spurious warm-ups at block end
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)                     # strip trailing dead air before </speak>
     ssml = _SANSKRIT_PLACEHOLDER_RE.sub(_SANSKRIT_BREAK, ssml)                           # restore Sanskrit as silence
     ssml = _SANSKRIT_LINE_RE.sub(_SANSKRIT_BREAK, ssml)                                   # safety net: Devanagari that leaked through
