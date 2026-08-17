@@ -28,7 +28,8 @@ The text is fixed. Your job is markup only.
 
 The input may contain [SANSKRIT] tokens where Sanskrit lines appeared in the script.
 Output [SANSKRIT] exactly as-is — do NOT speak, transliterate, or explain it.
-It will be replaced with a silence break. The Sanskrit text shows on screen separately.
+It will be replaced with: In the words of the ancient seers.<break time="3.0s"/>...
+The Sanskrit text appears on screen during the pause. Never attempt to pronounce Sanskrit.
 
 ━━━ APPROACH ━━━
 
@@ -131,7 +132,12 @@ _WARMUP = "<prosody volume=\"silent\">''</prosody><break time=\"20ms\"/>"
 _SANSKRIT_LINE_RE = re.compile(r'[^\n]*[ऀ-ॿ][^\n]*', re.MULTILINE)
 _SANSKRIT_PLACEHOLDER = "[SANSKRIT]"
 _SANSKRIT_PLACEHOLDER_RE = re.compile(r'\[SANSKRIT\]')
-_SANSKRIT_BREAK = '<break time="3.0s"/>'
+_SANSKRIT_BREAK = (
+    "In the words of the ancient seers."
+    '<break time="3.0s"/>'
+    "<prosody volume=\"silent\">''</prosody>"
+    '<break time="20ms"/>'
+)
 
 
 def _mask_sanskrit(script: str) -> str:
