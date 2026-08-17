@@ -1474,14 +1474,14 @@ class TestBrandCardStaticMotion:
             motion_map={},
         )
 
-    def test_asset_motion_forces_pull_out_for_brand_card(self):
+    def test_asset_motion_forces_static_for_brand_card(self):
         from video_core.cinematic.motion import _asset_motion
 
         spec = _asset_motion(
             {"scene_type": "brand_card", "animation": "slow_zoom"}, self._cfg()
         )
-        assert spec.motion_type == "pull_out"
-        assert spec.start_scale > spec.end_scale
+        assert spec.motion_type == "static"
+        assert spec.start_scale == 1.0
         assert spec.end_scale == 1.0
         assert spec.drift_x == 0.0
         assert spec.drift_y == 0.0
@@ -1494,7 +1494,7 @@ class TestBrandCardStaticMotion:
         spec = _asset_motion({"scene_type": "asset", "animation": "slow_zoom"}, self._cfg())
         assert spec.motion_type == "push_in"
 
-    def test_plan_forces_pull_out_even_when_animation_field_set(self):
+    def test_plan_forces_static_even_when_animation_field_set(self):
         from video_core.cinematic.motion import MotionPlanner
 
         scenes = [
@@ -1508,8 +1508,8 @@ class TestBrandCardStaticMotion:
         ]
         result = MotionPlanner().plan(scenes, profile="cinematic")
         motion = result[0]["motion"]
-        assert motion["motion_type"] == "pull_out"
-        assert motion["start_scale"] > motion["end_scale"]
+        assert motion["motion_type"] == "static"
+        assert motion["start_scale"] == motion["end_scale"] == 1.0
 
     def test_plan_repeat_override_does_not_touch_brand_card(self):
         """Even if 3+ consecutive scenes share a motion_type ending on the
@@ -1527,13 +1527,13 @@ class TestBrandCardStaticMotion:
             mock.return_value.emotion.value = "curiosity"
             result = MotionPlanner().plan(list(scenes), profile="cinematic")
 
-        assert result[-1]["motion"]["motion_type"] == "pull_out"
+        assert result[-1]["motion"]["motion_type"] == "static"
 
     def test_rebalancer_never_reassigns_brand_card_motion(self):
         from video_core.cinematic.rebalancer import MotionRebalancer
 
         def _brand_scene(index, scene_type="generated_image"):
-            motion = {"motion_type": "pull_out", "emotion": "asset"} if scene_type == "brand_card" else {"motion_type": "static", "emotion": "asset"}
+            motion = {"motion_type": "static", "emotion": "asset"} if scene_type == "brand_card" else {"motion_type": "static", "emotion": "asset"}
             return {
                 "index": index,
                 "scene_type": scene_type,
@@ -1544,7 +1544,7 @@ class TestBrandCardStaticMotion:
         scenes.append(_brand_scene(4, scene_type="brand_card"))
 
         result = MotionRebalancer().rebalance(scenes)
-        assert result[-1]["motion"]["motion_type"] == "pull_out"
+        assert result[-1]["motion"]["motion_type"] == "static"
         assert result[-1]["scene_type"] == "brand_card"
 
     def test_render_filter_for_brand_card_pull_out(self):

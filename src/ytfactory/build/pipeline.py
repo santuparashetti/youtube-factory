@@ -274,6 +274,7 @@ class BuildPipeline:
             output_dir=final_mp4_path.parent,
             audio_dir=project_dir / "audio",
             target_minutes=settings.video_split_length_minutes,
+            gap_seconds=max(0.0, getattr(settings, "video_scene_gap_seconds", 0.0)),
         )
         if parts:
             logger.info(f"Video split into {len(parts)} parts: {[str(p) for p in parts]}")

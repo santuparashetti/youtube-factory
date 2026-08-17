@@ -36,6 +36,7 @@ class VideoSplitter:
         audio_dir: Path,
         target_minutes: float,
         max_parts: int = 3,
+        gap_seconds: float = 0.0,
     ) -> list[Path]:
         # scene-plan.json's duration_seconds is a pre-TTS planning estimate and
         # can diverge sharply (14-19% observed) from the actual rendered audio
@@ -43,7 +44,9 @@ class VideoSplitter:
         # duration (same source as video/pipeline.py::_actual_audio_duration)
         # so cut points land on the timeline final.mp4 was actually built on.
         actual_durations = self._actual_scene_durations(scenes, audio_dir)
-        total_duration = sum(actual_durations)
+        # Each scene except the first has a silent gap prepended in the render.
+        num_gaps = max(0, len(scenes) - 1) if gap_seconds > 0 else 0
+        total_duration = sum(actual_durations) + num_gaps * gap_seconds
         final_duration = self._ffprobe_duration(input_path)
 
         if final_duration <= 0.0 or total_duration <= 0.0:
@@ -64,9 +67,10 @@ class VideoSplitter:
             )
             return []
 
+        # duration_seconds per scene = audio duration + gap (gap only on scenes after the first)
         scenes = [
-            {**scene, "duration_seconds": duration}
-            for scene, duration in zip(scenes, actual_durations)
+            {**scene, "duration_seconds": duration + (gap_seconds if idx > 0 else 0.0)}
+            for idx, (scene, duration) in enumerate(zip(scenes, actual_durations))
         ]
 
         target_seconds = target_minutes * 60.0
