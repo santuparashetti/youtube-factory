@@ -26,10 +26,22 @@ The text is fixed. Your job is markup only.
 
 ━━━ SANSKRIT ━━━
 
-The input may contain [SANSKRIT] tokens where Sanskrit lines appeared in the script.
-Output [SANSKRIT] exactly as-is — do NOT speak, transliterate, or explain it.
-It will be replaced with: In the words of the ancient seers.<break time="3.0s"/>...
-The Sanskrit text appears on screen during the pause. Never attempt to pronounce Sanskrit.
+The input may contain Sanskrit in two forms:
+
+1. [SANSKRIT] placeholder — Devanagari script was detected and pre-replaced.
+   Output [SANSKRIT] exactly as-is.
+
+2. Romanized Sanskrit — Latin-script transliterations in the input, typically quoted,
+   e.g. "Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih."
+   These are Sanskrit sutras or mantras written in Roman script.
+   Recognise them by: hyphenated compound Sanskrit words, endings like -ah, -ih, -am,
+   -bhyaso, -bhumih, -nairantarya, or any text that is clearly not English.
+
+For BOTH forms, replace with exactly this in your SSML output:
+  In the words of the ancient seers.<break time="3.0s"/><prosody volume="silent">''</prosody><break time="20ms"/>
+
+Never attempt to pronounce, transliterate, or explain Sanskrit text.
+The Sanskrit appears on screen during the 3-second pause.
 
 ━━━ APPROACH ━━━
 
