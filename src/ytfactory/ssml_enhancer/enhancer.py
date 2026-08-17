@@ -63,9 +63,10 @@ Wrap key phrases in <prosody> for pacing and intimacy.
 - One emotional beat per block (a sentence or short group of sentences)
 
 <break time="Xs"/>:
-- Place INSIDE a style block between sentences — never between style blocks
-- Use 1.0s–1.5s for normal sentence pauses; 1.5s–2.0s after a profound statement
-- No break needed if the block contains only one sentence
+- Place INSIDE a style block wherever a pause helps the listener absorb the meaning
+- Never place between style blocks — only inside them
+- Typical range 1.0s–2.0s; use longer pauses after profound or weighty statements
+- Trust your judgment — spiritual content needs breathing room between any phrase, not just between sentences
 
 <prosody rate="medium" pitch="low">:
 - ALWAYS use exactly rate="medium" pitch="low" — no other values
