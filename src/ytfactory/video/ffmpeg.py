@@ -245,6 +245,8 @@ class FFmpegRenderer:
             concat_in_pads += ["[_iv]", "[_ia]"]
             inp += 2
 
+        gap_seconds = max(0.0, getattr(self.settings, "video_scene_gap_seconds", 1.5))
+
         # ── Per-scene inputs + filter chains ─────────────────────────────────
         for i, scene in enumerate(scenes):
             dur = durations[i]
@@ -368,13 +370,33 @@ class FFmpegRenderer:
                     "Scene {:03d} | reflection freeze {:.1f}s (last frame hold)", index, hold_dur
                 )
 
+            # Scene-settle gap: freeze the FIRST frame of this scene in silence
+            # before narration begins, so the viewer can absorb the new image.
+            # Applied to every scene except the first (scene i=0 / intro).
+            apply_gap = i > 0 and gap_seconds >= 0.1
+            if apply_gap:
+                vf_parts.append(f"tpad=start_mode=clone:start_duration={gap_seconds:.4f}")
+                logger.debug(
+                    "Scene {:03d} | scene-settle gap {:.1f}s (first frame hold before narration)",
+                    index,
+                    gap_seconds,
+                )
+
             vf_chain = ",".join(vf_parts)
             filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
+
+            aud_extra = ""
+            if hold_dur >= 0.5:
+                aud_extra += f",apad=pad_dur={hold_dur:.4f}"
+            if apply_gap:
+                gap_ms = int(gap_seconds * 1000)
+                aud_extra += f",adelay={gap_ms}|{gap_ms}"
+
             filter_chains.append(
                 f"[{aud_inp}:a]"
                 f"atrim=duration={dur:.4f},asetpts=PTS-STARTPTS,"
                 f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-                + (f",apad=pad_dur={hold_dur:.4f}" if hold_dur >= 0.5 else "")
+                + aud_extra
                 + f"[_a{i}]"
             )
             concat_in_pads += [f"[_v{i}]", f"[_a{i}]"]

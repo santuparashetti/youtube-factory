@@ -448,6 +448,11 @@ class Settings(SharedSettings):
     video_intro_enabled: bool = True
     video_intro_seconds: float = 0.3
 
+    # Silent pause before each scene's narration starts (scene 2 onward).
+    # Shows the incoming scene image in silence so the viewer can settle
+    # before speech begins.  Set to 0.0 to disable.
+    video_scene_gap_seconds: float = 1.5
+
     # ------------------------------------------------------------------
     # Kokoro TTS Provider
     # ------------------------------------------------------------------
