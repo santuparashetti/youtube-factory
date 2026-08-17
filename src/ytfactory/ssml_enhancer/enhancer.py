@@ -112,7 +112,7 @@ _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
 _PAUSE_BREAK_RE = re.compile(r'(<break time="(?!20ms)[^"]+"/>)', re.IGNORECASE)
 # The warm-up sequence injected after every real pause so Speechify doesn't
 # clip the first phoneme when resuming speech after silence.
-_WARMUP = '<sub alias="">., </sub><break time="20ms"/>'
+_WARMUP = '<sub alias="">, </sub><break time="20ms"/>'
 
 
 def _normalize_ssml(ssml: str) -> str:
