@@ -108,6 +108,11 @@ _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
     r'(\s*<break[^/]*/>\s*)+</speak>',
     re.IGNORECASE,
 )
+# Real pause breaks (anything except the 20ms micro-break warm-up).
+_PAUSE_BREAK_RE = re.compile(r'(<break time="(?!20ms)[^"]+"/>)', re.IGNORECASE)
+# The warm-up sequence injected after every real pause so Speechify doesn't
+# clip the first phoneme when resuming speech after silence.
+_WARMUP = '<sub alias="">., </sub><break time="20ms"/>'
 
 
 def _normalize_ssml(ssml: str) -> str:
@@ -120,6 +125,7 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)        # fix capitalisation
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                          # drop invalid self-closing
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)   # strip trailing dead air
+    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                  # warm-up after every pause
     return ssml
 
 
