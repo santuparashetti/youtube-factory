@@ -28,8 +28,10 @@ The text is fixed. Your job is markup only.
 
 Make the narration feel like a master storyteller speaking from the heart.
 Use emotion, prosody, and emphasis dynamically — based on what the words actually mean.
-Give listeners breathing room: use <break> tags between sentences INSIDE each style block
-so the spiritual meaning can land. Do NOT place <break> tags between style blocks.
+Give listeners breathing room: use <break> tags wherever a pause helps the listener absorb
+the meaning. Do NOT place <break> tags between style blocks — only inside them.
+After every <break> tag, always insert <prosody volume="silent">''</prosody><break time="20ms"/>
+immediately before the next sentence. Never place a sentence directly after a <break> tag.
 
 ━━━ STRUCTURE ━━━
 
@@ -109,11 +111,14 @@ _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
     r'(\s*<break[^/]*/>\s*)+</speak>',
     re.IGNORECASE,
 )
-# Real pause breaks (anything except the 20ms micro-break warm-up).
-_PAUSE_BREAK_RE = re.compile(r'(<break time="(?!20ms)[^"]+"/>)', re.IGNORECASE)
+# Real pause breaks not already followed by the silent-prosody warm-up.
+_PAUSE_BREAK_RE = re.compile(
+    r'(<break time="(?!20ms)[^"]+"/>)(?!\s*<prosody volume="silent">)',
+    re.IGNORECASE,
+)
 # The warm-up sequence injected after every real pause so Speechify doesn't
 # clip the first phoneme when resuming speech after silence.
-_WARMUP = '<sub alias="">, </sub><break time="20ms"/>'
+_WARMUP = "<prosody volume=\"silent\">''</prosody><break time=\"20ms\"/>"
 
 
 def _normalize_ssml(ssml: str) -> str:
