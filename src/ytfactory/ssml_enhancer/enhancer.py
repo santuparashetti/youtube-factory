@@ -48,9 +48,8 @@ The Sanskrit appears on screen during the 3-second pause.
 Make the narration feel like a master storyteller speaking from the heart.
 Use emotion, prosody, and emphasis dynamically — based on what the words actually mean.
 Give listeners breathing room: use <break> tags wherever a pause helps the listener absorb
-the meaning. Do NOT place <break> tags between style blocks — only inside them.
-After every <break> tag, always insert <prosody volume="silent">''</prosody><break time="20ms"/>
-immediately before the next sentence. Never place a sentence directly after a <break> tag.
+the meaning. Place breaks BETWEEN sentences, inside a style block — never at the very end
+of a block (before </speechify:style>) and never between style blocks.
 
 ━━━ STRUCTURE ━━━
 
@@ -125,14 +124,26 @@ _SPEECHIFY_OPEN_CAP = re.compile(r'<Speechify:style\b', re.IGNORECASE)
 _SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
 # Self-closing <speechify:style .../> is invalid — drop it.
 _SPEECHIFY_SELFCLOSE = re.compile(r'<speechify:style\b[^>]*/>', re.IGNORECASE)
-# Trailing breaks before </speak> add dead air at the end of the clip.
+# Trailing breaks/warm-ups before </speak> — dead air at end of clip.
 _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
-    r'(\s*<break[^/]*/>\s*)+</speak>',
+    r'(\s*(?:<break[^/]*/>\s*|<prosody volume="silent">[^<]*</prosody>\s*))+</speak>',
     re.IGNORECASE,
 )
-# Real pause breaks not already followed by the silent-prosody warm-up.
+# Spurious warm-ups (silent prosody + 20ms break) injected by LLM at the
+# START or END of a style block — normalization handles this, LLM should not.
+_WARMUP_AT_BLOCK_START = re.compile(
+    r'(<speechify:style\b[^>]*>)\s*(?:<prosody volume="silent">[^<]*</prosody>\s*<break time="20ms"/>\s*)',
+    re.IGNORECASE,
+)
+_WARMUP_AT_BLOCK_END = re.compile(
+    r'(?:<prosody volume="silent">[^<]*</prosody>\s*<break time="20ms"/>\s*)(</speechify:style>)',
+    re.IGNORECASE,
+)
+# Real pause breaks that need a warm-up: not already followed by the warm-up,
+# and not immediately before a closing tag (nothing to warm up into).
 _PAUSE_BREAK_RE = re.compile(
-    r'(<break time="(?!20ms)[^"]+"/>)(?!\s*<prosody volume="silent">)',
+    r'(<break time="(?!20ms)[^"]+"/>)'
+    r'(?!\s*(?:<prosody volume="silent">|</speechify:style>|</speak>))',
     re.IGNORECASE,
 )
 # The warm-up sequence injected after every real pause so Speechify doesn't
@@ -162,14 +173,16 @@ def _normalize_ssml(ssml: str) -> str:
 
     Only fixes known format issues — no structural manipulation.
     """
-    ssml = ssml.replace("\n", "")                                       # single line for API
-    ssml = _SPEECHIFY_OPEN_CAP.sub("<speechify:style", ssml)           # fix capitalisation
-    ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)        # fix capitalisation
-    ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                          # drop invalid self-closing
-    ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)   # strip trailing dead air
-    ssml = _SANSKRIT_PLACEHOLDER_RE.sub(_SANSKRIT_BREAK, ssml)         # restore Sanskrit as silence
-    ssml = _SANSKRIT_LINE_RE.sub(_SANSKRIT_BREAK, ssml)                # safety net: catch any Devanagari that leaked through
-    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                  # warm-up after every pause (incl. Sanskrit breaks)
+    ssml = ssml.replace("\n", "")                                                          # single line for API
+    ssml = _SPEECHIFY_OPEN_CAP.sub("<speechify:style", ssml)                              # fix capitalisation
+    ssml = _SPEECHIFY_CLOSE_CAP.sub("</speechify:style>", ssml)                          # fix capitalisation
+    ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                                             # drop invalid self-closing
+    ssml = _WARMUP_AT_BLOCK_START.sub(r'\1', ssml)                                        # strip spurious warm-ups at block start
+    ssml = _WARMUP_AT_BLOCK_END.sub(r'\1', ssml)                                         # strip spurious warm-ups at block end
+    ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)                     # strip trailing dead air before </speak>
+    ssml = _SANSKRIT_PLACEHOLDER_RE.sub(_SANSKRIT_BREAK, ssml)                           # restore Sanskrit as silence
+    ssml = _SANSKRIT_LINE_RE.sub(_SANSKRIT_BREAK, ssml)                                   # safety net: Devanagari that leaked through
+    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                                    # warm-up after every real pause
     return ssml
 
 
