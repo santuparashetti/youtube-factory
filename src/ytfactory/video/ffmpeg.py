@@ -268,6 +268,39 @@ class FFmpegRenderer:
                 image = project_dir / "images" / f"scene-{index:03d}.png"
 
             audio = project_dir / "audio" / f"scene-{index:03d}.mp3"
+
+            # ── Scene-settle gap (scene 2 onward) ────────────────────────────
+            # The gap IS the fade-in: scene image fades in from black over
+            # gap_seconds of silence.  By the time the image is fully visible,
+            # narration starts.  Implemented as a separate static input so we
+            # always get the real scene image — never a black first-frame from
+            # the main scene's own fade-in transition.
+            apply_gap = i > 0 and gap_seconds >= 0.1
+            if apply_gap:
+                g_vid = inp
+                g_aud = inp + 1
+                inp += 2
+                cmd += [
+                    "-loop", "1", "-framerate", str(fps),
+                    "-t", f"{gap_seconds:.4f}", "-i", str(image),
+                    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                ]
+                filter_chains.append(
+                    f"[{g_vid}:v]"
+                    f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                    f"fade=t=in:st=0:d={gap_seconds:.4f},"
+                    f"trim=duration={gap_seconds:.4f},setpts=PTS-STARTPTS,"
+                    f"setsar=1,setdar=16/9,format=yuv420p[_gv{i}]"
+                )
+                filter_chains.append(
+                    f"[{g_aud}:a]"
+                    f"atrim=duration={gap_seconds:.4f},asetpts=PTS-STARTPTS,"
+                    f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[_ga{i}]"
+                )
+                concat_in_pads += [f"[_gv{i}]", f"[_ga{i}]"]
+                logger.debug(
+                    "Scene {:03d} | settle gap {:.1f}s (fade-in, silent)", index, gap_seconds
+                )
             ass_sub = project_dir / "subtitles" / f"scene-{index:03d}.ass"
             srt_sub = project_dir / "subtitles" / f"scene-{index:03d}.srt"
             # Brand card is a voice-only static card — no caption burn-in,
@@ -316,17 +349,19 @@ class FFmpegRenderer:
             # Audio always comes from the narration MP3 (animated clip has no audio)
             cmd += ["-i", str(audio)]
 
+            t_in = scene.get("transition_in")
+            t_out = scene.get("transition_out")
+            # Gap segment already handles the fade-in for this scene — suppress
+            # the main clip's own fade-in so the image doesn't flicker dark again.
+            effective_t_in = None if apply_gap else t_in
+
             if use_animated:
                 # Motion already baked in — scale, trim, fade, subtitle, normalize.
-                # Fade filters must be applied here too; they were previously missing
-                # from the animated path, causing hard cuts between all animated scenes.
-                t_in = scene.get("transition_in")
-                t_out = scene.get("transition_out")
                 vf_parts = [
                     f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
                     f"trim=duration={dur:.4f},setpts=PTS-STARTPTS",
                 ]
-                vf_parts += self._fade_filters(t_in, t_out, fps, dur)
+                vf_parts += self._fade_filters(effective_t_in, t_out, fps, dur)
                 if subtitle is not None:
                     sub_escaped = str(subtitle).replace("\\", "\\\\").replace("'", "\\'")
                     vf_parts.append(f"subtitles='{sub_escaped}'")
@@ -335,8 +370,6 @@ class FFmpegRenderer:
                 # Static PNG path: full spatial / effects / fade chain
                 motion_spec = scene.get("motion")
                 effect_spec = scene.get("effects")
-                t_in = scene.get("transition_in")
-                t_out = scene.get("transition_out")
 
                 if motion_spec is not None:
                     spatial = self._vf_spatial(W, H, fps, motion_spec, dur)
@@ -347,7 +380,7 @@ class FFmpegRenderer:
 
                 vf_parts = [spatial]
                 vf_parts += self._effects_filters(effect_spec)
-                vf_parts += self._fade_filters(t_in, t_out, fps, dur)
+                vf_parts += self._fade_filters(effective_t_in, t_out, fps, dur)
 
                 # Cap to exact scene duration — trim is a safety net for any
                 # clock skew between the looped image and the audio track.
@@ -370,28 +403,10 @@ class FFmpegRenderer:
                     "Scene {:03d} | reflection freeze {:.1f}s (last frame hold)", index, hold_dur
                 )
 
-            # Scene-settle gap: freeze the FIRST frame of this scene in silence
-            # before narration begins, so the viewer can absorb the new image.
-            # Applied to every scene except the first (scene i=0 / intro).
-            apply_gap = i > 0 and gap_seconds >= 0.1
-            if apply_gap:
-                vf_parts.append(f"tpad=start_mode=clone:start_duration={gap_seconds:.4f}")
-                logger.debug(
-                    "Scene {:03d} | scene-settle gap {:.1f}s (first frame hold before narration)",
-                    index,
-                    gap_seconds,
-                )
-
             vf_chain = ",".join(vf_parts)
             filter_chains.append(f"[{vid_inp}:v]{vf_chain}[_v{i}]")
 
-            aud_extra = ""
-            if hold_dur >= 0.5:
-                aud_extra += f",apad=pad_dur={hold_dur:.4f}"
-            if apply_gap:
-                gap_ms = int(gap_seconds * 1000)
-                aud_extra += f",adelay={gap_ms}|{gap_ms}"
-
+            aud_extra = f",apad=pad_dur={hold_dur:.4f}" if hold_dur >= 0.5 else ""
             filter_chains.append(
                 f"[{aud_inp}:a]"
                 f"atrim=duration={dur:.4f},asetpts=PTS-STARTPTS,"
