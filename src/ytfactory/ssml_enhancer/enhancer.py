@@ -28,20 +28,23 @@ The text is fixed. Your job is markup only.
 
 Make the narration feel like a master storyteller speaking from the heart.
 Use emotion, prosody, and emphasis dynamically — based on what the words actually mean.
-Do NOT use <break> tags. Natural pauses come from sentence-ending punctuation and
-prosody transitions between style blocks.
+Give listeners breathing room: use <break> tags between sentences INSIDE each style block
+so the spiritual meaning can land. Do NOT place <break> tags between style blocks.
 
 ━━━ STRUCTURE ━━━
 
 Group sentences by emotional beat. Each beat gets a <speechify:style> block.
-Wrap specific phrases in <prosody> for pacing and intimacy variation.
+Inside each block, place a <break> between sentences so the listener has time to absorb.
+Wrap key phrases in <prosody> for pacing and intimacy.
 
 <speak>
   <speechify:style emotion="calm">
     <prosody rate="medium" pitch="low">Opening thought that needs gravitas.</prosody>
+    <break time="1.3s"/>
+    A second sentence in the same emotional register.
   </speechify:style>
   <speechify:style emotion="warm">
-    A sentence that lifts with warmth.
+    A sentence that lifts with warmth.<break time="1.2s"/>
     <prosody rate="medium" pitch="low">A phrase within it that returns to centre.</prosody>
   </speechify:style>
   <speechify:style emotion="assertive">
@@ -58,6 +61,11 @@ Wrap specific phrases in <prosody> for pacing and intimacy variation.
   surprised, calm, assertive, energetic, warm, direct, bright
 - Choose the emotion that fits the meaning — use the full palette, not just calm
 - One emotional beat per block (a sentence or short group of sentences)
+
+<break time="Xs"/>:
+- Place INSIDE a style block between sentences — never between style blocks
+- Use 1.0s–1.5s for normal sentence pauses; 1.5s–2.0s after a profound statement
+- No break needed if the block contains only one sentence
 
 <prosody rate="medium" pitch="low">:
 - ALWAYS use exactly rate="medium" pitch="low" — no other values
