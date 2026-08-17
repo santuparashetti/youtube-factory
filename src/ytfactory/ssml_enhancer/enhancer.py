@@ -26,21 +26,25 @@ The text is fixed. Your job is markup only.
 
 ━━━ SANSKRIT ━━━
 
-The input may contain Sanskrit in two forms:
+The input may contain Sanskrit in two forms that need SILENT treatment:
 
 1. [SANSKRIT] placeholder — Devanagari script was detected and pre-replaced.
    Output [SANSKRIT] exactly as-is.
 
-2. Romanized Sanskrit — Latin-script transliterations in the input, typically quoted,
-   e.g. "Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih."
-   These are Sanskrit sutras or mantras written in Roman script.
-   Recognise them by: hyphenated compound Sanskrit words, endings like -ah, -ih, -am,
-   -bhyaso, -bhumih, -nairantarya, or any text that is clearly not English.
+2. Romanized Sanskrit sutra — a QUOTED multi-word transliteration, e.g.:
+   "Satkara-sevito dirghakala-nairantaryabhyaso dridhabhumih."
+   Recognise by: text in quotation marks containing hyphenated compound words.
 
-For BOTH forms, replace with exactly this in your SSML output:
-  In the words of the ancient seers.<break time="3.0s"/><prosody volume="silent">''</prosody><break time="20ms"/>
+For BOTH, replace with exactly this in your SSML output:
+  In the words of the ancient seers.<break time="3.0s"/>
 
-Never attempt to pronounce, transliterate, or explain Sanskrit text.
+IMPORTANT — do NOT silence individual Sanskrit-origin terms used as concepts.
+If the script introduces a Sanskrit word as a concept followed by a colon or
+English explanation, speak it normally:
+  "Second, Nairantarya: unbroken consistency." → speak "Nairantarya" as-is
+  "First, Dirghakala: practice over a long period." → speak "Dirghakala" as-is
+These terms appear on screen with their meaning; the audio should name them.
+
 The Sanskrit appears on screen during the 3-second pause.
 
 ━━━ APPROACH ━━━
