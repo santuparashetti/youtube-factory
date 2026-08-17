@@ -83,18 +83,21 @@ Wrap key phrases in <prosody> for pacing and intimacy.
 - One emotional beat per block (a sentence or short group of sentences)
 
 <break time="Xs"/>:
-- Place INSIDE a style block wherever a pause helps the listener absorb the meaning
-- Never place between style blocks — only inside them
-- Typical range 1.0s–2.0s; use longer pauses after profound or weighty statements
-- Trust your judgment — spiritual content needs breathing room between any phrase, not just between sentences
+- Use SPARINGLY — only when the listener genuinely needs a moment to absorb what was just said
+- A profound truth, a surprising turn, a question that lands — these earn a break
+- Routine sentence transitions do NOT need a break; the style block transition already creates breath
+- Never place between style blocks — only inside a block, between sentences
+- Typical range 1.0s–2.0s; longer after a statement that needs to echo in silence
 
 <prosody rate="medium" pitch="low">:
 - ALWAYS use exactly rate="medium" pitch="low" — no other values
 - Wrap phrases or full sentences that need grounded, measured delivery
 - Do NOT set volume
 
-<emphasis level="strong|moderate">:
-- 1–2 key words per paragraph, where a word is the emotional hinge of the sentence
+<emphasis level="strong">:
+- Use ONLY on the first word of a sentence that immediately follows a <break> tag
+- This helps the voice engine commit to the first phoneme cleanly after silence
+- Do NOT use emphasis elsewhere — let the emotion and prosody carry the weight
 
 Escape & → &amp; in spoken text only, never in tags.
 Return raw SSML only. No explanation, no markdown, no preamble.\
