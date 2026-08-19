@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
@@ -92,6 +93,7 @@ def run_pipeline(
     force_scene: int | None = None,
     pipeline_mode: str = "default",
     ab_script_selection: bool = False,
+    atma_refiner_mode: str = "full",
 ) -> str:
     """
     Run the full agentic video production pipeline.
@@ -188,6 +190,31 @@ def run_pipeline(
         if style:
             console.print(f"[green]✓[/green] Style: [bold]{style}[/bold]")
 
+        # When a base script is provided, let the user choose what the refiner does.
+        # In auto mode default to passthrough (never silently rewrite the user's script).
+        if atma_refiner_mode == "full":
+            if auto:
+                atma_refiner_mode = "passthrough"
+                console.print(
+                    "[dim]Atma Refiner: base script provided → passthrough mode "
+                    "(auto). Use --refiner-mode to override.[/dim]"
+                )
+            else:
+                console.print(
+                    "\n[bold]How should the Atma Refiner handle your script?[/bold]\n"
+                    "  [bold cyan][p][/bold cyan] Passthrough — validate as-is, no changes (recommended)\n"
+                    "  [bold cyan][f][/bold cyan] Format     — insert engagement markers only, preserve all content\n"
+                    "  [bold cyan][e][/bold cyan] Edit       — full 7-Beat LLM editorial pass\n"
+                )
+                choice = typer.prompt("Choice", default="p").strip().lower()
+                if choice.startswith("f"):
+                    atma_refiner_mode = "format"
+                elif choice.startswith("e"):
+                    atma_refiner_mode = "full"
+                else:
+                    atma_refiner_mode = "passthrough"
+                console.print(f"[dim]Atma Refiner mode: {atma_refiner_mode}[/dim]\n")
+
     elif not source_url:
         # No explicit script_path and not a YouTube URL — load existing script.md
         # from the workspace (required; research stage has been removed).
@@ -243,6 +270,7 @@ def run_pipeline(
         "srt_paths": {},
         "scene_video_paths": {},
         "stage_errors": [],
+        "atma_refiner_mode": atma_refiner_mode,
     }
 
     # ── Two-phase: Phase 2 validation ────────────────────────────────────

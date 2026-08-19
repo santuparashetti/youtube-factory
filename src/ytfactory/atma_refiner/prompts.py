@@ -174,6 +174,30 @@ downstream stages depend on them.
   [ENGAGEMENT: subscribe_promise]
   [ENGAGEMENT: branding_end]
 
+REQUIRED MARKER SURVIVAL (non-negotiable):
+Three of the above markers are hard structural requirements that MUST survive
+every refinement pass — even when the script is over the word limit:
+  [ENGAGEMENT: journey_invitation]
+  [ENGAGEMENT: subscribe_promise]
+  [ENGAGEMENT: branding_end]
+
+When the script exceeds 750 spoken words, reduce word count in this order:
+  1. Remove redundant narrative explanation.
+  2. Compress repeated metaphors.
+  3. Compress transitions.
+  4. Shorten engagement wording (the element stays; only its length shrinks).
+  5. NEVER remove [ENGAGEMENT: journey_invitation], [ENGAGEMENT: subscribe_promise],
+     or [ENGAGEMENT: branding_end] — not even if the word limit cannot otherwise
+     be met. These are pipeline structure, not optional content.
+
+Preferred sizes (spoken words, not counting the marker line):
+  journey_invitation  15–30 spoken words
+  subscribe_promise   15–30 spoken words
+  branding_end         3–10 spoken words
+
+Keep engagement elements concise and natural. They support retention rather
+than interrupting it. Do not create long promotional sections.
+
 [NARRATIVE_ENDING] marks the paragraph where the story, metaphor, question,
 conflict, or central narrative device is resolved or echoed. It is distinct
 from all ENGAGEMENT elements. It must appear before [ENGAGEMENT: subscribe_promise]
@@ -201,7 +225,9 @@ Example:
   and the simple shift that can finally break the cycle.
 
 ──────────────────────────────────────────────────────────
-2. JOURNEY_INVITATION  (placement: mid-video, after trust/value established)
+2. JOURNEY_INVITATION  (placement: at a natural narrative transition before
+   the main reveal, or at another point that does not interrupt a high-tension
+   moment — never mid-explanation or during a dramatic narrative build)
 ──────────────────────────────────────────────────────────
 A short, standalone paragraph inviting the viewer into the recurring Atma
 Theory journey. It MUST be its own dedicated paragraph — do not attach it
@@ -213,9 +239,11 @@ Example:
   and how to use it. Join us on this journey.
 
 Requirements:
-  - Short (2–4 sentences)
+  - Short (2–4 sentences, 15–30 spoken words)
   - Understated, not aggressive marketing
   - Communicates the recurring Atma Theory promise
+  - Placed at a natural narrative pause — before the REVEAL beat or at another
+    non-high-tension transition point
 
 ──────────────────────────────────────────────────────────
 3. COMMENT_PROMPT  (placement: after a fully explained concept or framework)
@@ -551,7 +579,11 @@ def build_initial_refinement_prompt(
         "that resolves or echoes the opening narrative device — before "
         "[ENGAGEMENT: subscribe_promise] and [ENGAGEMENT: branding_end]. "
         "Do not omit or rename any marker. "
-        "All engagement narration counts toward the 600–750 word limit.\n\n"
+        "All engagement narration counts toward the 600–750 word limit.\n"
+        "ENGAGEMENT MARKER RULE: [ENGAGEMENT: journey_invitation], "
+        "[ENGAGEMENT: subscribe_promise], and [ENGAGEMENT: branding_end] are "
+        "non-negotiable. If the script is at the word limit, compress narrative "
+        "beats first — NEVER remove these three markers to satisfy word count.\n\n"
         "Apply the RETENTION AND SPOKEN CLARITY checks from the system prompt "
         "wherever the script would genuinely benefit — opening momentum, curiosity "
         "loop, spoken register, abrupt transitions, pacing resets, visual clarity "
@@ -571,6 +603,88 @@ def build_initial_refinement_prompt(
         "APPLY specifically must transfer the core insight into a realistic viewer "
         "situation, decision, or action — not restate the thesis or add generic "
         "motivation. A beat that merely contains related keywords is not fulfilled.\n\n"
+        f"{_BEAT_EVIDENCE_OUTPUT_FORMAT}"
+    )
+
+
+def build_format_pass_prompt(
+    script_text: str,
+    identity: ScriptIdentity,
+    source_word_count: int = 0,
+) -> str:
+    """Prompt for format-pass mode.
+
+    Used when the base script is already externally written and reviewed.
+    The LLM MUST NOT edit, restructure, or rewrite any content.
+    Its only tasks are:
+      1. Insert the six pipeline markers in the right positions.
+      2. If the spoken word count is more than 15% above 750, trim ONLY by
+         removing clearly redundant sentences — never cut unique content.
+      3. Return the full script otherwise unchanged.
+    """
+    word_range_note = ""
+    if source_word_count > 0:
+        if source_word_count <= 750:
+            word_range_note = (
+                f"Word count: {source_word_count} spoken words — within range. "
+                "DO NOT cut or trim anything."
+            )
+        elif source_word_count <= 875:
+            word_range_note = (
+                f"Word count: {source_word_count} spoken words — slightly over 750. "
+                "You MAY trim only exact redundancies (repeated sentences, restatements). "
+                "Do NOT cut unique content, examples, or philosophical insights."
+            )
+        else:
+            word_range_note = (
+                f"Word count: {source_word_count} spoken words — above range. "
+                "Trim by removing only the most clearly redundant passages. "
+                "Preserve all unique content, stories, and insights."
+            )
+
+    identity_section = _format_identity(identity)
+
+    marker_spec = """\
+REQUIRED PIPELINE MARKERS (insert these; do not add or rename any):
+
+  [NARRATIVE_ENDING]              — on its own line, before the paragraph that
+                                    resolves or echoes the opening narrative device.
+  [ENGAGEMENT: value_promise]     — after DISRUPT/CHALLENGE; tells viewer what they'll gain.
+  [ENGAGEMENT: journey_invitation] — mid-video, standalone paragraph inviting the recurring journey.
+  [ENGAGEMENT: comment_prompt]    — after a fully explained concept; one question tied to the content.
+  [ENGAGEMENT: subscribe_promise] — after the main philosophical payoff.
+  [ENGAGEMENT: branding_end]      — immediately before the final branding/end-card content.
+
+If a marker already exists in the script, leave it exactly where it is.
+If a marker is missing, insert it on its own line immediately before the relevant paragraph.
+Do NOT write the engagement content yourself — only add the marker before existing content
+that naturally fills that role. If no suitable existing paragraph exists for a marker,
+append a minimal (2–3 sentence) placeholder that fits the channel voice, but prefer
+placing a marker before existing content whenever possible.
+
+INTENDED MARKER ORDER:
+  … → [ENGAGEMENT: value_promise] → … → [ENGAGEMENT: journey_invitation]
+  → … → [NARRATIVE_ENDING] → [ENGAGEMENT: comment_prompt]
+  → [ENGAGEMENT: subscribe_promise] → [ENGAGEMENT: branding_end]
+"""
+
+    return (
+        "THIS SCRIPT HAS BEEN EXTERNALLY WRITTEN AND REVIEWED BY PROFESSIONAL EDITORS.\n"
+        "YOUR MANDATE IS STRICTLY LIMITED:\n"
+        "  1. Insert missing pipeline markers in the correct positions (see below).\n"
+        "  2. Apply minimal word-count trimming ONLY if the script is significantly over 750 words.\n"
+        "  3. Return everything else EXACTLY as written — same words, same order, same structure.\n\n"
+        "DO NOT:\n"
+        "  - Rewrite, rephrase, or improve any sentence\n"
+        "  - Restructure beats or sections\n"
+        "  - Add editorial polish, retention fixes, or spoken-clarity improvements\n"
+        "  - Remove or replace any metaphor, story, example, or philosophical insight\n"
+        "  - Apply the 7-Beat framework rules as editing instructions\n\n"
+        f"{identity_section}\n\n"
+        f"{marker_spec}\n"
+        f"{word_range_note}\n\n"
+        "=== SCRIPT (return this with markers inserted; nothing else changed) ===\n"
+        f"{script_text}\n\n"
         f"{_BEAT_EVIDENCE_OUTPUT_FORMAT}"
     )
 
@@ -610,6 +724,11 @@ def build_targeted_refinement_prompt(
         "Preserve all other content — structure, voice, stories, insights, and "
         "factual details that were NOT flagged.\n"
         "Do NOT blindly regenerate a completely different script.\n"
+        "ENGAGEMENT MARKER RULE: [ENGAGEMENT: journey_invitation], "
+        "[ENGAGEMENT: subscribe_promise], and [ENGAGEMENT: branding_end] are "
+        "hard structural requirements — they MUST appear in the final output. "
+        "If word count must be reduced, compress narrative content first. "
+        "NEVER remove these three markers.\n"
         "If the reviewer flagged one beat, revise that beat and any necessary "
         "transition into the next beat — leave beats 3–7 untouched unless they "
         "were explicitly flagged.\n"

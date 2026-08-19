@@ -113,6 +113,7 @@ def atma_7beat_refiner_node(state: VideoState) -> dict:
     identity = ScriptIdentity.from_dict(identity_dict)
     beats = state.get("beats") or []
     target_minutes = int(state.get("target_minutes", 5))
+    refiner_mode = state.get("atma_refiner_mode") or "full"
 
     # Targeted refinement after rejection
     reviewer_feedback = state.get("atma_reviewer_feedback")
@@ -127,6 +128,7 @@ def atma_7beat_refiner_node(state: VideoState) -> dict:
         reviewer_feedback=reviewer_feedback,
         current_refined=current_refined,
         target_minutes=target_minutes,
+        mode=refiner_mode,
     )
 
     store = RevisionStore(project_id)
@@ -254,6 +256,8 @@ def human_review_atma_script_node(state: VideoState) -> dict:
 
     Interactive:
       [a] Accept → script becomes canonical, pipeline continues.
+      [e] Edit   → pipeline pauses; user edits the file on disk, presses Enter
+                   to reload → re-validates and presents for review again.
       [r] Reject → human provides feedback → targeted refinement runs inline.
                    The refined script is presented again for review.
       [q] Quit   → abort pipeline.
@@ -351,7 +355,7 @@ def human_review_atma_script_node(state: VideoState) -> dict:
 
         action = (
             typer.prompt(
-                "Action? [a]ccept / [r]eject (with feedback) / [q]uit",
+                "Action? [a]ccept / [e]dit file / [r]eject (with feedback) / [q]uit",
                 default="a",
             )
             .strip()
@@ -362,12 +366,40 @@ def human_review_atma_script_node(state: VideoState) -> dict:
             raise typer.Abort()
 
         if action.startswith("a"):
-            # Accept: record canonical
             if current_rev_id:
                 store.record_acceptance(current_rev_id)
             _write_canonical(project_id, current_script)
             console.print("[green]✓ Script accepted as canonical.[/green]")
             return {"script_md": current_script}
+
+        if action.startswith("e"):
+            # Pause so the user can edit the script file on disk, then reload.
+            edit_path = Path(WORKSPACE_DIR) / project_id / "script" / "atma-refined.md"
+            # Write current script to disk first so the user edits the live copy.
+            edit_path.parent.mkdir(parents=True, exist_ok=True)
+            edit_path.write_text(current_script, encoding="utf-8")
+            console.print(
+                f"\n[bold yellow]Edit the script at:[/bold yellow]\n"
+                f"  [cyan]{edit_path}[/cyan]\n\n"
+                "Save your changes, then press [bold]Enter[/bold] to reload and re-validate."
+            )
+            try:
+                input()
+            except EOFError:
+                pass
+            if edit_path.exists():
+                current_script = edit_path.read_text(encoding="utf-8")
+                console.print("[dim]File reloaded — re-validating...[/dim]")
+            else:
+                console.print("[yellow]File not found after edit — keeping previous version.[/yellow]")
+            # Re-validate the edited script.
+            validator = ScriptValidator()
+            validation = validator.validate(current_script, identity, base_script)
+            validation_dict = validation.to_dict()
+            # Save as a new revision so lineage is preserved.
+            new_revision = store.save_revision(current_script, parent_id=current_rev_id)
+            current_rev_id = new_revision.revision_id
+            continue
 
         # Reject: collect feedback and run targeted refinement
         feedback = _collect_feedback()

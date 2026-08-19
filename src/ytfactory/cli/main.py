@@ -767,6 +767,15 @@ def run(
         "--phase",
         help="Two-phase mode: prep_only (Phase 1) or resume (Phase 2)",
     ),
+    refiner_mode: str = typer.Option(
+        "full",
+        "--refiner-mode",
+        help=(
+            "Atma Refiner mode: 'full' (default — full 7-Beat editorial pass), "
+            "'format' (markers + word-count only; preserves externally-reviewed scripts), "
+            "or 'passthrough' (use base script exactly as-is — no edits, just validate)."
+        ),
+    ),
 ):
     """Run the full agentic video production pipeline.
 
@@ -856,6 +865,7 @@ def run(
         scene_filter=scene,
         force_scene=force_scene,
         pipeline_mode=phase or "default",
+        atma_refiner_mode=refiner_mode,
     )
 
 

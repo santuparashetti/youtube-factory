@@ -57,6 +57,7 @@ class VideoState(TypedDict, total=False):
     atma_revision_number: Optional[int]  # 1, 2, 3, ... increments on each refinement
     atma_validation: Optional[dict]  # serialized ScriptValidationResult
     atma_reviewer_feedback: Optional[str]  # structured feedback from human rejection
+    atma_refiner_mode: Optional[str]  # "full" | "format" | "passthrough" (default when --script provided)
 
     # ── YouTube ingestion (alternate Phase 1 source: URL instead of a script
     # file or AI research). When set, routes START → acquire_audio instead of

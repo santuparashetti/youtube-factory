@@ -78,6 +78,29 @@ _BASE_SCRIPT = (
 )
 
 
+# Judge JSON where all 7 beats FAIL (score=3) — used to drive the loop
+# without PASS-ing immediately, so the refiner does get called.
+_JUDGE_JSON_NEEDS_REF = json.dumps({
+    "beats": {
+        beat: {
+            "score": 3,
+            "evidence": [{"quote": "x", "reason": "y"}],
+            "missing_function": "missing",
+            "refinement_instruction": "strengthen",
+        }
+        for beat in ["DISRUPT", "CHALLENGE", "PROVE", "REVEAL", "FRAME", "APPLY", "TRANSFORM"]
+    }
+})
+
+
+def _judge_aware_side_effect(prompt, system_prompt="", **kwargs):
+    """Return judge JSON when called as judge (system_prompt contains 'SCORING:'),
+    or return the refined script when called as refiner."""
+    if "SCORING:" in (system_prompt or ""):
+        return MagicMock(text=_JUDGE_JSON_NEEDS_REF)
+    return MagicMock(text=_REFINED_SCRIPT)
+
+
 @pytest.fixture
 def mock_llm():
     llm = MagicMock()
@@ -88,7 +111,8 @@ def mock_llm():
 @pytest.fixture
 def pipeline(mock_llm):
     settings = MagicMock()
-    with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+    with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+         patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
         return AtmaRefinerPipeline(settings)
 
 
@@ -199,12 +223,14 @@ class TestAtmaRefinerPipeline:
             result, _ = pipeline.run("proj-1", _BASE_SCRIPT, identity)
         assert result.strip() != ""
 
-    def test_single_llm_call_in_default_path(self, pipeline, mock_llm, tmp_path):
-        """Exactly one LLM call for the initial refinement (not A/B)."""
+    def test_judge_called_in_default_path(self, pipeline, mock_llm, tmp_path):
+        """Full mode uses a judge-driven loop; judge LLM is called before any refiner call."""
+        from ytfactory.atma_refiner.judge import MAX_JUDGE_RETRIES
         identity = ScriptIdentity(core_topic="Mastery")
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run("proj-1", _BASE_SCRIPT, identity)
-        assert mock_llm.generate.call_count == 1
+        # Judge exhausts retries (mock returns non-JSON) — 3 judge calls total
+        assert mock_llm.generate.call_count == MAX_JUDGE_RETRIES + 1
 
     def test_ab_generation_not_invoked(self, pipeline, mock_llm, tmp_path):
         """composer.pipeline.build_script_a_prompt / build_script_b_prompt must NOT be called."""
@@ -217,20 +243,27 @@ class TestAtmaRefinerPipeline:
                     mock_b.assert_not_called()
 
     def test_identity_passed_to_prompt(self, pipeline, mock_llm, tmp_path):
-        """ScriptIdentity fields must appear in the prompt sent to the LLM."""
+        """ScriptIdentity fields must appear in the refiner prompt (full mode uses loop)."""
         identity = ScriptIdentity(
             core_topic="UNIQUE_TOPIC_XYZ",
             core_thesis="UNIQUE_THESIS_XYZ",
         )
+        # Use judge-aware side_effect so judge returns valid JSON → refiner is called
+        mock_llm.generate.side_effect = _judge_aware_side_effect
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run("proj-1", _BASE_SCRIPT, identity)
-        call_args = mock_llm.generate.call_args
-        prompt = call_args[0][0] if call_args[0] else call_args.kwargs.get("prompt", "")
-        assert "UNIQUE_TOPIC_XYZ" in prompt
-        assert "UNIQUE_THESIS_XYZ" in prompt
+        all_prompts = " ".join(
+            (call[0][0] if call[0] else call.kwargs.get("prompt", ""))
+            for call in mock_llm.generate.call_args_list
+        )
+        assert "UNIQUE_TOPIC_XYZ" in all_prompts
+        assert "UNIQUE_THESIS_XYZ" in all_prompts
 
-    def test_writes_atma_refined_md(self, pipeline, tmp_path):
+    def test_writes_atma_refined_md(self, pipeline, mock_llm, tmp_path):
         identity = ScriptIdentity(core_topic="Mastery")
+        # Use the judge-aware side effect so the judge returns valid JSON (not
+        # a JudgeFailure), ensuring atma-refined.md is written after the loop.
+        mock_llm.generate.side_effect = _judge_aware_side_effect
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run("proj-atma", _BASE_SCRIPT, identity)
         assert (tmp_path / "proj-atma" / "script" / "atma-refined.md").exists()
@@ -310,11 +343,15 @@ class TestAtmaRefinerPipeline:
     def test_beats_passed_to_prompt(self, pipeline, mock_llm, tmp_path):
         identity = ScriptIdentity(core_topic="Mastery")
         beats = [{"id": 1, "beat": "UNIQUE_BEAT_STRING_123"}]
+        # Use judge-aware side_effect so the refiner actually gets called
+        mock_llm.generate.side_effect = _judge_aware_side_effect
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):
             pipeline.run("proj-beats", _BASE_SCRIPT, identity, beats=beats)
-        call_args = mock_llm.generate.call_args
-        prompt = call_args[0][0] if call_args[0] else call_args.kwargs.get("prompt", "")
-        assert "UNIQUE_BEAT_STRING_123" in prompt
+        all_prompts = " ".join(
+            (call[0][0] if call[0] else call.kwargs.get("prompt", ""))
+            for call in mock_llm.generate.call_args_list
+        )
+        assert "UNIQUE_BEAT_STRING_123" in all_prompts
 
 
 # ── RevisionStore tests ───────────────────────────────────────────────────────
@@ -479,7 +516,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "script_md" in result
         assert result["script_md"].strip() != ""
@@ -497,7 +535,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 with patch("ytfactory.agents.prompts.composer.build_script_a_prompt") as pa:
                     with patch("ytfactory.agents.prompts.composer.build_script_b_prompt") as pb:
                         atma_7beat_refiner_node(state)
@@ -516,7 +555,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "atma_current_revision_id" in result
         assert result["atma_current_revision_id"] is not None
@@ -533,7 +573,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert result["atma_revision_number"] == 1
 
@@ -551,7 +592,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         # Feedback consumed → cleared in result
         assert result["atma_reviewer_feedback"] is None
@@ -568,7 +610,8 @@ class TestAtma7BeatRefinerNode:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
         with _patch_workspaces(tmp_path):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = atma_7beat_refiner_node(state)
         assert "atma_validation" in result
         assert "status" in result["atma_validation"]
@@ -664,7 +707,8 @@ class TestProductionWorkflowAssertions:
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT)
 
         with patch("ytfactory.agents.nodes.atma_refiner.WORKSPACE_DIR", str(tmp_path)):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 result = human_review_atma_script_node(state)
 
         # script_md returned is the canonical script
@@ -691,7 +735,8 @@ class TestProductionWorkflowAssertions:
         }
         mock_llm = MagicMock()
         with patch("ytfactory.agents.nodes.atma_refiner.WORKSPACE_DIR", str(tmp_path)):
-            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+            with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+                 patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
                 with patch("typer.prompt") as mock_prompt:
                     human_review_atma_script_node(state)
                     mock_prompt.assert_not_called()
@@ -980,7 +1025,8 @@ class TestEngagementLayer:
         mock_llm = MagicMock()
         mock_llm.generate.return_value = MagicMock(text=_REFINED_SCRIPT_WITH_ENGAGEMENT)
         settings = MagicMock()
-        with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm):
+        with patch("ytfactory.atma_refiner.pipeline.get_llm_for_task", return_value=mock_llm), \
+             patch("ytfactory.atma_refiner.pipeline.get_llm_for_role", return_value=mock_llm):
             pipeline = AtmaRefinerPipeline(settings)
         identity = ScriptIdentity(core_topic="Mastery")
         with patch("ytfactory.atma_refiner.pipeline.WORKSPACE_DIR", str(tmp_path)):

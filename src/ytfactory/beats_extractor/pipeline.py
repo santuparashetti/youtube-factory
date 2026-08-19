@@ -93,10 +93,13 @@ class BeatsExtractorPipeline:
 
         try:
             # Strip markdown fences if the model added them
-            match = re.search(r"\[.*\]", raw, re.DOTALL)
-            if match:
-                raw = match.group(0)
-            beats = json.loads(raw)
+            clean = re.sub(r"```(?:json)?\s*\n?", "", raw).strip()
+            clean = re.sub(r"\n?```\s*$", "", clean).strip()
+            start = clean.find("[")
+            if start == -1:
+                raise ValueError("No JSON array found in response")
+            # raw_decode tolerates trailing content after the array
+            beats, _ = json.JSONDecoder().raw_decode(clean, start)
             if not isinstance(beats, list) or len(beats) < 1:
                 raise ValueError("Expected non-empty JSON array")
             beats = [{"id": b["id"], "beat": str(b["beat"])} for b in beats]
