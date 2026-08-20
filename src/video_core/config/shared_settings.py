@@ -121,6 +121,7 @@ class SharedSettings(BaseSettings):
 
     gemini_text_model: str = "gemini-2.5-flash"
     gemini_image_model: str = "gemini-3.1-flash-lite-image"
+    openrouter_image_model: str = "black-forest-labs/flux.2-klein-4b"
 
     hf_image_model: str = "black-forest-labs/FLUX.1-schnell"
     hf_inference_provider: str = "auto"

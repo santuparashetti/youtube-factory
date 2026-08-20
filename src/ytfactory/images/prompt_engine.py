@@ -207,6 +207,7 @@ class ImagePromptEngineV4(BiblePromptBuilderMixin):
                 # Enforce 16:9 and hybrid character style as hard rules — placed first so no generator can ignore them
                 final = s.get("visual_prompt", "")
                 _RATIO_PREFIX = (
+                    "Create an image with aspect ratio 16:9. "
                     "STRICT RULE 1 (ASPECT RATIO): output must be 16:9 aspect ratio (1280×720 px). "
                     "Do NOT generate square, portrait, or any other ratio. "
                     "STRICT RULE 2 (CHARACTER STYLE): ALL characters — humans, animals, eagles, birds, chicks — "
@@ -214,7 +215,7 @@ class ImagePromptEngineV4(BiblePromptBuilderMixin):
                     "cel shading, and painterly texture. Characters must NEVER be photorealistic or look like real photos. "
                     "ONLY the environment, background, architecture, nature, and props are photorealistic. "
                 )
-                if final and not final.startswith("STRICT RULE"):
+                if final and not final.startswith("Create an image with aspect ratio"):
                     s["visual_prompt"] = _RATIO_PREFIX + final
             enriched.append(s)
         return enriched

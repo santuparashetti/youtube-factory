@@ -19,6 +19,11 @@ def get_image_provider(settings: SharedSettings) -> ImageProvider:
         case "gemini":
             return GeminiImageProvider(settings)
 
+        case "openrouter":
+            from .openrouter import OpenRouterImageProvider
+
+            return OpenRouterImageProvider(settings)
+
         case "a1111" | "automatic1111" | "sd-webui":
             from .a1111 import A1111ImageProvider
 
@@ -27,5 +32,5 @@ def get_image_provider(settings: SharedSettings) -> ImageProvider:
         case _:
             raise ValueError(
                 f"Unsupported image provider: {settings.image_provider}. "
-                "Valid options: pollinations, huggingface, gemini, a1111"
+                "Valid options: pollinations, huggingface, gemini, openrouter, a1111"
             )

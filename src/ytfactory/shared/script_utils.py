@@ -6,23 +6,60 @@ import re
 
 _LEADING_H1_RE = re.compile(r"^#[ \t]+(.+)", re.MULTILINE)
 
-# Matches [Visual: ...], [ENGAGEMENT: ...], [NARRATIVE_ENDING], [Text Overlay ...], [End Screen: ...]
+# Bracketed production tags — never spoken
 _TTS_DIRECTIVE_RE = re.compile(
     r"\[(?:Visual|Text Overlay|ENGAGEMENT|NARRATIVE_ENDING|End Screen)[^\]]*\]",
     re.IGNORECASE,
 )
 
+# Section/timestamp markers: "--- [0:45 - CHALLENGE]" or "[3:00 - REVEAL]" (with or without ---)
+_SECTION_MARKER_RE = re.compile(
+    r"(?:---\s*)?\[\d+:\d+[^\]]*\]",
+    re.IGNORECASE,
+)
+
+# Splitting on speaker role labels: "Host:", "Visual:", "Audio:"
+# Using a capturing group so split() retains the role name in the result list.
+_ROLE_SPLIT_RE = re.compile(r"\b(Host|Visual|Audio)\s*:", re.IGNORECASE)
+
 
 def strip_tts_directives(text: str) -> str:
     """Remove production directives from narration text before TTS synthesis.
 
-    Strips bracketed production tags ([Visual: ...], [ENGAGEMENT: ...],
-    [NARRATIVE_ENDING], [Text Overlay on Screen: ...], [End Screen: ...])
-    that must not be spoken aloud. Normalizes whitespace; does not alter
-    punctuation or other content.
+    Handles:
+    - Bracketed tags:        [Visual: ...], [ENGAGEMENT: ...], [NARRATIVE_ENDING]
+    - Section markers:       --- [0:45 - CHALLENGE], [3:00 - REVEAL]
+    - Speaker role labels:   Host:, Visual:, Audio: (bare, anywhere in text)
+
+    When "Host:" or "Visual:" labels are present the text is split on role
+    boundaries — only "Host:" segments are kept (spoken content); "Visual:"
+    and "Audio:" segments are discarded (production direction).  Plain
+    narration with no role labels is returned unchanged (after bracket/marker
+    cleanup).
     """
+    # 1. Strip bracketed directives
     cleaned = _TTS_DIRECTIVE_RE.sub("", text)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    # 2. Strip section/timestamp markers
+    cleaned = _SECTION_MARKER_RE.sub("", cleaned)
+
+    # 3. If role labels exist, split and keep only Host: segments
+    if _ROLE_SPLIT_RE.search(cleaned):
+        parts = _ROLE_SPLIT_RE.split(cleaned)
+        # parts layout (capturing split): [pre, role1, text1, role2, text2, ...]
+        spoken: list[str] = []
+        pre = parts[0].strip()
+        if pre:
+            spoken.append(pre)
+        for i in range(1, len(parts), 2):
+            role = parts[i].strip().lower()
+            segment = parts[i + 1].strip() if i + 1 < len(parts) else ""
+            if role == "host" and segment:
+                spoken.append(segment)
+            # visual / audio segments are production direction — discard
+        cleaned = " ".join(spoken)
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned.strip()
 
 

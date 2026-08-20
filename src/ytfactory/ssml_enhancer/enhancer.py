@@ -133,23 +133,17 @@ _SPEECHIFY_CLOSE_CAP = re.compile(r'</Speechify:style\s*>', re.IGNORECASE)
 _SPEECHIFY_SELFCLOSE = re.compile(r'<speechify:style\b[^>]*/>', re.IGNORECASE)
 # Trailing breaks/warm-ups before </speak> — dead air at end of clip.
 _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE = re.compile(
-    r'(\s*(?:<break[^/]*/>\s*|<prosody rate="x-fast"[^>]*>[^<]*</prosody>\s*))+</speak>',
+    r'(\s*(?:<break[^/]*/>\s*|<sub\b[^>]*>[^<]*</sub>\s*))+</speak>',
     re.IGNORECASE,
 )
 # Spurious warm-ups injected by LLM at the START of a style block.
 _WARMUP_AT_BLOCK_START = re.compile(
-    r'(<speechify:style\b[^>]*>)\s*(?:<prosody rate="x-fast"[^>]*>[^<]*</prosody>\s*)',
-    re.IGNORECASE,
-)
-# Real pause breaks not already followed by the warm-up prosody.
-_PAUSE_BREAK_RE = re.compile(
-    r'(<break time="[^"]+"/>)'
-    r'(?!\s*<prosody rate="x-fast")',
+    r'(<speechify:style\b[^>]*>)\s*(?:<sub\b[^>]*>[^<]*</sub>\s*)',
     re.IGNORECASE,
 )
 # Bridge token appended after every real pause — keeps Speechify synthesis
 # context warm so the next word (or next block) starts without clipping.
-_WARMUP = '<prosody rate="x-fast" volume="x-soft">m</prosody>'
+_WARMUP = '<sub alias=".."></sub>'
 
 # Scene-start warm-up: match the opening tag sequence at the very beginning
 # of the SSML (<speak> → first <speechify:style> → optional <prosody>) so
@@ -164,7 +158,7 @@ _BREAK_TIME_RE = re.compile(r'<break\s+time="([0-9.]+)s"\s*/>', re.IGNORECASE)
 
 
 def _scale_break_time(m: re.Match) -> str:
-    scaled = round(float(m.group(1)) / 1.5, 2)
+    scaled = min(0.6, round(float(m.group(1)) / 1.5, 2))
     return f'<break time="{scaled}s"/>'
 
 # Sanskrit handling — Devanagari lines are masked before the LLM sees them
@@ -181,7 +175,7 @@ _SANSKRIT_PLACEHOLDER_RE = re.compile(r'\[SANSKRIT\]')
 _SANSKRIT_BREAK = (
     "In the words of the ancient seers."
     '<break time="3.0s"/>'
-    '<prosody rate="x-fast" volume="x-soft">m</prosody>'
+    + _WARMUP
 )
 
 
@@ -203,11 +197,10 @@ def _normalize_ssml(ssml: str) -> str:
     ssml = _SPEECHIFY_SELFCLOSE.sub("", ssml)                                             # drop invalid self-closing
     ssml = _WARMUP_AT_BLOCK_START.sub(r'\1', ssml)                                        # strip spurious warm-ups at block start
     ssml = _TRAILING_BREAKS_BEFORE_SPEAK_CLOSE.sub("</speak>", ssml)                     # strip trailing dead air before </speak>
-    ssml = _SANSKRIT_PLACEHOLDER_RE.sub(_SANSKRIT_BREAK, ssml)                           # restore Sanskrit as silence
-    ssml = _SANSKRIT_LINE_RE.sub(_SANSKRIT_BREAK, ssml)                                   # safety net: Devanagari that leaked through
-    ssml = _BREAK_TIME_RE.sub(_scale_break_time, ssml)                                    # scale all break durations down by 1.5×
-    ssml = _PAUSE_BREAK_RE.sub(r'\1' + _WARMUP, ssml)                                    # warm-up after every real pause
-    ssml = _SCENE_START_RE.sub(r'\1' + _WARMUP, ssml, count=1)                           # warm-up before first spoken word
+    ssml = _BREAK_TIME_RE.sub(_scale_break_time, ssml)                                    # scale LLM breaks (÷1.5, cap 0.6s) before Sanskrit injection
+    ssml = _SANSKRIT_PLACEHOLDER_RE.sub(lambda _: _SANSKRIT_BREAK, ssml)                  # restore Sanskrit as silence (3s break, exempt from cap)
+    ssml = _SANSKRIT_LINE_RE.sub(lambda _: _SANSKRIT_BREAK, ssml)                         # safety net: Devanagari that leaked through
+    ssml = _SCENE_START_RE.sub(lambda m: m.group(1) + _WARMUP, ssml, count=1)            # warm-up before first spoken word
     return ssml
 
 
