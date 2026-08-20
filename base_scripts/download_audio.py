@@ -17,15 +17,26 @@ Requires: yt-dlp (pip install -U yt-dlp --user)
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+NODE_BIN = "node:/home/santosh/.nvm/versions/node/v24.18.0/bin/node"
+YTDLP_BIN = "/home/santosh/.local/bin/yt-dlp"
+YTDLP_ARGS = [
+    "--js-runtimes", NODE_BIN,
+    "--remote-components", "ejs:github",
+    "--no-check-certificates",
+    "--cookies-from-browser", "chrome",
+    "--extractor-args", "youtube:player_client=web,web_creator,mweb",
+]
+
 
 def get_video_title(url: str) -> str:
     result = subprocess.run(
-        ["yt-dlp", "--get-title", url],
+        [YTDLP_BIN, "--get-title", "--js-runtimes", NODE_BIN, url],
         capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
@@ -47,15 +58,55 @@ def download_audio(url: str, folder_name: str) -> Path:
         print(f"Already downloaded: {audio_path}")
         return audio_path
 
-    subprocess.run(
+    attempts = [
         [
-            "yt-dlp", "-x", "--audio-format", "mp3",
+            YTDLP_BIN, "-x", "--audio-format", "mp3",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
+            *YTDLP_ARGS,
+            "--extractor-retries", "5", "--fragment-retries", "5",
             "-o", str(out_dir / "audio.%(ext)s"),
             url,
         ],
-        check=True,
+        [
+            YTDLP_BIN, "-x", "--audio-format", "mp3",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
+            "--js-runtimes", NODE_BIN,
+            "--no-check-certificates",
+            "--geo-bypass", "--geo-bypass-country", "IN",
+            "-o", str(out_dir / "audio.%(ext)s"),
+            url,
+        ],
+        [
+            YTDLP_BIN, "-x", "--audio-format", "mp3",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
+            "--js-runtimes", NODE_BIN,
+            "--no-check-certificates",
+            "--cookies-from-browser", "firefox",
+            "--extractor-retries", "5", "--fragment-retries", "5",
+            "-o", str(out_dir / "audio.%(ext)s"),
+            url,
+        ],
+    ]
+
+    last_err = None
+    for i, cmd in enumerate(attempts):
+        try:
+            print(f"Attempt {i + 1}/{len(attempts)}...", file=sys.stderr)
+            subprocess.run(cmd, check=True)
+            return audio_path
+        except subprocess.CalledProcessError as e:
+            last_err = e
+            print(f"Attempt {i + 1} failed.", file=sys.stderr)
+
+    print(
+        "All attempts failed. If the video is age-restricted, "
+        "log into YouTube in Chrome and verify your age, then retry.",
+        file=sys.stderr,
     )
-    return audio_path
+    raise subprocess.CalledProcessError(
+        last_err.returncode, last_err.cmd,
+        output=last_err.output, stderr=last_err.stderr,
+    )
 
 
 def main():
